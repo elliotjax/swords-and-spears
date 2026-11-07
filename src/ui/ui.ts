@@ -142,7 +142,7 @@ export class UI {
     const a = this.currentAlert();
     if (!a) return;
     if (a.go === 'villagers') { this.tab = 'villagers'; this.game.view.selected = null; }
-    if (a.go === 'housing') { this.tab = 'build'; this.cat = 'housing'; this.game.view.selected = null; }
+    if (a.go === 'housing' || a.go === 'food') { this.tab = 'build'; this.cat = a.go; this.game.view.selected = null; }
     if (a.go === 'hall' && this.s.hallId != null) { this.select(this.s.hallId); this.game.centerOn(this.s.hallId); }
     this.update(true);
   }
@@ -155,6 +155,8 @@ export class UI {
     const r = rates(s);
     const homeless = s.villagers.filter(v => v.home == null).length;
     const openJobs = s.buildings.reduce((a, b) => a + Math.max(0, (def(b.kind).workers ?? 0) - b.workers.length), 0);
+    const has = (k: string) => s.buildings.some(b => b.kind === k);
+    if (!has('farm')) return { title: 'Build a Farm', sub: 'Your people need food', level: r.food < 0 && s.granary <= 0.01 ? 'bad' : 'warn', go: 'food' };
     if (s.granary <= 0.01 && r.food < 0) return { title: 'Starving!', sub: 'Granary empty. Assign farmers', level: 'bad', go: 'villagers' };
     if (r.food < 0) return { title: 'Food shortage', sub: `Granary draining ${fmt(-r.food)} lb/day`, level: 'warn', go: 'villagers' };
     if (homeless > 0 && houseCount(s) < houseCap(s)) return { title: 'Need houses', sub: `${homeless} villagers have no bed`, level: 'warn', go: 'housing' };

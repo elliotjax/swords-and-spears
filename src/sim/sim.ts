@@ -176,6 +176,7 @@ export function place(s: GameState, kind: BuildingKind, x: number, y: number): B
   s.version++;
   if (kind === 'townHall') {
     s.hallId = b.id;
+    s.tick = Math.round(TICKS_PER_DAY * (CONFIG.schedule.workStart + 0.02)); // start on a fresh morning
     // the founding villagers arrive and gather around the new hall
     s.granary = CONFIG.start.villagers * CONFIG.food.perVillagerPerDay * CONFIG.start.granaryDays;
     for (let i = 0; i < CONFIG.start.villagers; i++) {

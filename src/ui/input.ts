@@ -181,7 +181,6 @@ export function setupInput(game: Game) {
     game.ui.placing = kind;
     game.view.selected = null;
     game.view.ghost = ghostAt(kind, R.vw / 2, R.vh * 0.42);
-    game.ui.toast('Drag up from the card, or tap the map');
     game.ui.update(true);
   }
 

@@ -182,9 +182,9 @@ export class Renderer {
     c.clearRect(0, 0, cv.width, cv.height);
     const P = CONFIG.paths;
     const layers: [number, number, number, string][] = [
-      [P.faint, P.trail, 0.95, '200,186,128'],
-      [P.trail, P.road, 0.72, '198,167,121'],
-      [P.road, P.road * 1.6, 0.55, '222,203,158'],
+      [P.faint, P.trail, 1.0, '200,186,128'],
+      [P.trail, P.road, 0.9, '198,167,121'],
+      [P.road, P.road * 1.6, 0.75, '222,203,158'],
     ];
     for (const [lo, hi, rad, rgb] of layers) {
       for (let i = 0; i < s.traffic.length; i++) {
@@ -195,7 +195,7 @@ export class Renderer {
         const g = c.createRadialGradient(x, y, 0, x, y, rad * R);
         const peak = lo === P.faint ? 0.55 * a : 0.9 * a;
         g.addColorStop(0, `rgba(${rgb},${peak})`);
-        g.addColorStop(0.55, `rgba(${rgb},${peak * 0.8})`);
+        g.addColorStop(0.6, `rgba(${rgb},${peak * 0.85})`);
         g.addColorStop(1, `rgba(${rgb},0)`);
         c.fillStyle = g;
         c.fillRect(x - rad * R, y - rad * R, rad * R * 2, rad * R * 2);
@@ -235,8 +235,14 @@ export class Renderer {
 
     // worn paths
     if (Math.floor(time * 2) !== this.wearAt) { this.wearAt = Math.floor(time * 2); this.paintWear(s); }
-    c.imageSmoothingQuality = 'high';
-    c.drawImage(this.wear, 0, 0, s.w, s.h);
+    c.imageSmoothingQuality = 'low';
+    {
+      // only copy the visible part of the wear texture
+      const R = 6;
+      const x0 = Math.max(0, Math.floor(tl.x) - 1), y0 = Math.max(0, Math.floor(tl.y) - 1);
+      const x1 = Math.min(s.w, Math.ceil(br.x) + 1), y1 = Math.min(s.h, Math.ceil(br.y) + 1);
+      if (x1 > x0 && y1 > y0) c.drawImage(this.wear, x0 * R, y0 * R, (x1 - x0) * R, (y1 - y0) * R, x0, y0, x1 - x0, y1 - y0);
+    }
     this.roadPebbles(s, c, tl, br);
 
     // trees
@@ -248,6 +254,7 @@ export class Renderer {
     // buildings (sorted top to bottom)
     const bs = [...s.buildings].sort((a, b) => a.y + a.h - (b.y + b.h));
     for (const b of bs) {
+      if (b.x > br.x + 1 || b.y > br.y + 1 || b.x + b.w < tl.x - 1 || b.y + b.h < tl.y - 1) continue;
       drawBuilding(c, b.kind, b.x, b.y, b.w, b.h, { t: time, level: s.hallLevel, seed: b.id });
       if (b.id === view.selected) {
         c.setLineDash([0.12, 0.08]);
