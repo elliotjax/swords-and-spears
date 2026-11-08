@@ -181,12 +181,15 @@ Starting building types:
 | Building | Purpose | Notes |
 |---|---|---|
 | **Town Hall** | Center of the colony. Placed first. | Its **level gates progression** (7.5). Villagers walk here (7.6). Losing it ends the game. **Stores a little food (150 lb)** so the colony can start before a granary exists. |
-| **House** (and variants) | Houses villagers. | Fixed villager capacity. The **number of houses is capped by Town Hall level.** Variants in the mockup: **Hut, House, Cottage, Longhouse, Manor** (Manor locked until Hall Lv 3). TBD which exist in v1. |
+| **Houses** *(Decided, updated)* | Houses villagers (civilians only). | Only three kinds: **House (10 people, 2×2)**, **Longhouse (25, 3×2, Hall Lv 2)**, **Manor (50, 3×3, Hall Lv 3)**. No Hut or Cottage. The **number of houses is capped by Town Hall level.** |
+| **Tavern** *(Decided)* | Happiness. | A free-time destination. Visiting raises happiness (Hall Lv 2). |
+| **Chapel** *(Decided)* | Happiness. | A free-time destination, **and** residents of houses within its **radius (7 tiles to start)** get bonus happiness. The radius circle shows while placing it or when it's selected (Hall Lv 3). |
 | **Farm** | Produces food. | Better output on grassland. Two kinds of "farm" exist: **food farm** and **wood farm** (below). **Food made at a farm is stored at the farm first** and doesn't count until a farmer carries it to a granary. |
 | **Granary** *(Decided)* | Stores food. | **1×2 tiles**, holds **500 lb**, **1 worker (keeper)**. A granary only accepts food while a keeper is **assigned** (they don't need to be standing there, so deliveries never get held up); with no keeper, carriers use the next open granary or the Town Hall. Only **25% of a farm's workers (rounded up, at least 1) are carriers**. Carriers take **everything waiting at the farm** to the **nearest granary** (or Town Hall) **4 times per workday**. **While a carrier is away they don't farm**, so a far-away granary costs output (the farm panel shows the % lost). Your food stockpile = all food in granaries + Town Hall. |
 | **Lumber Camp** (working name for the "wood farm") | Produces wood. | Placed on **forest** tiles. **Harvests existing trees; trees never run out.** Must **not look like farming**. |
 | **Commerce buildings** (for example **Market**) | Produce gold. | TBD which and how many in v1. |
-| **Barracks** | Recruits and trains squads. | Not in v1. See section 9. |
+| **Barracks** *(Decided)* | Housing for soldiers. | **2×2, holds 30 soldiers.** Soldiers only live in barracks (they leave their house when recruited). You can't recruit without free barracks space. Hall Lv 2. |
+| **Training Grounds** *(Decided)* | Where soldiers "work". | **3×3, 50 soldiers.** Soldiers train here 5 AM–5 PM; in free time they do errands like everyone else. Training here is what raises a squad's rank. Hall Lv 2. |
 | **Defensive buildings** | Modify how battles work. | TBD. Not in v1. |
 
 ### 7.3 Population, jobs, and housing (Decided)
@@ -209,6 +212,8 @@ Three resources to start. More can come later.
 **Gold income:** mainly **taxes on villagers**, plus **commerce buildings**, plus **tribute** from conquered colonies.
 
 ### 7.5 Town hall levels and technology (Decided in outline)
+- **5 Town Hall levels (Decided).** Lv 1 → 2: 150 wood + 120 gold (house limit 6; unlocks Longhouse, Tavern, Barracks, Training Grounds). Lv 3: 300/300 (limit 8; Manor, Chapel). Lv 4: 500/600 (limit 10). Lv 5: 800/1000 (limit 12). Lv 1 limit is 4 houses. Conquered-territory requirements come with the grand map.
+- **Testing cheat (Decided):** an **Unlock** button on the testing sidebar turns progression off (no level locks, no house limit) so everything can be tested.
 - **Town hall levels are the spine of progression.** Upgrading costs **gold, wood, and conquered territories.**
 - Town hall level **sets how many houses you can place**, and is intended to gate building unlocks, army cap upgrades, and more. (Level count and exact gates TBD.)
 - **Tech tree is bought with gold only.** Techs unlock **new units** and **better efficiencies** and can raise the army cap.
@@ -251,7 +256,7 @@ This is a signature feature. It is also what makes the colony satisfying to watc
 
 - **Hours of the day (Decided, updated):** 24-hour clock (1 game hour ≈ 12.5 real seconds at 1x):
   - **5 AM – 5 PM: work.** Each worker **wakes up just early enough to walk to work by 5 AM** (worked out from the distance between their home and job). Work only counts from 5 to 5.
-  - **5 PM – 8 PM: free time — errands (Decided).** Each villager makes a route of short trips to random places: **their house, the Town Hall, a Market, a Granary** (more places will be added later). The next stop is random but **nearer places are more likely** (so they chain short hops, not one long trip), never the same place twice in a row and never their own workplace, and only while there's still time to get home by bedtime. Usually **2–4 stops**. At each stop they **mill around in front of the building for 4–8 seconds**, then move on. Last stop is always home. Visits have no effect yet (later: happiness, shopping...).
+  - **5 PM – 8 PM: free time — errands (Decided).** Each villager makes a route of short trips to random places: **their house, the Town Hall, a Market, a Granary, a Tavern, a Chapel** (more places will be added later). **Eating is the priority: the granary is always the 1st or 2nd stop** (random which). Walking speed is 3 tiles/second so villagers fit in 3–4 stops. The next stop is random but **nearer places are more likely** (so they chain short hops, not one long trip), never the same place twice in a row and never their own workplace, and only while there's still time to get home by bedtime. Usually **2–4 stops**. At each stop they **mill around in front of the building for 4–8 seconds**, then move on. Last stop is always home. Visits have no effect yet (later: happiness, shopping...).
   - **Villagers without a job** wander in front of the Town Hall during work hours, and do errands in free time like everyone else.
   - **Eating (Decided):** food is only eaten during free time, a little at a time spread evenly over 5–8 PM (so storage rises during work hours and dips in the evening). Where villagers eat (e.g. visiting a granary) will be decided later.
   - **8 PM until each worker's wake-up time: sleep** (the screen gets darker). Villagers without a job get up at 5 AM.
@@ -263,7 +268,18 @@ This is a signature feature. It is also what makes the colony satisfying to watc
 
 ---
 
-## 9. Military (Decided; not in v1)
+## 9. Military (Decided; first version built)
+
+**Built so far:** recruiting, squads, barracks, training grounds, ranks, upkeep, disband, the Military tab, soldier art (first sketch). **Next priorities (owner):** (1) battle stats and how fighting works, (2) battles.
+
+- **Squad types (Decided):** **Swordsmen, Spearmen, Archers: squads of 10. Cavalry: squads of 5.**
+- **Recruiting (Decided):** takes **idle villagers only**. Cost (gold, expensive on purpose): **Spearmen 200, Swordsmen 225, Archers 225, Cavalry 300.** Upkeep per day (Claude's pick, tune later): Spearmen 5, Swordsmen 6, Archers 6, Cavalry 8. Soldiers don't pay tax, but eat.
+- **Ranks (Decided):** **Recruit → Trained after 7 days of training → Veteran after another 30 → Sergeant → Elite after another 120.** Sergeant's timing wasn't specified; placeholder is day 77 (between Veteran and Elite). A day counts for a squad by the share of its soldiers who trained that day. **Battle-ready = Trained or better.**
+- **Disband (Decided):** soldiers become idle villagers again.
+- **Military tab (Decided):** a column of page buttons on the left. **Overview:** army size, battle-ready, in training, population, idle, upkeep, army % vs cap, barracks space, list of squads (rank + progress to next rank, Disband), and a **battle formation preview**: **swordsmen in front, spearmen behind, archers at the back, cavalry on the flanks** (view only for now; arranging comes later). **Recruit:** the same counts and a card per squad type with cost, upkeep, good/weak against, and a Recruit button that says why when you can't.
+- **Soldier look (first sketch):** red tunics, steel helmets; swordsmen with sword + round shield, spearmen with a long spear, archers with bow + quiver, cavalry riding brown horses with a lance.
+
+**Earlier notes (still the plan):**
 
 The army is **squad-based**; the player never micromanages individual soldiers.
 
@@ -320,21 +336,24 @@ These are only starting points for the first playable. The owner will tune them 
 | Starting villagers | 12 |
 | Starting resources | 200 wood, 100 gold |
 | Villager food need | 4 lb/day each |
-| House capacity | 4 villagers (Hut 2, Cottage 6, Longhouse 8: placeholders) |
-| House costs (wood) | Hut 15, House 25, Cottage 45, Longhouse 70 |
+| House capacity | House 10, Longhouse 25, Manor 50 |
+| House costs | House 40 wood, Longhouse 90 wood, Manor 160 wood + 60 gold |
 | Farm | capacity 8, full output 85 lb/day (about 106 on grassland), cost 40 wood, grassland bonus +25%, holds 100 lb before it must be delivered |
 | Granary | 1×2, cost 40 wood, holds 500 lb; 25% of farmers carry, 4 trips per workday each, carrying everything waiting |
 | Town Hall food storage | 150 lb; colony starts with 100 lb |
 | **Food balance target (Decided)** | about **30% of the population farming** feeds everyone (soldiers eat but don't work). Planned split: ~30% farmers, 30–40% soldiers, ~30% everything else. Each farmer makes about 13.3 lb/day on grassland; each villager eats **4 lb/day** (Decided). |
 | Lumber Camp | capacity 6, full output about 130 wood/day, cost 30 wood, forest tile only |
 | Market | capacity 4, about 50 gold/day at full staff, cost 60 wood |
-| Barracks | cost 80 wood (not in v1) |
+| Barracks | 2×2, 80 wood, 30 soldiers |
+| Training Grounds | 3×3, 60 wood, 50 soldiers |
+| Tavern / Chapel | 70 wood + 20 gold / 90 wood + 50 gold; chapel radius 7 tiles |
+| Walking speed | 3 tiles per second |
 | Tax | about 1.5 gold/day per villager |
 | Births | with food going up, food in store, and a free bed: about 1.2 births per day per house with a free bed |
 | Town Hall Lv 1 house cap | 4 houses (Lv 2: 8, Lv 3: 14: placeholders) |
 | Army cap | 30% of population |
-| Squad size | 10 |
-| Squad upkeep | about 2 gold/day (not in v1) |
+| Squad size | 10 (cavalry 5) |
+| Squad cost / upkeep | Spearmen 200/5, Swordsmen 225/6, Archers 225/6, Cavalry 300/8 gold |
 
 Mockup numbers (28/36 villagers, +14 lb/day, 240 wood, 180 gold) are only illustrative.
 
@@ -416,7 +435,9 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Free-time errands (built):** evening routes (house / Town Hall / Market / Granary), milling around at each stop, nearer stops preferred, home by bedtime; food eaten only during free time. Tested: 2–4 stops per villager, everyone home by bedtime, food never drops outside free time.
 - **Roads + keeper update (built):** roads update once a night and fade in, build over ~2/4/6 days, fade ~1 level per 3 days, all traffic counts; new buildings start full of idle workers; granary needs 1 keeper assigned to accept food ("Granary has no keeper" alert). Old saves can't be loaded (start a new game).
 - **Food numbers (Decided):** villagers eat 4 lb/day; farms rescaled to 85 lb/day (106 on grassland) so ~30% farmers still feeds everyone; granary still 500 lb (now about 125 villager-days); farm holds 100 lb.
-- Next: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
+- **Military + town update (built):** Swordsmen/Spearmen/Archers (10) and Cavalry (5) squads; recruiting from idle villagers; Barracks (2×2, 30) and Training Grounds (3×3, 50); ranks Recruit → Trained (7 days) → Veteran (+30) → Sergeant → Elite (+120); upkeep; disband; Military tab (Overview with formation preview, Recruit); soldier art sketch. Houses are now House 10 / Longhouse 25 / Manor 50. Tavern and Chapel (with radius) as free-time places; happiness shown (no effect yet). 5 Town Hall levels. Unlock cheat. Walking 3 tiles/s. Granary is the 1st or 2nd evening stop. Old saves can't be loaded.
+- **Next (owner's priorities):** 1) military stats and how fighting works, 2) battles. Also still open: tech tree, happiness effects, where people eat.
+- Then: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 
 - **Testing sidebar (built):** a small vertical bar on the right edge with **10× speed**, **+10 villagers**, **+100 gold**, **+100 wood**. Turn it off with `showTestTools: false` in `src/config.ts` (the fast speed is `testSpeed`).
 

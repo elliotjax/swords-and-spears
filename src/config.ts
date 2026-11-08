@@ -4,10 +4,12 @@
 // =====================================================================
 
 export type BuildingKind =
-  | 'townHall' | 'hut' | 'house' | 'cottage' | 'longhouse' | 'manor'
-  | 'farm' | 'granary' | 'lumberCamp' | 'market' | 'barracks' | 'palisade';
+  | 'townHall' | 'house' | 'longhouse' | 'manor'
+  | 'farm' | 'granary' | 'lumberCamp' | 'market' | 'tavern' | 'chapel'
+  | 'barracks' | 'trainingGrounds' | 'palisade';
 
-export type Category = 'housing' | 'food' | 'wood' | 'trade' | 'defense';
+export type Category = 'housing' | 'food' | 'wood' | 'trade' | 'leisure' | 'military';
+export type UnitKind = 'swordsmen' | 'spearmen' | 'archers' | 'cavalry';
 export type BadgeColor = 'green' | 'blue' | 'gold' | 'storage';
 
 export interface BuildingDef {
@@ -24,13 +26,17 @@ export interface BuildingDef {
   isHouse?: boolean;              // counts toward the town hall house cap
   foodStorage?: number;           // lb of food this building can store (granary, town hall)
   farmStorage?: number;           // lb a farm can hold before a farmer takes it to a granary
+  soldierBeds?: number;           // barracks: beds for soldiers (soldiers only live here)
+  trainingSlots?: number;         // training grounds: soldiers who can train here at once
+  leisure?: boolean;              // a free-time destination (tavern, chapel)
+  happyRadius?: number;           // chapel: residents of houses within this many tiles are happier
   unlockHallLevel?: number;       // locked until this town hall level
   comingSoon?: boolean;           // shows a locked card, cannot be built in v1
   badge?: BadgeColor;
 }
 
 export const CONFIG = {
-  version: '0.7.0',
+  version: '0.8.0',
 
   time: {
     dayLengthSeconds: 300,    // real seconds per game day at 1x (5 minutes)
@@ -73,7 +79,8 @@ export const CONFIG = {
   // Free time (workEnd to sleepStart): villagers make a route of short errands,
   // milling around in front of each place for a few seconds, then go home.
   errands: {
-    places: ['home', 'townHall', 'market', 'granary'] as string[], // more later
+    places: ['home', 'townHall', 'market', 'granary', 'tavern', 'chapel'] as string[], // more later
+    granaryFirstOrSecond: true, // the granary is always the 1st or 2nd stop (randomly) when one exists
     stayMinSeconds: 4,        // game seconds spent milling around at each stop...
     stayMaxSeconds: 8,        // ...up to this long
     millRange: 1,             // how far (tiles) they drift around in front of a place
@@ -97,7 +104,7 @@ export const CONFIG = {
   },
 
   villagers: {
-    walkTilesPerSecond: 2.0,  // game seconds (1x real time)
+    walkTilesPerSecond: 3.0,  // game seconds (1x real time)
     forestWalkCost: 1.8,      // forest tiles are slower to path through
     wanderRadius: 3,          // idle villagers wander this far from the hall
     idlePauseMin: 4,          // idle villagers stand around this long (seconds)...
@@ -125,15 +132,44 @@ export const CONFIG = {
   },
 
   townHall: {
-    // index 0 = level 1
+    // index 0 = level 1. Unlocks are set on each building (unlockHallLevel).
     levels: [
       { houseCap: 4 },
-      { houseCap: 8, upgradeCost: { wood: 150, gold: 120 } },
-      { houseCap: 14, upgradeCost: { wood: 300, gold: 300 } },
+      { houseCap: 6, upgradeCost: { wood: 150, gold: 120 } },
+      { houseCap: 8, upgradeCost: { wood: 300, gold: 300 } },
+      { houseCap: 10, upgradeCost: { wood: 500, gold: 600 } },
+      { houseCap: 12, upgradeCost: { wood: 800, gold: 1000 } },
     ] as { houseCap: number; upgradeCost?: { wood: number; gold: number } }[],
   },
 
-  showTestTools: true,        // the testing sidebar on the right (10x, +villagers, +gold, +wood)
+  // Happiness (shown in the Villagers tab; it doesn't change anything yet)
+  happiness: {
+    base: 50,
+    tavernVisit: 15,          // visited a tavern this evening
+    chapelVisit: 10,          // visited a chapel this evening
+    nearChapel: 15,           // lives within a chapel's radius
+  },
+
+  military: {
+    armyCap: 0.3,             // soldiers can be at most this share of the population
+    // Ranks: days of training needed (in total). Battle-ready from "Trained" on.
+    ranks: [
+      { name: 'Recruit', days: 0 },
+      { name: 'Trained', days: 7 },
+      { name: 'Veteran', days: 37 },      // 30 more days
+      { name: 'Sergeant', days: 77 },     // (placeholder: between Veteran and Elite)
+      { name: 'Elite', days: 157 },       // 120 more days after Veteran
+    ],
+    // Placeholder battle stats, to be designed with battles.
+    units: {
+      swordsmen: { name: 'Swordsmen', size: 10, cost: 225, upkeep: 6, hp: 100, attack: 12, defense: 10, goodVs: 'Spearmen', weakVs: 'Cavalry' },
+      spearmen: { name: 'Spearmen', size: 10, cost: 200, upkeep: 5, hp: 100, attack: 10, defense: 12, goodVs: 'Cavalry', weakVs: 'Archers' },
+      archers: { name: 'Archers', size: 10, cost: 225, upkeep: 6, hp: 70, attack: 11, defense: 6, goodVs: 'Spearmen', weakVs: 'Cavalry' },
+      cavalry: { name: 'Cavalry', size: 5, cost: 300, upkeep: 8, hp: 160, attack: 16, defense: 9, goodVs: 'Archers', weakVs: 'Spearmen' },
+    } as Record<UnitKind, { name: string; size: number; cost: number; upkeep: number; hp: number; attack: number; defense: number; goodVs: string; weakVs: string }>,
+  },
+
+  showTestTools: true,        // the testing sidebar on the right (10x, +villagers, +gold, +wood, unlock)
   testSpeed: 10,              // speed of the sidebar's fast button
 
   autoFillWorkers: true,      // new buildings start with idle villagers assigned, up to capacity
@@ -144,25 +180,17 @@ export const CONFIG = {
       name: 'Town Hall', category: null, w: 3, h: 3,
       cost: { wood: 0, gold: 0 }, allowedTiles: ['grass'], foodStorage: 150,
     },
-    hut: {
-      name: 'Hut', category: 'housing', w: 1, h: 1, cost: { wood: 15, gold: 0 },
-      allowedTiles: ['grass'], beds: 2, isHouse: true, badge: 'blue',
-    },
     house: {
-      name: 'House', category: 'housing', w: 2, h: 2, cost: { wood: 25, gold: 0 },
-      allowedTiles: ['grass'], beds: 4, isHouse: true, badge: 'blue',
-    },
-    cottage: {
-      name: 'Cottage', category: 'housing', w: 2, h: 2, cost: { wood: 45, gold: 0 },
-      allowedTiles: ['grass'], beds: 6, isHouse: true, unlockHallLevel: 2, badge: 'blue',
+      name: 'House', category: 'housing', w: 2, h: 2, cost: { wood: 40, gold: 0 },
+      allowedTiles: ['grass'], beds: 10, isHouse: true, badge: 'blue',
     },
     longhouse: {
-      name: 'Longhouse', category: 'housing', w: 3, h: 2, cost: { wood: 70, gold: 0 },
-      allowedTiles: ['grass'], beds: 8, isHouse: true, unlockHallLevel: 2, badge: 'blue',
+      name: 'Longhouse', category: 'housing', w: 3, h: 2, cost: { wood: 90, gold: 0 },
+      allowedTiles: ['grass'], beds: 25, isHouse: true, unlockHallLevel: 2, badge: 'blue',
     },
     manor: {
-      name: 'Manor', category: 'housing', w: 3, h: 3, cost: { wood: 110, gold: 40 },
-      allowedTiles: ['grass'], beds: 12, isHouse: true, unlockHallLevel: 3, badge: 'blue',
+      name: 'Manor', category: 'housing', w: 3, h: 3, cost: { wood: 160, gold: 60 },
+      allowedTiles: ['grass'], beds: 50, isHouse: true, unlockHallLevel: 3, badge: 'blue',
     },
     farm: {
       name: 'Farm', category: 'food', w: 3, h: 3, cost: { wood: 40, gold: 0 },
@@ -181,12 +209,24 @@ export const CONFIG = {
       name: 'Market', category: 'trade', w: 2, h: 2, cost: { wood: 60, gold: 0 },
       allowedTiles: ['grass'], workers: 4, output: { gold: 50 }, badge: 'green',
     },
+    tavern: {
+      name: 'Tavern', category: 'leisure', w: 2, h: 2, cost: { wood: 70, gold: 20 },
+      allowedTiles: ['grass'], leisure: true, unlockHallLevel: 2,
+    },
+    chapel: {
+      name: 'Chapel', category: 'leisure', w: 2, h: 2, cost: { wood: 90, gold: 50 },
+      allowedTiles: ['grass'], leisure: true, happyRadius: 7, unlockHallLevel: 3,
+    },
     barracks: {
-      name: 'Barracks', category: 'defense', w: 3, h: 2, cost: { wood: 80, gold: 0 },
-      allowedTiles: ['grass'], comingSoon: true,
+      name: 'Barracks', category: 'military', w: 2, h: 2, cost: { wood: 80, gold: 0 },
+      allowedTiles: ['grass'], soldierBeds: 30, unlockHallLevel: 2, badge: 'blue',
+    },
+    trainingGrounds: {
+      name: 'Training Grounds', category: 'military', w: 3, h: 3, cost: { wood: 60, gold: 0 },
+      allowedTiles: ['grass'], trainingSlots: 50, unlockHallLevel: 2, badge: 'gold',
     },
     palisade: {
-      name: 'Palisade', category: 'defense', w: 1, h: 1, cost: { wood: 10, gold: 0 },
+      name: 'Palisade', category: 'military', w: 1, h: 1, cost: { wood: 10, gold: 0 },
       allowedTiles: ['grass'], comingSoon: true,
     },
   } as Record<BuildingKind, BuildingDef>,
@@ -199,9 +239,10 @@ export const CONFIG = {
 };
 
 export const BUILD_MENU: { cat: Category; label: string; kinds: BuildingKind[] }[] = [
-  { cat: 'housing', label: 'Housing', kinds: ['hut', 'house', 'cottage', 'longhouse', 'manor'] },
+  { cat: 'housing', label: 'Housing', kinds: ['house', 'longhouse', 'manor'] },
   { cat: 'food', label: 'Food', kinds: ['farm', 'granary'] },
   { cat: 'wood', label: 'Wood', kinds: ['lumberCamp'] },
   { cat: 'trade', label: 'Trade', kinds: ['market'] },
-  { cat: 'defense', label: 'Defense', kinds: ['barracks', 'palisade'] },
+  { cat: 'leisure', label: 'Leisure', kinds: ['tavern', 'chapel'] },
+  { cat: 'military', label: 'Military', kinds: ['barracks', 'trainingGrounds', 'palisade'] },
 ];

@@ -1,11 +1,12 @@
-import { BUILD_MENU, CONFIG, type BuildingKind, type Category } from '../config';
-import { drawBuilding } from '../render/draw';
+import { BUILD_MENU, CONFIG, type BuildingKind, type Category, type UnitKind } from '../config';
+import { drawBuilding, villager as drawVillager } from '../render/draw';
 import {
   addWorker, allAsleep, beds, carrierCount, deliveryLoss, birthBlock, birthRate, canPlace, canUpgradeHall, dayNumber, def, foodCap, foodStored, getB, hourOf,
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
-  removeWorker, spawnVillagers, upgradeHall,
+  removeWorker, spawnVillagers, upgradeHall, soldiers, soldierBeds, armyUpkeep, battleReady, rankOf,
+  squadName, recruitBlock, recruit, disband, avgHappiness, nearChapel, civilians,
 } from '../sim/sim';
-import type { Building, GameState } from '../sim/types';
+import type { Building, GameState, Squad, Villager } from '../sim/types';
 import type { Game } from '../main';
 import { IC } from './icons';
 import { BUILD_ID } from '../update';
@@ -32,6 +33,23 @@ export function buildingIcon(kind: BuildingKind): string {
   return url;
 }
 
+const unitCache = new Map<string, string>();
+/** Picture of a soldier (seen from above, facing up) for cards and the formation. */
+export function unitIcon(u: UnitKind): string {
+  let url = unitCache.get(u);
+  if (url) return url;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 72;
+  const c = cv.getContext('2d')!;
+  const k = u === 'cavalry' ? 105 : u === 'spearmen' ? 110 : 150;
+  c.translate(u === 'archers' || u === 'swordsmen' ? 43 : 36, u === 'spearmen' ? 44 : 38); c.scale(k, k);
+  const v = { unit: u, dir: -Math.PI / 2, step: 0, carry: null, look: { tunic: 0, hair: 0, skin: 0 } } as unknown as Villager;
+  drawVillager(c, v, 0, 0, false);
+  url = cv.toDataURL();
+  unitCache.set(u, url);
+  return url;
+}
+
 const fmt = (n: number) => (Math.abs(n) >= 100 ? Math.round(n).toString() : (Math.round(n * 10) / 10).toString());
 const sign = (n: number) => (n >= 0 ? '+' : '−') + fmt(Math.abs(n));
 
@@ -46,6 +64,8 @@ export class UI {
   menuOpen = false;
   pressing = false;
   private clockKey = '';
+  milPage: 'overview' | 'recruit' = 'overview';
+  private confirmDisband = 0;
   /** Set by the input module: 'tap' placement mode shows a confirm bar */
   placing: BuildingKind | null = null;
 
@@ -73,6 +93,7 @@ export class UI {
         <button data-act="testVillagers" aria-label="Add 10 villagers">${IC.addPeople}<span>+10</span></button>
         <button data-act="testGold" aria-label="Add 100 gold">${IC.gold}<span>+100</span></button>
         <button data-act="testWood" aria-label="Add 100 wood">${IC.wood}<span>+100</span></button>
+        <button data-act="testUnlock" id="unlockBtn" aria-label="Unlock everything">${IC.unlock}<span>Unlock</span></button>
       </div>` : ''}
       <div id="banner" class="panel hidden"></div>
       <div id="toast"></div>
@@ -123,6 +144,7 @@ export class UI {
       this.update(true); return;
     }
     if (el.dataset.cat) { this.cat = el.dataset.cat as Category; this.update(true); return; }
+    if (el.dataset.mil) { this.milPage = el.dataset.mil as 'overview' | 'recruit'; this.confirmDisband = 0; this.update(true); return; }
     if (el.id === 'hallChip') { if (s.hallId != null) { this.select(s.hallId); g.centerOn(s.hallId); } return; }
     if (el.id === 'alert') { this.alertAction(); return; }
     const act = el.dataset.act, id = Number(el.dataset.id);
@@ -148,6 +170,16 @@ export class UI {
       case 'testVillagers': this.toast(spawnVillagers(s, 10) ? '+10 villagers' : 'Place the Town Hall first'); break;
       case 'testGold': s.gold += 100; this.toast('+100 gold'); break;
       case 'testWood': s.wood += 100; this.toast('+100 wood'); break;
+      case 'testUnlock': s.unlockAll = !s.unlockAll; this.toast(s.unlockAll ? 'Everything unlocked (testing)' : 'Normal progression'); break;
+      case 'recruit': {
+        const q = recruit(s, el.dataset.unit as UnitKind);
+        if (q) this.toast(`${squadName(q)} recruited!`);
+        break;
+      }
+      case 'disband':
+        if (this.confirmDisband === id) { disband(s, id); this.confirmDisband = 0; this.toast('Squad disbanded'); }
+        else this.confirmDisband = id;
+        break;
     }
     this.update(true);
   }
@@ -200,10 +232,11 @@ export class UI {
       <div class="gnote">Granary ${pct}% full</div>
       <div class="srow"><span class="ic">${IC.wood}</span><span class="lb">Wood</span><span class="vl">${Math.floor(s.wood)}${r.wood ? `<small>+${fmt(r.wood)}/d</small>` : ''}</span></div>
       <div class="srow"><span class="ic">${IC.gold}</span><span class="lb">Gold</span><span class="vl">${Math.floor(s.gold)}<small>+${fmt(r.gold)}/d</small></span></div>
-      <div class="srow"><span class="ic">${IC.people}</span><span class="lb">Villagers</span><span class="vl">${pop} / ${beds(s)}</span></div>
+      <div class="srow"><span class="ic">${IC.people}</span><span class="lb">Villagers</span><span class="vl">${civilians(s)} / ${beds(s)}</span></div>
       <div class="srow"><span class="ic">${IC.baby}</span><span class="lb">Births</span><span class="vl" style="color:${br ? 'var(--good)' : 'var(--muted)'}">${fmt(br)}/day</span></div>
       <div class="srow"><span class="ic">${IC.idle}</span><span class="lb">Idle</span><span class="vl" style="color:var(--warn)">${idleCount(s)}</span></div>
-      <div class="srow"><span class="ic">${IC.army}</span><span class="lb">Army</span><span class="vl">0% / ${Math.round(30)}%</span></div>`;
+      <div class="srow"><span class="ic">${IC.army}</span><span class="lb">Army</span><span class="vl">${population(s) ? Math.round((soldiers(s) / population(s)) * 100) : 0}% / ${Math.round(CONFIG.military.armyCap * 100)}%</span></div>`;
+    document.getElementById('unlockBtn')?.classList.toggle('on', s.unlockAll);
 
     document.querySelectorAll<HTMLButtonElement>('button[data-speed]').forEach(b =>
       b.classList.toggle('on', Number(b.dataset.speed) === this.game.speed));
@@ -307,7 +340,7 @@ export class UI {
         return `<div id="cats">${cats}</div><div id="cards">${menu.kinds.map(k => this.cardHtml(k)).join('')}</div>`;
       }
       case 'villagers': return this.villagersHtml();
-      case 'military': return this.soonHtml('Military', 'Squads, barracks and recruiting arrive in Milestone 4.');
+      case 'military': return this.militaryHtml();
       case 'tech': return this.soonHtml('Tech', 'The tech tree (bought with gold) arrives in Milestone 2.');
       case 'map': return this.soonHtml('Grand Map', 'The grand map, parties and tributaries arrive in Milestone 3.');
     }
@@ -355,7 +388,8 @@ export class UI {
     } else if (d.beds) {
       body = `<p>Residents <b>${b.residents.length} / ${d.beds}</b></p>
         <div class="bar"><i style="width:${(b.residents.length / d.beds) * 100}%;background:#4f7fc4"></i></div>
-        <p>New villagers are born in houses with a free bed while there's a food surplus.</p>`;
+        <p>New villagers are born in houses with a free bed while there's a food surplus.</p>
+        ${nearChapel(s, b) ? '<p>⛪ Near a chapel: residents are happier.</p>' : ''}`;
     } else if (d.workers) {
       const here = presentWorkers(s, b);
       const out = d.output!;
@@ -401,9 +435,89 @@ export class UI {
         <button data-act="add" data-id="${b.id}" ${b.workers.length < d.workers! && idleCount(s) ? '' : 'disabled'}>+</button></div></div>`;
     }).join('');
     return `<div class="panel sheetp"><h3>Villagers<button class="x" data-act="close" data-tab="build" aria-label="Close">✕</button></h3>
+      <p>Happiness <b>${Math.round(avgHappiness(s))}%</b> (no effect yet: taverns and chapels raise it)</p>
       <p>Population <b>${population(s)}</b> · Idle <b style="color:var(--warn)">${idleCount(s)}</b> · Homeless <b>${homeless}</b> · Born so far <b>${s.births}</b></p>
       <p>${birthBlock(s) ? `No births right now: <b style="color:var(--bad)">${birthBlock(s)}</b>` : `Births: about <b style="color:var(--good)">${fmt(birthRate(s))} per day</b>`}</p>
       ${rows || '<p>Build a Farm, Lumber Camp or Market to create jobs.</p>'}</div>`;
+  }
+
+  // ---------------- military tab ----------------
+
+  private militaryHtml(): string {
+    const nav = (p: 'overview' | 'recruit', label: string, icon: string) =>
+      `<button class="mnav ${this.milPage === p ? 'on' : ''}" data-mil="${p}">${icon}<span>${label}</span></button>`;
+    const body = this.milPage === 'recruit' ? this.recruitHtml() : this.overviewHtml();
+    return `<div class="panel sheetp milp"><h3>Military<button class="x" data-tab="build" aria-label="Close">✕</button></h3>
+      <div class="milwrap"><div class="milnav">${nav('overview', 'Overview', IC.military)}${nav('recruit', 'Recruit', IC.addPeople)}</div>
+      <div class="milbody">${body}</div></div></div>`;
+  }
+
+  private armyStats(): string {
+    const s = this.s;
+    const army = soldiers(s), pop = population(s);
+    const pct = pop ? Math.round((army / pop) * 100) : 0, cap = Math.round(CONFIG.military.armyCap * 100);
+    const ready = s.squads.filter(battleReady).reduce((a, q) => a + q.members.length, 0);
+    return `<div class="mstats">
+      <div><b>${army}</b><span>Army</span></div>
+      <div><b>${ready}</b><span>Battle-ready</span></div>
+      <div><b>${army - ready}</b><span>In training</span></div>
+      <div><b>${pop}</b><span>Population</span></div>
+      <div><b style="color:var(--warn)">${idleCount(s)}</b><span>Idle</span></div>
+      <div><b style="color:var(--bad)">−${armyUpkeep(s)}</b><span>Gold/day</span></div>
+    </div>
+    <div class="row" style="margin:6px 0 2px"><span class="lb" style="font-size:12.5px">Army ${pct}% of people (cap ${cap}%)</span></div>
+    <div class="bar capbar"><i style="width:${Math.min(100, (pct / cap) * 100)}%;background:${pct >= cap ? 'var(--bad)' : 'var(--accent)'}"></i></div>
+    <p style="font-size:12px">Barracks space <b>${soldiers(s)} / ${soldierBeds(s)}</b> · Training grounds <b>${s.buildings.filter(b => b.kind === 'trainingGrounds').length}</b></p>`;
+  }
+
+  private overviewHtml(): string {
+    const s = this.s, R = CONFIG.military.ranks;
+    const rows = s.squads.map(q => {
+      const r = rankOf(q), next = R[r + 1];
+      const prog = next ? Math.min(1, (q.trainDays - R[r].days) / (next.days - R[r].days)) : 1;
+      const confirm = this.confirmDisband === q.id;
+      return `<div class="sqrow">
+        <img src="${unitIcon(q.unit)}" alt="">
+        <div class="sqinfo"><b>${squadName(q)}</b>
+          <span>${q.members.length} soldiers · <b style="color:${battleReady(q) ? 'var(--good)' : 'var(--warn)'}">${R[r].name}</b>${next ? ` · ${Math.floor(q.trainDays)}/${next.days} days to ${next.name}` : ''}</span>
+          <div class="bar"><i style="width:${prog * 100}%;background:${battleReady(q) ? 'var(--good)' : 'var(--warn)'}"></i></div></div>
+        <button class="mini ${confirm ? 'danger' : ''}" data-act="disband" data-id="${q.id}">${confirm ? 'Sure?' : 'Disband'}</button>
+      </div>`;
+    }).join('');
+    return `${this.armyStats()}
+      <h4>Battle formation</h4>${this.formationHtml()}
+      <h4>Squads</h4>${rows || '<p>No squads yet. Build a Barracks and Training Grounds, then recruit.</p>'}`;
+  }
+
+  /** Default formation: swordsmen in front, spearmen behind, archers at the back, cavalry on the flanks. */
+  private formationHtml(): string {
+    const s = this.s;
+    const tok = (q: Squad) => `<div class="ftok ${battleReady(q) ? '' : 'raw'}" title="${squadName(q)}"><img src="${unitIcon(q.unit)}" alt=""><span>${q.members.length}</span></div>`;
+    const of = (u: UnitKind) => s.squads.filter(q => q.unit === u);
+    const cav = of('cavalry');
+    const left = cav.filter((_, i) => i % 2 === 0), right = cav.filter((_, i) => i % 2 === 1);
+    const line = (u: UnitKind, label: string) => `<div class="fline">${of(u).map(tok).join('') || `<span class="fempty">${label}</span>`}</div>`;
+    if (!s.squads.length) return `<div class="field"><span class="fempty" style="margin:auto">No squads yet</span></div>`;
+    return `<div class="field"><div class="fflank">${left.map(tok).join('')}</div>
+      <div class="fcenter"><div class="fenemy">▲ enemy</div>${line('swordsmen', 'Swordsmen')}${line('spearmen', 'Spearmen')}${line('archers', 'Archers')}</div>
+      <div class="fflank">${right.map(tok).join('')}</div></div>
+      <p style="font-size:11.5px;margin-top:4px">Faded squads are still recruits (not battle-ready). Arranging comes later.</p>`;
+  }
+
+  private recruitHtml(): string {
+    const s = this.s;
+    const cards = (Object.keys(CONFIG.military.units) as UnitKind[]).map(u => {
+      const U = CONFIG.military.units[u];
+      const why = recruitBlock(s, u);
+      return `<div class="ucard"><img src="${unitIcon(u)}" alt="">
+        <div class="uinfo"><b>${U.name}</b>
+          <span>Squad of ${U.size} · <b style="color:var(--gold)">${U.cost} gold</b> · upkeep ${U.upkeep}/day</span>
+          <span>Good vs <b>${U.goodVs}</b> · weak vs <b>${U.weakVs}</b></span>
+          ${why ? `<span style="color:var(--bad);font-weight:800">${why}</span>` : ''}</div>
+        <button class="mini go" data-act="recruit" data-unit="${u}" ${why ? 'disabled' : ''}>Recruit</button></div>`;
+    }).join('');
+    return `${this.armyStats()}<h4>Recruit a squad</h4>${cards}
+      <p style="font-size:12px">Recruits come from idle villagers and move into the barracks. New squads start as Recruits and need ${CONFIG.military.ranks[1].days} days at the Training Grounds to be battle-ready.</p>`;
   }
 
   private soonHtml(title: string, text: string) {

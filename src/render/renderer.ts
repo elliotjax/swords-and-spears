@@ -340,6 +340,20 @@ export class Renderer {
     }
     c.globalAlpha = 1;
 
+    // chapel radius: shown while placing a chapel, or when one is selected
+    const ring = (cx: number, cy: number, r: number) => {
+      c.fillStyle = 'rgba(255,240,180,.16)';
+      c.beginPath(); c.arc(cx, cy, r, 0, 7); c.fill();
+      c.setLineDash([0.18, 0.12]); c.lineWidth = 0.05; c.strokeStyle = 'rgba(217,162,30,.9)';
+      c.stroke(); c.setLineDash([]);
+    };
+    const selB = view.selected != null ? s.buildings.find(b => b.id === view.selected) : undefined;
+    if (selB && def(selB.kind).happyRadius) ring(selB.x + selB.w / 2, selB.y + selB.h / 2, def(selB.kind).happyRadius!);
+    if (view.ghost && def(view.ghost.kind).happyRadius) {
+      const df = def(view.ghost.kind);
+      ring(view.ghost.x + df.w / 2, view.ghost.y + df.h / 2, df.happyRadius!);
+    }
+
     // placement ghost
     if (view.ghost) {
       const g = view.ghost, df = def(g.kind);
@@ -377,8 +391,8 @@ export class Renderer {
     for (const b of s.buildings) {
       const df = def(b.kind);
       if (!df.badge) continue;
-      const cap = df.beds ?? df.workers ?? 0;
-      const n = df.beds ? b.residents.length : b.workers.length;
+      const cap = df.beds ?? df.soldierBeds ?? df.workers ?? df.trainingSlots ?? 0;
+      const n = df.beds || df.soldierBeds ? b.residents.length : b.workers.length;
       const txt = df.foodStorage ? `${Math.round((b.food / df.foodStorage) * 100)}%` : `${n}/${cap}`;
       const p = this.worldToScreen(b.x + b.w / 2, b.y + 0.05);
       const tw = c.measureText(txt).width;

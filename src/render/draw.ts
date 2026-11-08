@@ -111,7 +111,6 @@ export function drawBuilding(c: C, kind: BuildingKind, x: number, y: number, w: 
   const seed = o.seed ?? 1;
   switch (kind) {
     case 'townHall': return townHall(c, x, y, o);
-    case 'hut': return hut(c, x, y, o, seed);
     case 'house': {
       roof(c, x + 0.16, y + 0.12, w - 0.32, h - 0.42, true);
       chimney(c, x + w * 0.72, y + 0.42);
@@ -119,17 +118,6 @@ export function drawBuilding(c: C, kind: BuildingKind, x: number, y: number, w: 
       doorway(c, x + DOORS.house.x, y + DOORS.house.y);
       barrel(c, x + 0.3, y + h - 0.18);
       if (hash(seed, 3) > 0.5) crate(c, x + w - 0.42, y + h - 0.3, 0.18);
-      return;
-    }
-    case 'cottage': {
-      roof(c, x + 0.12, y + 0.12, 1.25, h - 0.4, true);
-      chimney(c, x + 0.95, y + 0.4);
-      smoke(c, x + 0.95, y + 0.34, o.t, seed);
-      // little garden
-      c.fillStyle = PAL.soil; rr(c, x + 1.47, y + 0.2, 0.42, 1.2, 0.05); c.fill(); stroke(c, PAL.woodDark);
-      for (let i = 0; i < 4; i++) circle(c, x + 1.68, y + 0.38 + i * 0.27, 0.07, i % 2 ? PAL.crop : PAL.crop2);
-      doorway(c, x + DOORS.cottage.x, y + DOORS.cottage.y);
-      barrel(c, x + 0.25, y + h - 0.16);
       return;
     }
     case 'longhouse': {
@@ -157,10 +145,26 @@ export function drawBuilding(c: C, kind: BuildingKind, x: number, y: number, w: 
     case 'lumberCamp': return lumberCamp(c, x, y, w, h, o, seed);
     case 'market': return market(c, x, y, w, h);
     case 'barracks': {
-      roof(c, x + 0.15, y + 0.15, w - 0.3, h - 0.45, false, PAL.slateLit, PAL.slateShade, '#9aa8c8');
-      c.fillStyle = PAL.banner; c.fillRect(x + w / 2 - 0.15, y + h - 0.42, 0.3, 0.2);
+      roof(c, x + 0.14, y + 0.14, w - 0.28, h - 0.48, false, PAL.slateLit, PAL.slateShade, '#9aa8c8');
+      chimney(c, x + 1.45, y + 0.42);
+      // banner over the door
+      c.fillStyle = PAL.banner; c.beginPath();
+      c.moveTo(x + 0.3, y + 0.5); c.lineTo(x + 0.52, y + 0.5); c.lineTo(x + 0.52, y + 1.05); c.lineTo(x + 0.41, y + 0.96); c.lineTo(x + 0.3, y + 1.05);
+      c.closePath(); c.fill(); stroke(c);
+      circle(c, x + 0.41, y + 0.66, 0.05, PAL.gold);
+      doorway(c, x + DOORS.barracks.x, y + DOORS.barracks.y);
+      // weapon rack
+      c.strokeStyle = PAL.woodDark; c.lineWidth = 0.03;
+      c.beginPath(); c.moveTo(x + 1.42, y + h - 0.22); c.lineTo(x + 1.86, y + h - 0.22); c.stroke();
+      for (let i = 0; i < 4; i++) {
+        c.strokeStyle = '#8a8f9c'; c.lineWidth = 0.025;
+        c.beginPath(); c.moveTo(x + 1.48 + i * 0.11, y + h - 0.48); c.lineTo(x + 1.48 + i * 0.11, y + h - 0.16); c.stroke();
+      }
       return;
     }
+    case 'trainingGrounds': return trainingGrounds(c, x, y, w, h, o);
+    case 'tavern': return tavern(c, x, y, w, h, o, seed);
+    case 'chapel': return chapel(c, x, y, w, h, o);
     case 'palisade': {
       for (let i = 0; i < 4; i++) {
         circle(c, x + 0.2 + i * 0.2, y + 0.5, 0.11, PAL.wood, PAL.outline);
@@ -219,18 +223,79 @@ function townHall(c: C, x: number, y: number, o: DrawOpts) {
   if (lv >= 3) { barrel(c, x + 0.1, y + 2.85, 0.09); barrel(c, x + 2.9, y + 2.85, 0.09); }
 }
 
-function hut(c: C, x: number, y: number, o: DrawOpts, seed: number) {
-  shadowRect(c, x + 0.15, y + 0.12, 0.7, 0.66, 0.2);
-  c.fillStyle = '#e2c27a'; rr(c, x + 0.15, y + 0.12, 0.7, 0.66, 0.2); c.fill();
-  c.save(); rr(c, x + 0.15, y + 0.12, 0.7, 0.66, 0.2); c.clip();
-  c.fillStyle = '#c9a45c'; c.fillRect(x + 0.5, y, 0.5, 1);
-  c.strokeStyle = 'rgba(120,80,30,.3)'; c.lineWidth = LW * 0.7; c.beginPath();
-  for (let i = 0; i < 7; i++) { c.moveTo(x + 0.15, y + 0.18 + i * 0.09); c.lineTo(x + 0.85, y + 0.2 + i * 0.09); }
-  c.stroke(); c.restore();
-  c.fillStyle = '#f0d898'; c.fillRect(x + 0.47, y + 0.12, 0.05, 0.66);
-  rr(c, x + 0.15, y + 0.12, 0.7, 0.66, 0.2); stroke(c);
-  smoke(c, x + 0.5, y + 0.3, o.t, seed);
-  doorway(c, x + DOORS.hut.x, y + DOORS.hut.y);
+function tavern(c: C, x: number, y: number, w: number, h: number, o: DrawOpts, seed: number) {
+  // timber roof with a warm hanging sign and benches out front
+  roof(c, x + 0.14, y + 0.12, w - 0.28, h - 0.5, false, '#c58a52', '#a56d3d', '#dba774');
+  chimney(c, x + 1.5, y + 0.4); smoke(c, x + 1.5, y + 0.34, o.t, seed);
+  doorway(c, x + DOORS.tavern.x, y + DOORS.tavern.y);
+  // sign with a mug
+  c.strokeStyle = PAL.woodDark; c.lineWidth = 0.03;
+  c.beginPath(); c.moveTo(x + 0.3, y + h - 0.5); c.lineTo(x + 0.3, y + h - 0.24); c.stroke();
+  c.fillStyle = '#f2e6cf'; rr(c, x + 0.18, y + h - 0.32, 0.26, 0.2, 0.04); c.fill(); stroke(c, PAL.outline, LW * 0.7);
+  c.fillStyle = PAL.gold; c.fillRect(x + 0.26, y + h - 0.28, 0.08, 0.12);
+  // bench + barrel
+  c.fillStyle = PAL.wood; c.fillRect(x + 1.32, y + h - 0.28, 0.48, 0.1);
+  c.beginPath(); c.rect(x + 1.32, y + h - 0.28, 0.48, 0.1); stroke(c, PAL.outline, LW * 0.7);
+  barrel(c, x + 1.86, y + h - 0.45, 0.09);
+}
+
+function chapel(c: C, x: number, y: number, w: number, h: number, o: DrawOpts) {
+  // pale stone nave with a grey roof and a small bell tower at the front
+  roof(c, x + 0.32, y + 0.1, w - 0.64, h - 0.62, true, '#a9b0bf', '#8b93a6', '#c4cad6');
+  const tx = x + w / 2 - 0.27, ty = y + h - 0.82, ts = 0.54;
+  c.fillStyle = PAL.shadow; c.fillRect(tx + 0.07, ty + 0.08, ts, ts);
+  c.fillStyle = PAL.wall; c.fillRect(tx, ty, ts, ts);
+  c.beginPath(); c.rect(tx, ty, ts, ts); stroke(c);
+  const cx = tx + ts / 2, cy = ty + ts / 2;
+  const tri = (ax: number, ay: number, bx: number, by: number, col: string) => {
+    c.fillStyle = col; c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx, by); c.lineTo(cx, cy); c.closePath(); c.fill();
+  };
+  const ix = tx + 0.07, iy = ty + 0.07, is = ts - 0.14;
+  tri(ix, iy, ix + is, iy, '#c4cad6'); tri(ix, iy, ix, iy + is, '#a9b0bf');
+  tri(ix + is, iy, ix + is, iy + is, '#8b93a6'); tri(ix, iy + is, ix + is, iy + is, '#7a8294');
+  c.beginPath(); c.rect(ix, iy, is, is); stroke(c, PAL.outline, LW * 0.7);
+  circle(c, cx, cy, 0.06, PAL.gold, PAL.outline, LW * 0.6); // the bell
+  doorway(c, x + DOORS.chapel.x, y + DOORS.chapel.y);
+  // flowers by the walls
+  for (const [fx, fy, col] of [[x + 0.16, y + 0.5, '#f6a6c1'], [x + w - 0.16, y + 0.9, '#ffe27a'], [x + 0.18, y + 1.2, '#ffffff']] as [number, number, string][]) {
+    circle(c, fx, fy, 0.05, PAL.crop); circle(c, fx, fy, 0.025, col);
+  }
+  void o;
+}
+
+function trainingGrounds(c: C, x: number, y: number, w: number, h: number, o: DrawOpts) {
+  // packed-earth yard with a fence, straw dummies and archery targets
+  c.fillStyle = '#c9ae80'; rr(c, x + 0.08, y + 0.08, w - 0.16, h - 0.16, 0.25); c.fill();
+  c.fillStyle = 'rgba(150,120,80,.25)'; rr(c, x + 0.3, y + 0.3, w - 0.6, h - 0.6, 0.3); c.fill();
+  c.strokeStyle = PAL.wood; c.lineWidth = 0.035;
+  rr(c, x + 0.06, y + 0.06, w - 0.12, h - 0.12, 0.25); c.stroke();
+  // gate gap at the front
+  c.fillStyle = '#c9ae80'; c.fillRect(x + DOORS.trainingGrounds.x - 0.22, y + h - 0.1, 0.44, 0.1);
+  // straw dummies
+  for (const [dx, dy] of [[0.55, 0.55], [1.5, 0.5], [0.6, 1.5]]) {
+    const px = x + dx, py = y + dy;
+    c.fillStyle = PAL.shadow; c.beginPath(); c.arc(px + 0.05, py + 0.06, 0.13, 0, 7); c.fill();
+    c.strokeStyle = PAL.woodDark; c.lineWidth = 0.035;
+    c.beginPath(); c.moveTo(px - 0.16, py); c.lineTo(px + 0.16, py); c.stroke();
+    circle(c, px, py, 0.1, '#e2c27a', PAL.outline, LW * 0.8);
+    circle(c, px, py - 0.02, 0.045, '#c9a45c');
+  }
+  // archery targets along the back
+  for (const tx of [x + 2.25, x + 2.6]) {
+    const ty = y + 0.45;
+    c.fillStyle = PAL.shadow; c.beginPath(); c.arc(tx + 0.05, ty + 0.06, 0.15, 0, 7); c.fill();
+    circle(c, tx, ty, 0.15, '#ffffff', PAL.outline, LW * 0.8);
+    circle(c, tx, ty, 0.1, PAL.banner);
+    circle(c, tx, ty, 0.05, '#ffffff');
+    circle(c, tx, ty, 0.022, PAL.banner);
+  }
+  // weapon rack
+  c.fillStyle = PAL.wood; c.fillRect(x + 2.0, y + 2.4, 0.6, 0.08);
+  for (let i = 0; i < 5; i++) {
+    c.strokeStyle = '#8a8f9c'; c.lineWidth = 0.025;
+    c.beginPath(); c.moveTo(x + 2.06 + i * 0.12, y + 2.2); c.lineTo(x + 2.06 + i * 0.12, y + 2.55); c.stroke();
+  }
+  void o;
 }
 
 function farm(c: C, x: number, y: number, w: number, h: number, o: DrawOpts, seed: number) {
@@ -360,6 +425,60 @@ function market(c: C, x: number, y: number, w: number, h: number) {
   circle(c, x + 0.75, y + h - 0.27, 0.04, PAL.gold);
 }
 
+// ---------- soldiers ----------
+// Seen from above, facing +x. Player soldiers wear red with steel helmets.
+function soldier(c: C, v: Villager, skin: string, swing: number, walking: boolean) {
+  const steel = '#a4acba', steelHi = '#d5dae3', tunic = PAL.banner;
+  if (v.unit === 'cavalry') {
+    // horse underneath: body, neck/head forward, tail behind
+    const trot = walking ? Math.sin(v.step * 1.4) * 0.015 : 0;
+    c.fillStyle = 'rgba(25,40,25,.25)'; c.beginPath(); c.ellipse(0.06, 0.06, 0.34, 0.15, 0, 0, 7); c.fill();
+    c.strokeStyle = '#4a3326'; c.lineWidth = 0.05; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(-0.3, 0); c.lineTo(-0.42, trot * 3); c.stroke(); // tail
+    c.beginPath(); c.ellipse(0, 0, 0.3, 0.13, 0, 0, 7); c.fillStyle = '#8a5a3a'; c.fill(); stroke(c, PAL.outline, LW * 0.8);
+    c.beginPath(); c.ellipse(0.32 + trot, 0, 0.12, 0.07, 0, 0, 7); c.fillStyle = '#7a4d31'; c.fill(); stroke(c, PAL.outline, LW * 0.7);
+    c.fillStyle = '#4a3326'; c.fillRect(0.1, -0.025, 0.2, 0.05); // mane
+    // saddle cloth
+    c.fillStyle = tunic; rr(c, -0.12, -0.13, 0.2, 0.26, 0.04); c.fill();
+    // rider with a lance
+    c.strokeStyle = '#6b4a35'; c.lineWidth = 0.03;
+    c.beginPath(); c.moveTo(-0.1, 0.12); c.lineTo(0.5, 0.16); c.stroke();
+    c.fillStyle = steel; c.beginPath(); c.moveTo(0.5, 0.13); c.lineTo(0.58, 0.165); c.lineTo(0.5, 0.19); c.fill();
+    c.beginPath(); c.ellipse(-0.02, 0, 0.08, 0.13, 0, 0, 7); c.fillStyle = tunic; c.fill(); stroke(c, PAL.outline, LW * 0.7);
+    circle(c, -0.01, 0, 0.07, steel, PAL.outline, LW * 0.7);
+    circle(c, -0.03, -0.02, 0.025, steelHi);
+    return;
+  }
+  // arms / gear under the body
+  if (v.unit === 'spearmen') {
+    c.strokeStyle = '#6b4a35'; c.lineWidth = 0.028; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(-0.22, 0.14); c.lineTo(0.42, 0.14); c.stroke();
+    c.fillStyle = steel; c.beginPath(); c.moveTo(0.42, 0.11); c.lineTo(0.52, 0.14); c.lineTo(0.42, 0.17); c.fill();
+  } else if (v.unit === 'archers') {
+    // quiver on the back, bow in the left hand
+    c.fillStyle = '#8a5c36'; rr(c, -0.17, 0.02, 0.07, 0.14, 0.02); c.fill();
+    c.strokeStyle = '#6b4a35'; c.lineWidth = 0.03;
+    c.beginPath(); c.arc(0.06, -0.17, 0.14, -0.2 * Math.PI, 0.2 * Math.PI + Math.PI * 0.6, true); c.stroke();
+    c.strokeStyle = '#efe6d2'; c.lineWidth = 0.01;
+    c.beginPath(); c.moveTo(0.15, -0.28); c.lineTo(0.15, -0.06); c.stroke();
+  } else { // swordsmen: sword at the right, round shield on the left
+    c.strokeStyle = steel; c.lineWidth = 0.035; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(0.02, 0.17); c.lineTo(0.3 + swing, 0.2); c.stroke();
+  }
+  circle(c, swing, -0.15, 0.04, skin, PAL.outline, LW * 0.6);
+  circle(c, -swing, 0.15, 0.04, skin, PAL.outline, LW * 0.6);
+  c.beginPath(); c.ellipse(0, 0, 0.1, 0.16, 0, 0, 7);
+  c.fillStyle = tunic; c.fill(); stroke(c, PAL.outline, LW * 0.8);
+  if (v.unit === 'swordsmen') {
+    circle(c, 0.04, -0.17, 0.09, '#b07a4c', PAL.outline, LW * 0.7);
+    circle(c, 0.04, -0.17, 0.035, steel);
+  }
+  // steel helmet
+  circle(c, 0.01, 0, 0.085, steel, PAL.outline, LW * 0.7);
+  circle(c, -0.015, -0.02, 0.03, steelHi);
+  c.fillStyle = '#6b7383'; c.fillRect(0.06, -0.012, 0.035, 0.024); // nose guard
+}
+
 // ---------- trees ----------
 
 export function tree(c: C, x: number, y: number, r: number, seed: number, pass: 0 | 1) {
@@ -400,6 +519,7 @@ export function villager(c: C, v: Villager, x: number, y: number, walking: boole
   c.rotate(v.dir);
   const swing = walking ? Math.sin(v.step) * 0.06 : 0;
   const skin = PAL.skin[v.look.skin];
+  if (v.unit) { soldier(c, v, skin, swing, walking); c.restore(); return; }
   // hands
   circle(c, swing, -0.15, 0.04, skin, PAL.outline, LW * 0.6);
   circle(c, -swing, 0.15, 0.04, skin, PAL.outline, LW * 0.6);

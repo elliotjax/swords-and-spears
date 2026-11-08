@@ -1,4 +1,4 @@
-import type { BuildingKind } from '../config';
+import type { BuildingKind, UnitKind } from '../config';
 
 export const GRASS = 0;
 export const FOREST = 1;
@@ -30,6 +30,14 @@ export interface Villager {
   errandB: number | null;    // free time: the place currently being visited
   lastErrand: number | null; // the place just visited (don't go twice in a row)
   errandDay: number;         // day the evening route was finished
+  evening: number;           // day of the current evening route
+  stops: number;             // stops chosen so far this evening
+  ateAt: number;             // day they last stopped at a granary
+  tavernDay: number;         // last evening they visited a tavern
+  chapelDay: number;         // last evening they visited a chapel
+  squad: number | null;      // squad id if this villager is a soldier
+  unit: UnitKind | null;     // soldier type (for drawing)
+  trained: boolean;          // trained at the training grounds today
   task: { to: number; lb: number } | null; // carrying food to a granary
   deliveries: number;        // food deliveries made today
   deliveryDay: number;
@@ -47,6 +55,14 @@ export interface Villager {
   ox: number; oy: number;    // small personal drawing offset so people don't overlap
   dir: number;               // facing angle (radians)
   step: number;              // walk animation phase
+}
+
+export interface Squad {
+  id: number;
+  unit: UnitKind;
+  num: number;               // "Spearmen #2"
+  members: number[];         // villager ids
+  trainDays: number;         // days of training so far (decides rank)
 }
 
 export interface GameState {
@@ -74,5 +90,8 @@ export interface GameState {
   hallLevel: number;         // 1-based
   hallId: number | null;
   births: number;
+  squads: Squad[];
+  nextSquadNum: Partial<Record<UnitKind, number>>;
+  unlockAll: boolean;        // testing cheat: no progression locks or house limit
   version: number;           // bumps whenever buildings change (for caches)
 }
