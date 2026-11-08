@@ -184,15 +184,55 @@ export const CONFIG = {
     arrowHitChance: 0.7,        // arrows that land
     arrowSpeed: 9,              // tiles per second
     counterBonus: 1.5,
-    flankBonus: 1.4,            // melee damage multiplier when hitting a squad from the side or behind          // damage multiplier against a unit you're good against
+    flankBonus: 1.4,            // melee damage multiplier when hitting a squad from the side or behind
+    pursuitSeconds: 6,          // after one side is beaten, the winners chase the fleeing for this long
+    // Morale (courage, 0-100). A squad breaks when its HP drops to breakAt OR its morale hits 0.
+    morale: {
+      start: 100,
+      deathLoss: 70,            // losing the whole squad costs this much (shared per soldier)
+      frontHitLoss: 1.2,        // each hit taken from the front
+      flankHitLoss: 4,          // each hit taken from the side or behind (being flanked is terrifying)
+      arrowHitLoss: 1,          // each arrow that hits
+      chargedLoss: 4,           // each hit from a charge
+      friendBrokeLoss: 15,      // a friendly squad nearby breaks
+      enemyBrokeGain: 8,        // an enemy squad nearby breaks
+      nearbyRange: 6,           // tiles
+      outnumberedPerSec: 2,     // per extra enemy squad fighting us at once
+      recoverPerSec: 3,         // when nobody has hit us for recoverAfter seconds
+      recoverAfter: 3,
+      waverAt: 30,              // below this the squad shows as "Wavering"
+      rankResist: 0.1,          // each rank above Recruit loses 10% less morale
+    },
+    // Melee lines: soldiers hold their place in the formation and fight what is in front of them.
+    melee: {
+      frontLeash: 0.55,         // how far a front-rank soldier may step out of formation (tiles)
+      edgeLeash: 1.0,           // soldiers at the ends of the line wrap round further
+      backLeash: 0.3,
+      cavLeash: 1.2,
+      brokenLeash: 1.0,         // broken squads get ragged
+      pressGap: 0.25,           // the stronger squad leans in and pushes the weaker one back
+    },
+    charge: {
+      distance: 5,              // squads charge when this close to their target
+      infantryBonus: 1.25,      // first hit of an infantry charge
+      knockback: 0.3,           // tiles an infantry charge shoves the enemy
+      cavKnockback: 0.6,
+      stagger: 0.6,             // seconds a charged soldier is knocked off balance
+      braceBonus: 1.5,          // spearmen get a free strike at this bonus on a charging horse
+      cycleAfter: 5,            // cavalry stuck in melee this long pull out and charge again...
+      cycleMinHp: 0.4,          // ...if they still have this much HP
+      withdrawDist: 5,
+    },
+    archerAmmo: 15,             // volleys per archer squad, then they draw swords and fight
+    friendlyFire: 0.5,          // chance a missed arrow hits whoever is standing where it lands
     rankDamage: 0.1,            // +10% damage per rank above Recruit
     rankDefense: 0.03,          // +3% damage reduction per rank above Recruit
     // damage per hit before defense; ~3-5 hits to kill a 100 HP soldier
     units: {
-      swordsmen: { damage: 30, cooldown: 6.0, reach: 0.55, speed: 0.7, defense: 0.18, strongVs: ['spearmen'] },
-      spearmen: { damage: 27, cooldown: 5.5, reach: 0.85, speed: 0.65, defense: 0.15, strongVs: ['cavalry'] },
+      swordsmen: { damage: 30, cooldown: 7.5, reach: 0.55, speed: 0.7, defense: 0.18, strongVs: ['spearmen'] },
+      spearmen: { damage: 27, cooldown: 7.0, reach: 0.85, speed: 0.65, defense: 0.15, strongVs: ['cavalry'] },
       archers: { damage: 26, cooldown: 7.0, reach: 0.5, speed: 0.7, defense: 0.05, range: 7, meleeDamage: 12, strongVs: ['spearmen'] },
-      cavalry: { damage: 32, cooldown: 5.5, reach: 0.65, speed: 1.7, defense: 0.12, chargeBonus: 1.8, strongVs: ['archers'] },
+      cavalry: { damage: 32, cooldown: 7.0, reach: 0.65, speed: 1.7, defense: 0.12, chargeBonus: 1.8, strongVs: ['archers'] },
     } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; range?: number; meleeDamage?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
   },
 

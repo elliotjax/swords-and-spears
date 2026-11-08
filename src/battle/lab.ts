@@ -4,7 +4,7 @@ import { hash } from '../sim/rng';
 import { unitIcon } from '../ui/ui';
 import { IC } from '../ui/icons';
 import {
-  BATTLE_TPS, createBattle, runBattle, squadAlive, squadHp, stepBattle,
+  BATTLE_TPS, createBattle, runBattle, squadAlive, squadHp, stepBattle, wavering,
   type BattleSetup, type BattleState, type BSoldier, type Side,
 } from './battle';
 
@@ -247,11 +247,14 @@ export class BattleLab {
       const sx = Math.round(ox + ax * p), sy = Math.round(oy + ay * p);
       c.fillStyle = col; c.fillRect(sx, sy, Math.round(ox + (ax + 1) * p) - sx, Math.round(oy + (ay + 1) * p) - sy);
     };
-    // fallen soldiers
-    for (const s of b.soldiers) if (s.dead) {
-      const ax = px(s.x), ay = px(s.y);
-      drawP(ax - 1, ay, TEAM_DARK[s.side]); drawP(ax, ay, TEAM[s.side]); drawP(ax + 1, ay, PX.skin[0]); drawP(ax - 2, ay, '#3e3028');
+    // blood on the ground
+    for (const m of b.marks) {
+      const ax = px(m.x), ay = px(m.y);
+      drawP(ax, ay, m.k < 0.5 ? '#6e1f1a' : '#55201b');
+      if (m.k > 0.35) drawP(ax + (m.k > 0.7 ? 1 : -1), ay, '#7d2620');
     }
+    // fallen soldiers (each lies a little differently, weapon dropped beside them)
+    for (const s of b.soldiers) if (s.dead) drawCorpse(drawP, s, px(s.x), px(s.y));
     // living soldiers, back to front
     const live = b.soldiers.filter(s => !s.dead && !s.fled).sort((a, z) => a.y - z.y);
     for (const s of live) {
@@ -265,6 +268,19 @@ export class BattleLab {
       const dx = Math.sign(a.tx - a.sx) || 1;
       if (k < 1) { drawP(ax, ay, '#d0d6de'); drawP(ax - dx, ay, '#7a5434'); drawP(ax - 2 * dx, ay, '#efe6d2'); }
       else { drawP(ax, ay, '#7a5434'); drawP(ax, ay - 1, '#efe6d2'); } // stuck in the ground
+    }
+    // effects: dust kicked up by horses, blood from hits, sparks from blocked blows
+    for (const f of b.fx) {
+      const ax = px(f.x), ay = px(f.y), k = f.t / 0.6;
+      if (f.kind === 'dust') {
+        const r = Math.round(k * 2);
+        const col = k < 0.5 ? 'rgba(196,170,120,.75)' : 'rgba(196,170,120,.4)';
+        drawP(ax - r, ay, col); drawP(ax + r, ay - 1, col); drawP(ax, ay - r, col);
+      } else if (f.kind === 'blood') {
+        if (k < 0.5) { const r = Math.round(k * 4); drawP(ax - r, ay - 1 + r, '#b3261e'); drawP(ax + r, ay - r + 1, '#cf3a2c'); }
+      } else if (k < 0.35) {
+        drawP(ax, ay, '#fff6c8'); drawP(ax - 1, ay - 1, '#ffe07a'); drawP(ax + 1, ay + 1, '#ffe07a');
+      }
     }
     // squad badges: unit symbol, filled from the bottom by the squad's average HP
     c.textAlign = 'center'; c.textBaseline = 'top';
@@ -285,7 +301,8 @@ export class BattleLab {
       const size = Math.round(Math.max(15, Math.min(24, ppt * 0.9)) * d);
       const bx = Math.round(ox + sx * R * p - size / 2), by = Math.round(oy + top * R * p - 8 * p - size);
       const hp = Math.max(0, Math.min(1, squadHp(b, q)));
-      const edge = q.broken ? '#e8a03a' : TEAM[q.side];
+      const shaky = wavering(q);
+      const edge = q.broken ? '#e8a03a' : shaky && Math.floor(b.t * 3) % 2 ? '#f2d03a' : TEAM[q.side];
       c.fillStyle = 'rgba(15,15,25,.55)'; c.fillRect(bx + d, by + d, size, size);   // shadow
       c.fillStyle = '#f4f1ea'; c.fillRect(bx, by, size, size);                      // empty part
       const fh = Math.round(size * hp);
@@ -293,6 +310,10 @@ export class BattleLab {
       c.fillRect(bx, by + size - fh, size, fh);                                     // HP fill
       c.strokeStyle = edge; c.lineWidth = 2 * d; c.strokeRect(bx + d, by + d, size - 2 * d, size - 2 * d);
       drawGlyph(c, q.unit, bx + size / 2, by + size / 2, Math.max(1, Math.floor(size / 9)));
+      if (shaky) {
+        c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = '#ffe680';
+        c.strokeText('Wavering', bx + size / 2, by + size + 2 * d); c.fillText('Wavering', bx + size / 2, by + size + 2 * d);
+      }
       if (q.broken) {
         const left = Math.max(0, Math.ceil(CONFIG.battle.fightAfterBreakSeconds - (b.t - q.brokenAt)));
         const txt = q.fleeing ? 'Fleeing!' : `${left}s`;
@@ -385,6 +406,24 @@ function paintField(b: BattleState): HTMLCanvasElement {
   g.fillStyle = 'rgba(192,57,43,.18)'; g.fillRect(0, 0, 3, cv.height);
   g.fillStyle = 'rgba(58,98,184,.18)'; g.fillRect(cv.width - 3, 0, 3, cv.height);
   return cv;
+}
+
+/** A fallen soldier lying on the ground, with their weapon beside them. */
+function drawCorpse(P: (x: number, y: number, c: string) => void, s: BSoldier, ax: number, ay: number) {
+  const h = hash(s.id, 7, 3), dir = h < 0.5 ? 1 : -1;
+  if (s.unit === 'cavalry') {
+    // a fallen horse with its rider
+    for (let i = -2; i <= 2; i++) P(ax + i * dir, ay, '#6b4a2e');
+    P(ax + 3 * dir, ay - 1, '#6b4a2e'); P(ax - 1 * dir, ay + 1, '#4a3320'); P(ax + 1 * dir, ay + 1, '#4a3320');
+    P(ax - 2 * dir, ay - 1, TEAM[s.side]); P(ax - 3 * dir, ay - 1, PX.skin[0]);
+    return;
+  }
+  P(ax - dir, ay, TEAM_DARK[s.side]); P(ax, ay, TEAM[s.side]); P(ax + dir, ay, PX.skin[0]); P(ax - 2 * dir, ay, '#3e3028');
+  const w = hash(s.id, 8, 3);
+  const wy = ay + (w < 0.5 ? 1 : -1), wx = ax + Math.round((w * 4) % 2) * dir;
+  if (s.unit === 'spearmen') { for (let i = -1; i <= 2; i++) P(wx + i * dir, wy, '#8a6a42'); P(wx + 3 * dir, wy, '#c9ced6'); }
+  else if (s.unit === 'archers') { P(wx, wy, '#8a6a42'); P(wx + dir, wy, '#8a6a42'); }
+  else { P(wx, wy, '#c9ced6'); P(wx + dir, wy, '#c9ced6'); P(wx - dir, wy, '#6b4a2e'); }
 }
 
 /** One soldier in team colours (red = you, blue = enemy). Flashes white when hit. */
