@@ -183,15 +183,16 @@ export const CONFIG = {
     hitChance: 0.72,            // melee swings that land
     arrowHitChance: 0.7,        // arrows that land
     arrowSpeed: 9,              // tiles per second
-    counterBonus: 1.5,          // damage multiplier against a unit you're good against
+    counterBonus: 1.5,
+    flankBonus: 1.4,            // melee damage multiplier when hitting a squad from the side or behind          // damage multiplier against a unit you're good against
     rankDamage: 0.1,            // +10% damage per rank above Recruit
     rankDefense: 0.03,          // +3% damage reduction per rank above Recruit
     // damage per hit before defense; ~3-5 hits to kill a 100 HP soldier
     units: {
-      swordsmen: { damage: 30, cooldown: 4.0, reach: 0.55, speed: 0.7, defense: 0.18, strongVs: ['spearmen'] },
-      spearmen: { damage: 27, cooldown: 3.7, reach: 0.85, speed: 0.65, defense: 0.15, strongVs: ['cavalry'] },
-      archers: { damage: 26, cooldown: 5.0, reach: 0.5, speed: 0.7, defense: 0.05, range: 7, meleeDamage: 12, strongVs: ['spearmen'] },
-      cavalry: { damage: 32, cooldown: 3.7, reach: 0.65, speed: 1.7, defense: 0.12, chargeBonus: 1.8, strongVs: ['archers'] },
+      swordsmen: { damage: 30, cooldown: 6.0, reach: 0.55, speed: 0.7, defense: 0.18, strongVs: ['spearmen'] },
+      spearmen: { damage: 27, cooldown: 5.5, reach: 0.85, speed: 0.65, defense: 0.15, strongVs: ['cavalry'] },
+      archers: { damage: 26, cooldown: 7.0, reach: 0.5, speed: 0.7, defense: 0.05, range: 7, meleeDamage: 12, strongVs: ['spearmen'] },
+      cavalry: { damage: 32, cooldown: 5.5, reach: 0.65, speed: 1.7, defense: 0.12, chargeBonus: 1.8, strongVs: ['archers'] },
     } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; range?: number; meleeDamage?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
   },
 
