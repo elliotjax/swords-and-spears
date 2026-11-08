@@ -10,6 +10,7 @@ export const IC = {
   baby: svg('<circle cx="12" cy="9" r="5.5" fill="#f2c79b" stroke="#3a3342" stroke-width="1.6"/><path d="M6 21c0-3.5 2.7-5.5 6-5.5s6 2 6 5.5z" fill="#4f7fc4"/><path d="M9.5 6.2c1.2-1.6 3.8-1.6 5 0" stroke="#6b4426" stroke-width="1.8"/>'),
   fast: svg('<path d="M3 5l8 7-8 7zM12 5l8 7-8 7z" fill="currentColor"/>', 20),
   addPeople: svg('<circle cx="9" cy="7.5" r="3.6" fill="#262b38"/><path d="M2.5 20c0-4.2 2.9-6.6 6.5-6.6s6.5 2.4 6.5 6.6z" fill="#262b38"/><circle cx="18" cy="8" r="5" fill="#2f9d58"/><path d="M18 5.4v5.2M15.4 8h5.2" stroke="#fff" stroke-width="2"/>', 20),
+  town: svg('<path d="M2 12l5-4 5 4v8H2z" fill="#d6453d"/><path d="M11 10l6-5 6 5v10H11z" fill="#b8382f"/><rect x="5" y="15" width="3" height="5" fill="#fff"/><rect x="15.5" y="14" width="3" height="6" fill="#fff"/>', 20),
   unlock: svg('<rect x="5" y="11" width="14" height="10" rx="2" fill="#d9a21e"/><path d="M8 11V8a4 4 0 017.6-1.8" stroke="#d9a21e" stroke-width="2.4"/>', 20),
   idle: svg('<circle cx="12" cy="12" r="8.5" stroke="#d98a1d" stroke-width="2.4"/><path d="M12 7v5l3 2" stroke="#d98a1d" stroke-width="2.4"/>'),
   army: svg('<path d="M12 2.5l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10v-6z" fill="#d6453d"/><path d="M12 8v5" stroke="#fff" stroke-width="2.2"/><circle cx="12" cy="16.3" r="1.2" fill="#fff"/>'),

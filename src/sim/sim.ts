@@ -315,6 +315,53 @@ export function spawnVillagers(s: GameState, n: number): boolean {
   return true;
 }
 
+/**
+ * Testing: build a ready-made starter town around the Town Hall, for free.
+ * Leaves a 1-tile gap around every building so there's room to walk.
+ */
+export function quickTown(s: GameState): number {
+  const unlock = s.unlockAll, wood = s.wood, gold = s.gold;
+  s.unlockAll = true;
+  s.wood = 1e9; s.gold = 1e9;
+  const cx = Math.floor(s.w / 2), cy = Math.floor(s.h / 2);
+  if (s.hallId == null) place(s, 'townHall', cx - 1, cy - 1);
+  const hall = getB(s, s.hallId)!;
+  const hx = hall.x + 1, hy = hall.y + 1;
+  // enough people for every job, plus spare idle villagers for recruiting
+  spawnVillagers(s, Math.max(0, 85 - s.villagers.length));
+  const roomy = (k: BuildingKind, x: number, y: number) => {
+    const d = def(k);
+    if (!canPlace(s, k, x, y).ok) return false;
+    for (let yy = y - 1; yy <= y + d.h; yy++) for (let xx = x - 1; xx <= x + d.w; xx++) {
+      if (xx < 0 || yy < 0 || xx >= s.w || yy >= s.h) continue;
+      if (s.occ[yy * s.w + xx] !== -1) return false;
+    }
+    return true;
+  };
+  let built = 0;
+  const put = (k: BuildingKind, tx: number, ty: number) => {
+    for (let r = 0; r < 22; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = tx + dx, y = ty + dy;
+      if (roomy(k, x, y)) { place(s, k, x, y); built++; return; }
+    }
+  };
+  const plan: [BuildingKind, number, number][] = [
+    ['manor', -6, -6], ['manor', -2, -7], ['longhouse', 3, -6], ['house', -7, -1], ['house', 4, -2],
+    ['granary', -1, 4], ['granary', 3, 4],
+    ['farm', -6, 5], ['farm', -2, 7], ['farm', 2, 7], ['farm', 6, 5],
+    ['market', -5, 1], ['tavern', 7, 1], ['chapel', -9, -4],
+    ['barracks', 9, -4], ['trainingGrounds', 10, 0],
+    ['lumberCamp', 0, 0], ['lumberCamp', 0, 0],
+  ];
+  for (const [k, dx, dy] of plan) put(k, hx + dx, hy + dy);
+  // stock the stores
+  for (const b of s.buildings) { const fs = def(b.kind).foodStorage; if (fs) b.food = Math.max(b.food, fs * 0.6); }
+  s.unlockAll = unlock;
+  s.wood = wood + 500; s.gold = gold + 1500;
+  return built;
+}
+
 // ---------- job assignment ----------
 
 export function addWorker(s: GameState, bid: number): boolean {

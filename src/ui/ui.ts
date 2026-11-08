@@ -4,7 +4,7 @@ import {
   addWorker, allAsleep, beds, carrierCount, deliveryLoss, birthBlock, birthRate, canPlace, canUpgradeHall, dayNumber, def, foodCap, foodStored, getB, hourOf,
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
   removeWorker, spawnVillagers, upgradeHall, soldiers, soldierBeds, armyUpkeep, battleReady, rankOf,
-  squadName, recruitBlock, recruit, disband, avgHappiness, nearChapel, civilians,
+  squadName, recruitBlock, recruit, disband, quickTown, avgHappiness, nearChapel, civilians,
 } from '../sim/sim';
 import type { Building, GameState, Squad, Villager } from '../sim/types';
 import type { Game } from '../main';
@@ -81,6 +81,7 @@ export class UI {
         <button data-act="testVillagers" aria-label="Add 10 villagers">${IC.addPeople}<span>+10</span></button>
         <button data-act="testGold" aria-label="Add 100 gold">${IC.gold}<span>+100</span></button>
         <button data-act="testWood" aria-label="Add 100 wood">${IC.wood}<span>+100</span></button>
+        <button data-act="testTown" aria-label="Build a starter town">${IC.town}<span>Town</span></button>
         <button data-act="testUnlock" id="unlockBtn" aria-label="Unlock everything">${IC.unlock}<span>Unlock</span></button>
       </div>` : ''}
       <div id="banner" class="panel hidden"></div>
@@ -158,6 +159,7 @@ export class UI {
       case 'testVillagers': this.toast(spawnVillagers(s, 10) ? '+10 villagers' : 'Place the Town Hall first'); break;
       case 'testGold': s.gold += 100; this.toast('+100 gold'); break;
       case 'testWood': s.wood += 100; this.toast('+100 wood'); break;
+      case 'testTown': { const n = quickTown(s); g.view.selected = null; if (s.hallId != null) g.centerOn(s.hallId); this.toast(`Starter town: ${n} buildings`); break; }
       case 'testUnlock': s.unlockAll = !s.unlockAll; this.toast(s.unlockAll ? 'Everything unlocked (testing)' : 'Normal progression'); break;
       case 'recruit': {
         const q = recruit(s, el.dataset.unit as UnitKind);
