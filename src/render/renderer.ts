@@ -4,6 +4,7 @@ import { canPlace, dayFrac, def } from '../sim/sim';
 import type { GameState } from '../sim/types';
 import { rr } from './draw';
 import { PAL } from './palette';
+import { drawAmbient, drawLights } from './ambient';
 import { bedSlots, buildingCanvas, drawPawn, paintGround, paintRoads, paintWorld, R } from './pixel';
 
 // =====================================================================
@@ -158,6 +159,8 @@ export class Renderer {
     }
     people.sort((a, b) => a.ay - b.ay);
     for (const q of people) drawPawn(c, q.v, q.ax, q.ay, p, ox, oy, q.walk);
+    // ambient life: hearth fires and smoke, chickens and sheep, birds
+    drawAmbient(c, s, ox, oy, p, time, { x0: ax0, y0: ay0, x1: ax1, y1: ay1 }, dayFrac(s) * 24);
     wt();
 
     // chapel radius: shown while placing a chapel, or when one is selected
@@ -197,6 +200,7 @@ export class Renderer {
     if (dark > 0.001 && s.hallId != null) {
       c.fillStyle = `rgba(28,34,90,${dark})`;
       c.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      drawLights(c, s, ox, oy, p, time, dark); // warm firelight through the dark
     }
 
     // worker badges (screen space)
