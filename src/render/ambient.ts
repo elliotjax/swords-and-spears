@@ -18,6 +18,7 @@ function fires(kind: BuildingKind, W: number, H: number): { x: number; y: number
     case 'townHall': return [{ x: 8, y: H - 9 }, { x: W - 8, y: H - 9 }];
     case 'tavern': return [{ x: W - 6, y: H - 6, big: true }];
     case 'barracks': return [{ x: 5, y: H - 6 }];
+    case 'hunter': return [{ x: 10, y: 24, big: true }];
     default: return [];
   }
 }
@@ -54,7 +55,7 @@ export function drawAmbient(c: CanvasRenderingContext2D, s: GameState, ox: numbe
     const bx = b.x * R, by = b.y * R, W = b.w * R, H = b.h * R;
     if (!inView(bx + W / 2, by + H / 2, W + 30)) continue;
     // fires flicker; homes only smoke when somebody is in (or it's cooking time)
-    const lit = b.kind === 'townHall' || b.kind === 'tavern' || cooking || occupied(s, b.id);
+    const lit = b.kind === 'townHall' || b.kind === 'tavern' || (b.kind === 'hunter' ? b.workers.length > 0 : cooking || occupied(s, b.id));
     for (const [i, f] of fires(b.kind, W, H).entries()) {
       const fx = bx + f.x, fy = by + f.y;
       if (!lit) continue;

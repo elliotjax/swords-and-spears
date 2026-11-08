@@ -353,7 +353,8 @@ export function quickTown(s: GameState): number {
     ['farm', -6, 5], ['farm', -2, 7], ['farm', 2, 7], ['farm', 6, 5],
     ['market', -5, 1], ['tavern', 7, 1], ['chapel', -9, -4],
     ['barracks', 9, -4], ['trainingGrounds', 10, 0],
-    ['lumberCamp', 0, 0], ['lumberCamp', 0, 0],
+    ['lumberCamp', 0, 0], ['lumberCamp', 0, 0], ['hunter', 0, 0],
+    ['well', 2, -3], ['well', -3, 3],
   ];
   for (const [k, dx, dy] of plan) put(k, hx + dx, hy + dy);
   // stock the stores
@@ -508,11 +509,18 @@ export function happinessOf(s: GameState, v: Villager): number {
   if (v.chapelDay >= day - 1) h += H.chapelVisit;
   const home = getB(s, v.home);
   if (home && nearChapel(s, home)) h += H.nearChapel;
+  if (home && nearWell(s, home)) h += H.nearWell;
   return Math.min(100, h);
 }
 export function nearChapel(s: GameState, b: Building): boolean {
   return s.buildings.some(c => {
     const r = def(c.kind).happyRadius;
+    return !!r && Math.hypot(c.x + c.w / 2 - b.x - b.w / 2, c.y + c.h / 2 - b.y - b.h / 2) <= r;
+  });
+}
+export function nearWell(s: GameState, b: Building): boolean {
+  return s.buildings.some(c => {
+    const r = def(c.kind).nearBonusRadius;
     return !!r && Math.hypot(c.x + c.w / 2 - b.x - b.w / 2, c.y + c.h / 2 - b.y - b.h / 2) <= r;
   });
 }
@@ -779,8 +787,8 @@ function arrive(s: GameState, v: Villager) {
 }
 
 function pickWorkSpot(s: GameState, v: Villager, b: Building) {
-  if (b.kind === 'lumberCamp') {
-    // chop at the edge of the clearing
+  if (b.kind === 'lumberCamp' || b.kind === 'hunter') {
+    // chop (or hunt) at the edge of the clearing
     const side = (rand(s) * 4) | 0;
     const t = rand(s);
     const pts = [
@@ -824,7 +832,7 @@ function edgeIndex(s: GameState, a: number, b: number): number {
 /** Carriers take everything waiting at the farm to the nearest granary a few times per workday. */
 function maybeDeliver(s: GameState, v: Villager): boolean {
   const b = getB(s, v.inside);
-  if (!b || b.kind !== 'farm' || b.food < 1) return false;
+  if (!b || !def(b.kind).farmStorage || b.food < 1) return false; // farms and hunters
   if (b.workers.indexOf(v.id) >= carrierCount(b)) return false; // not a carrier
   const S = CONFIG.schedule, F = CONFIG.food;
   const day = dayNumber(s);

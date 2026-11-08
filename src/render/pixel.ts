@@ -258,6 +258,33 @@ export function paintBuilding(g: G, kind: BuildingKind, ox: number, oy: number, 
       rect(g, ox + 12, oy + 12, 4, 3, '#6b4a30'); rect(g, ox + 15, oy + 11, 3, 1, PX.steel); // chopping block + axe
       return;
     }
+    case 'hunter': {
+      // a clearing with a small lodge, a hide-drying rack, a campfire and antlers over the door
+      disc(g, ox + W / 2, oy + H / 2, W / 2 - 1, PX.dirt);
+      for (let i = 0; i < 24; i++) dot(g, ox + 4 + hash(i, 11) * (W - 8), oy + 4 + hash(i, 12) * (H - 8), PX.dirtDark);
+      walls(g, ox + 3, oy + 3, 14, 12, ox + 10, PX.woodWall, PX.woodWallHi);
+      rect(g, ox + 6, oy + 6, 3, 5, PX.bedFrame); rect(g, ox + 6, oy + 7, 3, 4, '#8a6a4a'); // fur bed
+      rect(g, ox + 11, oy + 6, 3, 2, PX.table);
+      dot(g, ox + 8, oy + 2, '#d9cdb0'); dot(g, ox + 12, oy + 2, '#d9cdb0'); dot(g, ox + 9, oy + 1, '#d9cdb0'); dot(g, ox + 11, oy + 1, '#d9cdb0'); // antlers
+      // drying rack with hides
+      rect(g, ox + 20, oy + 6, 1, 9, '#6b4a30'); rect(g, ox + 28, oy + 6, 1, 9, '#6b4a30'); rect(g, ox + 20, oy + 6, 9, 1, '#7a5434');
+      rect(g, ox + 21, oy + 7, 3, 5, '#a8784a'); rect(g, ox + 25, oy + 7, 3, 6, '#8e5f38'); dot(g, ox + 22, oy + 9, '#c89868');
+      // campfire ring (the fire itself flickers in the ambient layer)
+      ring(g, ox + 10, oy + 23, 2, PX.stoneDark); dot(g, ox + 9, oy + 22, '#4a3320'); dot(g, ox + 11, oy + 24, '#4a3320');
+      // a deer carcass on a spit and a bow by the door
+      rect(g, ox + 16, oy + 21, 7, 3, '#8e5f38'); rect(g, ox + 15, oy + 22, 9, 1, '#5e4029'); dot(g, ox + 22, oy + 20, '#7a4d31');
+      rect(g, ox + 25, oy + 20, 1, 5, '#8a6a42'); dot(g, ox + 26, oy + 19, '#8a6a42'); dot(g, ox + 26, oy + 25, '#8a6a42');
+      return;
+    }
+    case 'well': {
+      // stone ring with dark water, a wooden frame and a bucket, on a little patch of paving
+      for (let i = 0; i < 12; i++) dot(g, ox + 2 + hash(i, 13) * (W - 4), oy + 2 + hash(i, 14) * (H - 4), PX.gravel[i % 4]);
+      rect(g, ox + 4, oy + 6, 10, 10, 'rgba(0,0,0,.25)');
+      disc(g, ox + 8, oy + 8, 5, PX.stone); disc(g, ox + 8, oy + 8, 4, PX.stoneHi); disc(g, ox + 8, oy + 8, 3, '#2a3f5a'); dot(g, ox + 7, oy + 7, '#4a6a8a');
+      rect(g, ox + 2, oy + 2, 1, 9, '#6b4a30'); rect(g, ox + 13, oy + 2, 1, 9, '#6b4a30'); rect(g, ox + 2, oy + 2, 12, 1, '#7a5434');
+      rect(g, ox + 8, oy + 3, 1, 3, '#c8b088'); rect(g, ox + 7, oy + 5, 3, 2, '#7a5434'); // rope + bucket
+      return;
+    }
     case 'market': {
       rect(g, ox + 1, oy + 1, W - 2, H - 2, '#b8a074');
       for (let i = 0; i < 40; i++) dot(g, ox + 2 + hash(i, 4) * (W - 4), oy + 2 + hash(i, 5) * (H - 4), PX.dirtDark);

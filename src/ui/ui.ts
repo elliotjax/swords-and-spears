@@ -405,7 +405,7 @@ export class UI {
         <p>Full staff makes <b>${res} ${unit}/day</b>${bonus}. Each worker adds an equal share.</p>`;
       if (d.farmStorage) {
         const full = b.food >= d.farmStorage - 0.5;
-        body += `<p>Waiting at the farm: <b style="color:${full ? 'var(--bad)' : 'inherit'}">${Math.floor(b.food)} / ${d.farmStorage} lb</b>${full ? ' · <b style="color:var(--bad)">Full! Build a granary</b>' : ''}</p>
+        body += `<p>Waiting ${b.kind === 'farm' ? 'at the farm' : 'here'}: <b style="color:${full ? 'var(--bad)' : 'inherit'}">${Math.floor(b.food)} / ${d.farmStorage} lb</b>${full ? ' · <b style="color:var(--bad)">Full! Build a granary</b>' : ''}</p>
           <p><b>${carrierCount(b)}</b> of the farmers carry food to the nearest granary ${CONFIG.food.deliveriesPerDay}× per workday.
           Trips cost about <b style="color:${deliveryLoss(s, b) > 0.08 ? 'var(--bad)' : 'inherit'}">${Math.round(deliveryLoss(s, b) * 100)}%</b> of this farm's output. A closer granary costs less.</p>`;
       }

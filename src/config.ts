@@ -5,7 +5,7 @@
 
 export type BuildingKind =
   | 'townHall' | 'house' | 'longhouse' | 'manor'
-  | 'farm' | 'granary' | 'lumberCamp' | 'market' | 'tavern' | 'chapel'
+  | 'farm' | 'granary' | 'lumberCamp' | 'market' | 'tavern' | 'chapel' | 'hunter' | 'well'
   | 'barracks' | 'trainingGrounds' | 'palisade';
 
 export type Category = 'housing' | 'food' | 'wood' | 'trade' | 'leisure' | 'military';
@@ -30,6 +30,7 @@ export interface BuildingDef {
   trainingSlots?: number;         // training grounds: soldiers who can train here at once
   leisure?: boolean;              // a free-time destination (tavern, chapel)
   happyRadius?: number;           // chapel: residents of houses within this many tiles are happier
+  nearBonusRadius?: number;       // well: homes within this many tiles get a small happiness bonus
   unlockHallLevel?: number;       // locked until this town hall level
   comingSoon?: boolean;           // shows a locked card, cannot be built in v1
   badge?: BadgeColor;
@@ -79,7 +80,7 @@ export const CONFIG = {
   // Free time (workEnd to sleepStart): villagers make a route of short errands,
   // milling around in front of each place for a few seconds, then go home.
   errands: {
-    places: ['home', 'townHall', 'market', 'granary', 'tavern', 'chapel'] as string[], // more later
+    places: ['home', 'townHall', 'market', 'granary', 'tavern', 'chapel', 'well'] as string[], // more later
     granaryFirstOrSecond: true, // the granary is always the 1st or 2nd stop (randomly) when one exists
     stayMinSeconds: 4,        // game seconds spent milling around at each stop...
     stayMaxSeconds: 8,        // ...up to this long
@@ -148,6 +149,7 @@ export const CONFIG = {
     tavernVisit: 15,          // visited a tavern this evening
     chapelVisit: 10,          // visited a chapel this evening
     nearChapel: 15,           // lives within a chapel's radius
+    nearWell: 5,              // lives within a well's radius
   },
 
   military: {
@@ -295,6 +297,14 @@ export const CONFIG = {
       name: 'Granary', category: 'food', w: 1, h: 2, cost: { wood: 40, gold: 0 },
       allowedTiles: ['grass'], foodStorage: 500, workers: 1, badge: 'storage',
     },
+    hunter: {
+      name: "Hunter's Lodge", category: 'food', w: 2, h: 2, cost: { wood: 50, gold: 0 },
+      allowedTiles: ['forest'], workers: 4, output: { food: 45 }, farmStorage: 60, badge: 'green',
+    },
+    well: {
+      name: 'Well', category: 'leisure', w: 1, h: 1, cost: { wood: 20, gold: 0 },
+      allowedTiles: ['grass'], leisure: true, nearBonusRadius: 4,
+    },
     lumberCamp: {
       name: 'Lumber Camp', category: 'wood', w: 2, h: 2, cost: { wood: 30, gold: 0 },
       allowedTiles: ['forest'], workers: 6, output: { wood: 130 }, badge: 'gold',
@@ -337,9 +347,9 @@ export interface TechDef { id: string; group: string; name: string; desc: string
 
 export const BUILD_MENU: { cat: Category; label: string; kinds: BuildingKind[] }[] = [
   { cat: 'housing', label: 'Housing', kinds: ['house', 'longhouse', 'manor'] },
-  { cat: 'food', label: 'Food', kinds: ['farm', 'granary'] },
+  { cat: 'food', label: 'Food', kinds: ['farm', 'granary', 'hunter'] },
   { cat: 'wood', label: 'Wood', kinds: ['lumberCamp'] },
   { cat: 'trade', label: 'Trade', kinds: ['market'] },
-  { cat: 'leisure', label: 'Leisure', kinds: ['tavern', 'chapel'] },
+  { cat: 'leisure', label: 'Leisure', kinds: ['well', 'tavern', 'chapel'] },
   { cat: 'military', label: 'Military', kinds: ['barracks', 'trainingGrounds', 'palisade'] },
 ];

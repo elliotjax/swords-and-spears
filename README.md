@@ -196,6 +196,8 @@ Starting building types:
 | **Chapel** *(Decided)* | Happiness. | A free-time destination, **and** residents of houses within its **radius (7 tiles to start)** get bonus happiness. The radius circle shows while placing it or when it's selected (Hall Lv 3). |
 | **Farm** | Produces food. | Better output on grassland. Two kinds of "farm" exist: **food farm** and **wood farm** (below). **Food made at a farm is stored at the farm first** and doesn't count until a farmer carries it to a granary. |
 | **Granary** *(Decided)* | Stores food. | **1×2 tiles**, holds **500 lb**, **1 worker (keeper)**. A granary only accepts food while a keeper is **assigned** (they don't need to be standing there, so deliveries never get held up); with no keeper, carriers use the next open granary or the Town Hall. Only **25% of a farm's workers (rounded up, at least 1) are carriers**. Carriers take **everything waiting at the farm** to the **nearest granary** (or Town Hall) **4 times per workday**. **While a carrier is away they don't farm**, so a far-away granary costs output (the farm panel shows the % lost). Your food stockpile = all food in granaries + Town Hall. |
+| **Hunter's Lodge** *(new, first draft)* | Produces food from the forest. | **2×2, forest only, 4 hunters, about 45 lb/day** (about the same per worker as a farm). Like a farm, the food waits at the lodge until a hunter carries it to a granary. Gives forest land a food use. |
+| **Well** *(new, first draft)* | A gathering place. | **1×1, 20 wood.** An evening stop for villagers; homes within **4 tiles** get **+5 happiness**. |
 | **Lumber Camp** (working name for the "wood farm") | Produces wood. | Placed on **forest** tiles. **Harvests existing trees; trees never run out.** Must **not look like farming**. |
 | **Commerce buildings** (for example **Market**) | Produce gold. | TBD which and how many in v1. |
 | **Barracks** *(Decided)* | Housing for soldiers. | **2×2, holds 30 soldiers.** Soldiers only live in barracks (they leave their house when recruited). You can't recruit without free barracks space. Hall Lv 2. |
@@ -392,6 +394,8 @@ These are only starting points for the first playable. The owner will tune them 
 | Barracks | 2×2, 80 wood, 30 soldiers |
 | Training Grounds | 3×3, 60 wood, 50 soldiers |
 | Tavern / Chapel | 70 wood + 20 gold / 90 wood + 50 gold; chapel radius 7 tiles |
+| Hunter's Lodge | 2×2, 50 wood, forest only, 4 workers, about 45 lb/day, holds 60 lb |
+| Well | 1×1, 20 wood, homes within 4 tiles +5 happiness, evening stop |
 | Walking speed | 3 tiles per second |
 | Tax | about 1.5 gold/day per villager |
 | Births | with food going up, food in store, and a free bed: about 1.2 births per day per house with a free bed |
@@ -485,6 +489,7 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Battles v1 (built):** Battle Lab with individual soldiers (100 HP, 3–5 hits), squad HP bars, targeting, melee/arrows/cavalry charges, breaking at 20% → 20 s → flee, left-vs-right, auto camera, results, 50-battle balance runs. Taller 3×5 figures. Easier building taps.
 - **Battles v3 (built):** realistic battles modelled on Total War and real medieval fighting: fighting lines that hold and push instead of blobs, morale with wavering and spreading routs, hard-hitting charges with knockback, spearmen bracing, cavalry cycle-charges and pursuit, archer volleys with limited arrows and friendly fire, the army marching as one line, blood/bodies/dust/sparks. Battles ~2 minutes.
 - **Living town (built):** hearth fires flicker and smoke rises from homes when people are in or cooking; chickens peck by farms and granaries, sheep graze beside farms, flocks of birds fly over; warm firelight glows at night.
+- **New buildings (built):** Hunter's Lodge (food from the forest) and Well (evening gathering spot, small happiness bonus nearby). The starter-town button now builds them too.
 - **Tech tree v1 (built):** 18 techs in the Tech tab (farming, wood, gold, people, military), bought with gold at the Town Hall, one at a time. Old saves keep working.
 - **Next:** owner tests battles in the Battle Lab; then decide battle control, connect battles to the colony (real squads), grand map + enemy kingdoms + AI. Also still open: tech tree, happiness effects, where people eat.
 - Then: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
