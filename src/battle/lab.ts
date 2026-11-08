@@ -14,7 +14,7 @@ import {
 // =====================================================================
 
 const UNITS: UnitKind[] = ['swordsmen', 'spearmen', 'archers', 'cavalry'];
-const TEAM = ['#c0392b', '#3a62b8'], TEAM_DARK = ['#8e2a23', '#27457f'];
+const TEAM = ['#c0392b', '#3a62b8'], TEAM_DARK = ['#8e2a23', '#27457f'], TEAM_LIGHT = ['#ef9a90', '#93b2ee'];
 const SIDE_NAME = ['You (red)', 'Enemy (blue)'];
 
 const PRESETS: { name: string; a: Partial<Record<UnitKind, number>>; b: Partial<Record<UnitKind, number>> }[] = [
@@ -266,24 +266,38 @@ export class BattleLab {
       if (k < 1) { drawP(ax, ay, '#d0d6de'); drawP(ax - dx, ay, '#7a5434'); drawP(ax - 2 * dx, ay, '#efe6d2'); }
       else { drawP(ax, ay, '#7a5434'); drawP(ax, ay - 1, '#efe6d2'); } // stuck in the ground
     }
-    // squad HP bars (average HP of everyone in the squad)
-    c.textAlign = 'center'; c.textBaseline = 'bottom';
-    c.font = `800 ${10 * d}px Nunito, system-ui, sans-serif`;
+    // squad badges: unit symbol, filled from the bottom by the squad's average HP
+    c.textAlign = 'center'; c.textBaseline = 'top';
+    c.font = `800 ${9.5 * d}px Nunito, system-ui, sans-serif`;
     for (const q of b.squads) {
       if (q.gone) continue;
-      let sx = 0, sy = 1e9, n = 0;
-      for (const id of q.members) { const s = b.soldiers[id - 1]; if (!s.dead && !s.fled) { sx += s.x; sy = Math.min(sy, s.y); n++; } }
+      let sx = 0, sy = 0, n = 0, top = 1e9;
+      for (const id of q.members) {
+        const s = b.soldiers[id - 1];
+        if (s.dead || s.fled) continue;
+        const x = s.px + (s.x - s.px) * alpha, y = s.py + (s.y - s.py) * alpha;
+        sx += x; sy += y; n++;
+      }
       if (!n) continue;
-      const cx = ox + (sx / n) * R * p, cy = oy + sy * R * p - 9 * p;
-      const w = Math.min(26, 0.9 * ppt) * d, h = 3.5 * d, hp = squadHp(b, q);
-      c.fillStyle = 'rgba(20,20,30,.7)'; c.fillRect(cx - w / 2 - d, cy - h - d, w + 2 * d, h + 2 * d);
-      c.fillStyle = q.broken ? '#e8a03a' : TEAM[q.side];
-      c.fillRect(cx - w / 2, cy - h, w * Math.max(0, Math.min(1, hp)), h);
+      sx /= n; sy /= n;
+      // sit just above the squad's middle (ignoring stragglers far away)
+      for (const id of q.members) { const s = b.soldiers[id - 1]; if (!s.dead && !s.fled && Math.abs(s.y - sy) < 2.2) top = Math.min(top, s.y); }
+      const size = Math.round(Math.max(15, Math.min(24, ppt * 0.9)) * d);
+      const bx = Math.round(ox + sx * R * p - size / 2), by = Math.round(oy + top * R * p - 8 * p - size);
+      const hp = Math.max(0, Math.min(1, squadHp(b, q)));
+      const edge = q.broken ? '#e8a03a' : TEAM[q.side];
+      c.fillStyle = 'rgba(15,15,25,.55)'; c.fillRect(bx + d, by + d, size, size);   // shadow
+      c.fillStyle = '#f4f1ea'; c.fillRect(bx, by, size, size);                      // empty part
+      const fh = Math.round(size * hp);
+      c.fillStyle = q.broken ? '#f2c48a' : TEAM_LIGHT[q.side];
+      c.fillRect(bx, by + size - fh, size, fh);                                     // HP fill
+      c.strokeStyle = edge; c.lineWidth = 2 * d; c.strokeRect(bx + d, by + d, size - 2 * d, size - 2 * d);
+      drawGlyph(c, q.unit, bx + size / 2, by + size / 2, Math.max(1, Math.floor(size / 9)));
       if (q.broken) {
         const left = Math.max(0, Math.ceil(CONFIG.battle.fightAfterBreakSeconds - (b.t - q.brokenAt)));
-        c.fillStyle = '#fff'; c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 3 * d;
-        const txt = q.fleeing ? 'Fleeing!' : `Broken ${left}s`;
-        c.strokeText(txt, cx, cy - h - 2 * d); c.fillText(txt, cx, cy - h - 2 * d);
+        const txt = q.fleeing ? 'Fleeing!' : `${left}s`;
+        c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = '#fff';
+        c.strokeText(txt, bx + size / 2, by + size + 2 * d); c.fillText(txt, bx + size / 2, by + size + 2 * d);
       }
     }
   }
@@ -335,6 +349,20 @@ export class BattleLab {
     cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
     cv.addEventListener('wheel', e => { e.preventDefault(); this.cam.zoom = Math.max(0.8, Math.min(4, this.cam.zoom * Math.exp(-e.deltaY * 0.0015))); }, { passive: false });
   }
+}
+
+// little pixel symbols for squad badges (7 x 7)
+const GLYPHS: Record<UnitKind, string[]> = {
+  swordsmen: ['...x...', '...x...', '...x...', '...x...', '.xxxxx.', '...x...', '...x...'],
+  spearmen: ['...x...', '..xxx..', '...x...', '...x...', '...x...', '...x...', '...x...'],
+  archers: ['xx.....', 'x.x....', 'x..x.x.', 'xxxxxxx', 'x..x.x.', 'x.x....', 'xx.....'],
+  cavalry: ['.....x.', '....xxx', 'xxxxxx.', 'xxxxx..', 'x...x..', 'x...x..', '.......'],
+};
+function drawGlyph(c: CanvasRenderingContext2D, u: UnitKind, cx: number, cy: number, k: number) {
+  const g = GLYPHS[u];
+  c.fillStyle = '#262b38';
+  const x0 = Math.round(cx - 3.5 * k), y0 = Math.round(cy - 3.5 * k);
+  for (let r = 0; r < 7; r++) for (let i = 0; i < 7; i++) if (g[r][i] === 'x') c.fillRect(x0 + i * k, y0 + r * k, k, k);
 }
 
 function fmtTime(t: number) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }

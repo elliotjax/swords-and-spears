@@ -159,12 +159,17 @@ export function stepBattle(b: BattleState) {
     q.face = dx >= 0 ? 1 : -1;
     let move = 0;
     if (q.unit === 'archers') {
-      // keep at range; step back if the enemy gets close
-      const near = b.squads.some(e => e.side !== q.side && !e.gone && e.unit !== 'archers' && Math.hypot(e.cx - q.cx, e.cy - q.cy) < 2.6);
-      const idle = b.t - q.lastFight > 8; // nobody in range for a while: close in
-      if (near) move = -U.speed * 0.8;
-      else if (d > (U.range ?? 7) * (idle ? 0.45 : 0.7)) move = U.speed;
-    } else if (d > 1.0) move = U.speed;
+      // archers always fight: advance until the nearest enemy squad is well within range, never retreat
+      let nd = Infinity;
+      for (const e of b.squads) if (e.side !== q.side && !e.gone && !e.fleeing) nd = Math.min(nd, Math.hypot(e.cx - q.cx, e.cy - q.cy));
+      const idle = b.t - q.lastFight > 4;
+      if (nd > (U.range ?? 7) * (idle ? 0.4 : 0.55)) move = U.speed;
+    } else if (q.unit === 'cavalry') {
+      if (d > 1.0) move = U.speed;
+    } else {
+      // infantry march until their front rank meets the enemy's front, then hold the line
+      if (d > U.reach + 0.35) move = U.speed;
+    }
     if (move && d > 0.01) {
       q.cx += (dx / d) * move * DT; q.cy += (dy / d) * move * DT;
       q.cx = Math.max(0.5, Math.min(b.W - 0.5, q.cx)); q.cy = Math.max(0.5, Math.min(b.H - 0.5, q.cy));
@@ -181,6 +186,13 @@ export function stepBattle(b: BattleState) {
       const a = grid.get((gy + 4) * 1000 + gx + 4); if (a) for (const s of a) f(s);
     }
   };
+
+  // living members' order in each squad (front rank fills first)
+  const aliveIdx = new Map<number, number>();
+  for (const q of b.squads) {
+    let n = 0;
+    for (const id of q.members) if (alive(so(id))) aliveIdx.set(id, n++);
+  }
 
   // soldiers (hits are collected and applied together, so neither side strikes first)
   const hits: { t: BSoldier; dmg: number }[] = [];
@@ -208,36 +220,51 @@ export function stepBattle(b: BattleState) {
       if (s.x < -1 || s.x > b.W + 1) s.fled = true;
       continue;
     }
-    // pick an enemy soldier to fight (refresh now and then)
+    // my place in the formation: living members fill the front rank first,
+    // so when someone in front falls, the soldier behind steps up into the gap
+    const slotIdx = aliveIdx.get(s.id) ?? s.slot;
+    const slot = slotOffset(s.unit, slotIdx);
+    const sx = q.cx + slot.dx * q.face, sy = q.cy + slot.dy;
+    const isArcher = s.unit === 'archers', isCav = s.unit === 'cavalry';
+    const backRank = !isCav && slotIdx >= 5;
+    // spears are long: spearmen in the second rank can still jab past the front rank
+    const meleeReach = U.reach + (s.unit === 'spearmen' && backRank ? B.spacing : 0);
+
+    // pick an enemy soldier to fight (refreshed often)
     s.retarget -= DT;
-    const range = s.unit === 'archers' ? U.range ?? 7 : B.aggroRange;
     let t = s.target > 0 ? so(s.target) : null;
     if (!t || !alive(t) || s.retarget <= 0) {
-      s.retarget = 0.6 + rand(b) * 0.3;
+      s.retarget = 0.25 + rand(b) * 0.15;
+      const engaged = b.t - q.lastFight < 3;
+      // archers: anyone in bow range; others: nearby, or further away once the squad is fighting
+      const radius = isArcher ? U.range ?? 7 : isCav ? 8 : engaged ? 6 : B.aggroRange;
       let best: BSoldier | null = null, bd = Infinity;
-      const check = (e: BSoldier) => {
+      nearby(s.x, s.y, radius, e => {
         if (e.side === s.side || !alive(e)) return;
-        let d = Math.hypot(e.x - s.x, e.y - s.y);
-        if (d > range) return;
-        if (e.squad === q.target) d -= 0.6; // prefer our squad's target
-        if (U.strongVs.includes(e.unit)) d -= 0.8;
-        if (d < bd) { bd = d; best = e; }
-      };
-      nearby(s.x, s.y, range, check);
+        const d = Math.hypot(e.x - s.x, e.y - s.y);
+        if (d > radius) return;
+        // prefer enemies in front of my own place in the line (keeps the line tidy)
+        let score = d + (isArcher || isCav ? 0 : Math.abs(e.y - sy) * 0.8);
+        if (e.squad === q.target) score -= 0.5;
+        if (U.strongVs.includes(e.unit)) score -= 0.8;
+        if (score < bd) { bd = score; best = e; }
+      });
       t = best; s.target = t ? (t as BSoldier).id : -1;
     }
-    const slot = slotOffset(s.unit, s.slot);
-    const sx = q.cx + slot.dx * q.face, sy = q.cy + slot.dy;
+
     if (t) {
       const d = Math.hypot(t.x - s.x, t.y - s.y);
-      const meleeNow = s.unit !== 'archers' || d < 1.1;
-      const reach = meleeNow ? U.reach : U.range ?? 7;
+      const meleeNow = !isArcher || d < 1.1;
+      const reach = meleeNow ? meleeReach : U.range ?? 7;
       if (d <= reach) {
         s.dir = Math.atan2(t.y - s.y, t.x - s.x);
         if (s.cd <= 0) {
           const tq = sq(t.squad);
           let dmg = damageOf(s, q, t, tq, meleeNow);
-          if (s.unit === 'cavalry' && s.charge && s.moved > 2) { dmg *= U.chargeBonus ?? 1; s.charge = false; }
+          if (isCav && s.charge && s.moved > 2) { // charge! (spearmen brace: no charge bonus against them)
+            if (t.unit !== 'spearmen') dmg *= U.chargeBonus ?? 1;
+            s.charge = false;
+          }
           dmg *= 0.85 + rand(b) * 0.3;
           if (meleeNow) {
             s.lunge = 0.18; s.lungeDir = s.dir;
@@ -249,10 +276,18 @@ export function stepBattle(b: BattleState) {
           s.cd = U.cooldown * (0.85 + rand(b) * 0.3);
         }
         s.idle = 0; s.moved = 0; q.lastFight = b.t;
-      } else if (meleeNow) {
+        // archers keep up with their squad while shooting; infantry drift back toward their spot in the line
+        if (isArcher && !meleeNow) goTo(sx, sy, speed * 0.6);
+        else if (!isCav) goTo(s.x + (sx - s.x) * 0.3, s.y + (sy - s.y) * 0.3, speed * 0.3, 0.05);
+      } else if (isCav) {
         goTo(t.x, t.y, speed, reach * 0.9);
+      } else if (meleeNow) {
+        // step up to the enemy, but stay roughly in my lane of the line
+        const fx = t.x - Math.sign(t.x - s.x || q.face) * reach * 0.85;
+        const fy = backRank && s.unit === 'spearmen' ? sy : t.y * 0.6 + sy * 0.4;
+        goTo(fx, fy, speed, 0.05);
       } else {
-        goTo(sx, sy, speed * 1.1);
+        goTo(sx, sy, speed * 1.1); // archer out of range: keep with the squad
       }
     } else {
       // no one to fight: keep formation (cavalry regain their charge after a breather)

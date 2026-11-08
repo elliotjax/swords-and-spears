@@ -312,6 +312,10 @@ The army is **squad-based**; the player never micromanages individual soldiers.
 - **Every soldier has 100 HP**, tracked individually; an average hit kills in **3–5 hits**. Each squad shows **one HP bar = the average HP of its soldiers**.
 - **Squads move together; each soldier picks their own target** (prefers their squad's target and what they're good against), closes in and swings; archers shoot arrows that fly in an arc; cavalry get a **charge bonus** on their first hit after a run. Hit soldiers flash white; the fallen stay on the field.
 - **Breaking:** at **20% squad HP** a squad is broken; it fights on (same stats) for **20 seconds**, then **flees off its own side** of the field and is gone.
+- **Battle lines (Decided):** infantry squads march until their front rank meets the enemy front, then hold a line; soldiers fight the enemy in front of their own place in the line; when a front-rank soldier falls, the one behind steps up; spearmen can jab from the second rank. Idle soldiers look for targets often and walk to the nearest fight once their squad is engaged.
+- **Archers always fight (Decided):** they never retreat; they advance with their squad until enemies are in range, keep shooting while moving up, and fight hand-to-hand if reached (70% of arrows land).
+- **Spearmen brace:** cavalry get no charge bonus against spearmen.
+- **Squad badge (Decided):** each squad shows a small badge with its symbol (sword, spear, bow, horse) that **fills from the bottom with team colour by the squad's average HP**; it turns orange with a countdown when broken, then "Fleeing!". The badge follows the middle of the squad (stragglers ignored).
 - **No control yet:** armies start in the default formation (swordsmen front, spearmen behind, archers back, cavalry flanks) and you press play.
 - **Length:** a few minutes (a balanced 8-squads-a-side battle takes ~2 minutes at 1×).
 - **Battle Lab** (⚔️ on the testing sidebar): pick each side's squads and rank, presets, Fight with pause/1×/2×/3×/10×, an automatic battle camera (🎯; pan/pinch to take over), results per squad, and **Run 50 battles** for win rates.

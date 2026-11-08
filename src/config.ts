@@ -180,7 +180,7 @@ export const CONFIG = {
     fleeSpeed: 1.4,             // fleeing speed multiplier
     maxSeconds: 900,            // a battle with no winner after this long is a draw
     hitChance: 0.72,            // melee swings that land
-    arrowHitChance: 0.6,        // arrows that land
+    arrowHitChance: 0.7,        // arrows that land
     arrowSpeed: 9,              // tiles per second
     counterBonus: 1.5,          // damage multiplier against a unit you're good against
     rankDamage: 0.1,            // +10% damage per rank above Recruit
