@@ -115,10 +115,11 @@ Color roles: **red = player**, **blue = enemy kingdoms** (match the earlier prot
 Phone portrait. The map is full-bleed. The UI floats over it.
 
 **Top left: status panel** (about 166 px wide). Rows, each with a small icon, a label, and a value:
-- **Food:** surplus rate such as `+14 lb/day` (green when positive, red when negative), with a thin **granary bar** underneath (for example 3.2 of 5 days).
+- **Food:** the amount stored in pounds plus the change per day, for example `262 lb +83/d` (change green when going up, red when going down), with a thin **granary bar** underneath labelled as a **percentage full** (for example `Granary 68% full`). *(Decided, replaces the earlier rate-only idea.)*
 - **Wood:** stockpile.
 - **Gold:** stockpile plus daily income, for example `180 +6/d`.
 - **Villagers:** current / housing capacity, for example `28 / 36`.
+- **Births:** expected births per day right now, for example `1.2/day` (0 when blocked; the Villagers tab says why).
 - **Idle:** villagers without a job (amber).
 - **Army:** military percentage of population against the cap, for example `12% / 30%`.
 
@@ -132,7 +133,7 @@ Phone portrait. The map is full-bleed. The UI floats over it.
 2. **Building cards** (about 76x92 px): a small roof-from-above icon, name, and cost. The selected/dragged card lifts up with an accent border. **Locked** cards are dimmed with a lock and a requirement like "Hall Lv 3". The row scrolls sideways.
 3. **Main bar** (64 px tall, the primary navigation). Five tabs with icon plus label: **Build, Villagers, Military, Tech, Grand Map**. The active tab has a tinted background and a 3 px accent line on top.
 
-**Interactions:** the player **drags a building card from the build menu onto the grid** to place it. A translucent green ghost with a dashed outline shows a valid tile; red or gray when invalid.
+**Interactions:** the player **drags a building card from the build menu onto the grid** to place it. While dragging, the **building sits centred under the finger**. A translucent green ghost with a dashed outline shows a valid tile; red when invalid. (Tapping a card instead gives a Place / Cancel bar; tap the map to move the building.)
 
 **Skin tokens (mockup E)**
 
@@ -200,7 +201,7 @@ Three resources to start. More can come later.
 
 | Resource | How it works |
 |---|---|
-| **Food** | A **rate in pounds per day**: production minus what the population eats. **No exact stockpile.** Surplus fills a **granary**; the granary holds about **5 days** of consumption (starting value). If the daily rate is negative, the granary drains. When empty, the population suffers (exact effects TBD). Tributary colonies add a fixed amount per day. |
+| **Food** | **(Decided, changed)** A **stockpile in pounds** with a **change per day** (production minus what the population eats). Food is stored in the **granary**, which has a capacity (starting value: 1.5 days of the population's food use) and is shown as **% full**. If the daily change is negative, the stock drains. When empty, the population suffers (exact effects TBD; for now births stop). Tributary colonies add a fixed amount per day. |
 | **Wood** | A normal stockpile. Spent mostly on buildings. |
 | **Gold** | A normal stockpile. Spent on **buildings, technology, army upkeep, and purchases.** (Full list TBD.) |
 
@@ -237,11 +238,15 @@ This is a signature feature. It is also what makes the colony satisfying to watc
 
 **Pathfinding:** tile-based (A* or flow fields), walking around buildings. Must stay fast with hundreds of villagers.
 
+**Doors (Decided):** every building has a **door on its front (bottom) side**. Villagers walk right up to the doorway and only disappear (fade out) once they reach it, and come back out of it when leaving. To get to a door they walk along the narrow gap around the building; buildings are drawn slightly smaller than their tiles so there is visual room to walk between them. **The game does not stop you from building in front of another building's door**; villagers then go around to it.
+
+**Road look (Decided):** roads are **thin paths through the middle of the tiles**, not full tile squares, with a **gravel** look (grey-beige with small stones). They **join up naturally**: straight, diagonal, curving where they bend or branch. Levels: faint worn line → thin gravel trail → wider gravel road. Villagers walk along the middle of them.
+
 ---
 
 ## 8. Game flow and time
 
-- **Day length** (Proposal): 1 game day is about 45 seconds of real time at 1x. Configurable.
+- **Day length (Decided):** 1 game day = **5 minutes** of real time at 1x. The game's pace in real time stays the same as the first version, so per-day numbers are bigger (for example a full farm makes about 220 lb/day).
 - Rates in the UI are shown **per day** (for example lb/day, gold/day).
 - Possible later: **seasons** (planting, harvest, winter) to give long sessions a rhythm. **Not decided. Not in v1.**
 
@@ -300,19 +305,19 @@ These are only starting points for the first playable. The owner will tune them 
 
 | Setting | Starting value |
 |---|---|
-| Day length | 45 s real time at 1x |
+| Day length | 5 min real time at 1x |
 | Starting villagers | 12 |
 | Starting resources | 200 wood, 100 gold |
-| Villager food need | 2 lb/day each |
+| Villager food need | 12 lb/day each |
 | House capacity | 4 villagers (Hut 2, Cottage 6, Longhouse 8: placeholders) |
 | House costs (wood) | Hut 15, House 25, Cottage 45, Longhouse 70 |
-| Farm | capacity 8, full output about 35 lb/day, cost 40 wood, grassland bonus +25% |
-| Lumber Camp | capacity 6, full output about 20 wood/day, cost 30 wood, forest tile only |
-| Market | capacity 4, about 8 gold/day at full staff, cost 60 wood |
+| Farm | capacity 8, full output about 220 lb/day, cost 40 wood, grassland bonus +25% |
+| Lumber Camp | capacity 6, full output about 130 wood/day, cost 30 wood, forest tile only |
+| Market | capacity 4, about 50 gold/day at full staff, cost 60 wood |
 | Barracks | cost 80 wood (not in v1) |
-| Tax | about 0.25 gold/day per villager |
-| Granary | holds 5 days of food use |
-| Births | with a food surplus and a free bed, about 1 birth per 10 days per eligible house |
+| Tax | about 1.5 gold/day per villager |
+| Granary | holds 1.5 days of food use (shown as % full); start with half a day of food |
+| Births | with food going up, food in store, and a free bed: about 1.2 births per day per house with a free bed |
 | Town Hall Lv 1 house cap | 4 houses (Lv 2: 8, Lv 3: 14: placeholders) |
 | Army cap | 30% of population |
 | Squad size | 10 |
@@ -392,7 +397,8 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **M1 polish:** game starts on a fresh morning; first alert says "Build a Farm"; softer, rounder worn paths; faster drawing (off-screen buildings skipped). Tested: drag-to-place, tap-to-place, tapping buildings, save + reload, 300 villagers (game logic 0.16 ms per step).
 - Defaults chosen (owner OK'd): v1 houses are Hut + House; Town Hall upgrade is a simple button (wood + gold); farms grassland only; empty granary = births stop + alert (nothing worse yet); roads are looks only (speed bonus setting exists, off); map 40×40, random each new game.
 
-- Next: owner playtests on iPhone. Then Milestone 2 (town hall levels, tech tree, more buildings).
+- **Owner playtest 1 feedback (all built):** phone feel good. Food is now a stockpile in lb with a per-day change; granary shown as % full; Births/day row added to the status panel (Villagers tab explains when births are blocked); births faster; day length 5 min with the same real-time pace; villagers walk to the actual doorway (front side) and fade in/out there, walking along building edges to reach it; thin, connected gravel roads with diagonals and curves; dragged building sits under the finger. Old saves from the first version can't be loaded (start a new game).
+- Next: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 
 ### How to go back to an earlier version
 Every step is saved as a commit. Ask Claude: "go back to before <step>" and it will undo it. You can also see all checkpoints on GitHub under **Commits**.

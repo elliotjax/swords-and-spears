@@ -55,6 +55,11 @@ export function tileCost(s: GameState, i: number): number {
   return base * (1 - P.preferWorn * worn);
 }
 
+/** Path to one exact tile. */
+export function findPathToTile(s: GameState, sx: number, sy: number, goal: number): number[] | null {
+  return findPathToRect(s, sx, sy, goal % s.w, Math.floor(goal / s.w), 1, 1, goal);
+}
+
 /**
  * Find a path from (sx,sy) to any walkable tile touching the target rectangle.
  * Returns tile indices (excluding the start), or null if unreachable.
@@ -62,6 +67,7 @@ export function tileCost(s: GameState, i: number): number {
 export function findPathToRect(
   s: GameState, sx: number, sy: number,
   rx: number, ry: number, rw: number, rh: number,
+  exact = -1, // if set, only this tile counts as arriving
 ): number[] | null {
   const W = s.w, H = s.h, N = W * H;
   if (g.length !== N) {
@@ -71,12 +77,13 @@ export function findPathToRect(
   gen++;
   heap = []; heapF = [];
   const minCost = 1 - CONFIG.paths.preferWorn;
-  const isGoal = (x: number, y: number) =>
+  const isGoal = (x: number, y: number) => exact >= 0 ? y * W + x === exact :
     x >= rx - 1 && x <= rx + rw && y >= ry - 1 && y <= ry + rh &&
     !(x >= rx && x < rx + rw && y >= ry && y < ry + rh);
   const hfun = (x: number, y: number) => {
-    const dx = Math.max(rx - 1 - x, 0, x - (rx + rw));
-    const dy = Math.max(ry - 1 - y, 0, y - (ry + rh));
+    const pad = exact >= 0 ? 0 : 1;
+    const dx = Math.max(rx - pad - x, 0, x - (rx + rw - 1 + pad));
+    const dy = Math.max(ry - pad - y, 0, y - (ry + rh - 1 + pad));
     return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) * minCost;
   };
   const start = sy * W + sx;

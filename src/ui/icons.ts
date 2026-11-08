@@ -7,6 +7,7 @@ export const IC = {
   wood: svg('<rect x="2" y="8" width="17" height="8" rx="4" fill="#b07a4c" stroke="#3a3342" stroke-width="1.6"/><ellipse cx="19" cy="12" rx="3" ry="4" fill="#e3c093" stroke="#3a3342" stroke-width="1.6"/>'),
   gold: svg('<circle cx="12" cy="12" r="8.5" fill="#f0b93e" stroke="#b8861a" stroke-width="2"/><circle cx="12" cy="12" r="4.5" stroke="#b8861a" stroke-width="1.6"/>'),
   people: svg('<circle cx="12" cy="7.5" r="4" fill="#262b38"/><path d="M4 21c0-5 3.5-7.5 8-7.5s8 2.5 8 7.5z" fill="#262b38"/>'),
+  baby: svg('<circle cx="12" cy="9" r="5.5" fill="#f2c79b" stroke="#3a3342" stroke-width="1.6"/><path d="M6 21c0-3.5 2.7-5.5 6-5.5s6 2 6 5.5z" fill="#4f7fc4"/><path d="M9.5 6.2c1.2-1.6 3.8-1.6 5 0" stroke="#6b4426" stroke-width="1.8"/>'),
   idle: svg('<circle cx="12" cy="12" r="8.5" stroke="#d98a1d" stroke-width="2.4"/><path d="M12 7v5l3 2" stroke="#d98a1d" stroke-width="2.4"/>'),
   army: svg('<path d="M12 2.5l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10v-6z" fill="#d6453d"/><path d="M12 8v5" stroke="#fff" stroke-width="2.2"/><circle cx="12" cy="16.3" r="1.2" fill="#fff"/>'),
   warn: svg('<path d="M12 3l10 18H2z" fill="#d6453d"/><path d="M12 10v5" stroke="#fff" stroke-width="2.2"/><circle cx="12" cy="18" r="1.2" fill="#fff"/>', 22),

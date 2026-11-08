@@ -1,4 +1,5 @@
 import type { BuildingKind } from '../config';
+import { DOORS } from '../sim/doors';
 import { hash } from '../sim/rng';
 import type { Villager } from '../sim/types';
 import { PAL } from './palette';
@@ -93,6 +94,15 @@ function roof(c: C, x: number, y: number, w: number, h: number, vertical: boolea
   c.beginPath(); c.rect(x, y, w, h); stroke(c);
 }
 
+/** A front door with a stone step; (x, y) is the doorway point villagers walk into. */
+function doorway(c: C, x: number, y: number) {
+  c.fillStyle = PAL.shadow; c.fillRect(x - 0.15, y + 0.01, 0.34, 0.11);
+  c.fillStyle = PAL.stone; c.fillRect(x - 0.17, y - 0.02, 0.34, 0.1);
+  c.beginPath(); c.rect(x - 0.17, y - 0.02, 0.34, 0.1); stroke(c, PAL.outline, LW * 0.8);
+  c.fillStyle = '#6b4a35'; c.fillRect(x - 0.1, y - 0.12, 0.2, 0.1);
+  c.beginPath(); c.rect(x - 0.1, y - 0.12, 0.2, 0.1); stroke(c, PAL.outline, LW * 0.8);
+}
+
 // ---------- buildings ----------
 
 export interface DrawOpts { t: number; level?: number; seed?: number; occupied?: boolean }
@@ -106,9 +116,8 @@ export function drawBuilding(c: C, kind: BuildingKind, x: number, y: number, w: 
       roof(c, x + 0.16, y + 0.12, w - 0.32, h - 0.42, true);
       chimney(c, x + w * 0.72, y + 0.42);
       smoke(c, x + w * 0.72, y + 0.36, o.t, seed);
-      c.fillStyle = PAL.wall; c.fillRect(x + w / 2 - 0.15, y + h - 0.3, 0.3, 0.12);
-      c.beginPath(); c.rect(x + w / 2 - 0.15, y + h - 0.3, 0.3, 0.12); stroke(c);
-      barrel(c, x + 0.24, y + h - 0.2);
+      doorway(c, x + DOORS.house.x, y + DOORS.house.y);
+      barrel(c, x + 0.3, y + h - 0.18);
       if (hash(seed, 3) > 0.5) crate(c, x + w - 0.42, y + h - 0.3, 0.18);
       return;
     }
@@ -119,15 +128,15 @@ export function drawBuilding(c: C, kind: BuildingKind, x: number, y: number, w: 
       // little garden
       c.fillStyle = PAL.soil; rr(c, x + 1.47, y + 0.2, 0.42, 1.2, 0.05); c.fill(); stroke(c, PAL.woodDark);
       for (let i = 0; i < 4; i++) circle(c, x + 1.68, y + 0.38 + i * 0.27, 0.07, i % 2 ? PAL.crop : PAL.crop2);
-      barrel(c, x + 0.3, y + h - 0.18);
+      doorway(c, x + DOORS.cottage.x, y + DOORS.cottage.y);
+      barrel(c, x + 0.25, y + h - 0.16);
       return;
     }
     case 'longhouse': {
       roof(c, x + 0.12, y + 0.15, w - 0.24, h - 0.5, false);
       chimney(c, x + 0.8, y + 0.55); chimney(c, x + w - 0.8, y + 0.55);
       smoke(c, x + 0.8, y + 0.5, o.t, seed); smoke(c, x + w - 0.8, y + 0.5, o.t + 0.5, seed + 1);
-      c.fillStyle = PAL.wall; c.fillRect(x + w / 2 - 0.18, y + h - 0.36, 0.36, 0.13);
-      c.beginPath(); c.rect(x + w / 2 - 0.18, y + h - 0.36, 0.36, 0.13); stroke(c);
+      doorway(c, x + DOORS.longhouse.x, y + DOORS.longhouse.y);
       barrel(c, x + 0.3, y + h - 0.18); crate(c, x + w - 0.5, y + h - 0.3, 0.2);
       return;
     }
@@ -140,6 +149,7 @@ export function drawBuilding(c: C, kind: BuildingKind, x: number, y: number, w: 
       for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++)
         c.fillRect(x + 1.68 + i * 0.36, y + 1.98 + j * 0.36, 0.22, 0.2);
       circle(c, x + 2.15, y + 2.27, 0.14, PAL.crop, PAL.outline);
+      doorway(c, x + DOORS.manor.x, y + DOORS.manor.y);
       return;
     }
     case 'farm': return farm(c, x, y, w, h, o, seed);
@@ -170,7 +180,7 @@ function townHall(c: C, x: number, y: number, o: DrawOpts) {
   c.beginPath(); c.rect(x + 1.2, y + 2.72, 0.6, 0.18); stroke(c);
   c.fillStyle = '#6b4a35'; c.fillRect(x + 1.32, y + 2.4, 0.36, 0.32);
   // main roof
-  roof(c, x + 0.08, y + 0.1, 2.84, 2.2, false);
+  roof(c, x + 0.16, y + 0.16, 2.68, 2.12, false);
   // banners
   for (const bx of [x + 0.5, x + 2.32]) {
     c.fillStyle = PAL.shadow; c.fillRect(bx + 0.04, y + 2.3, 0.18, 0.55);
@@ -219,7 +229,7 @@ function hut(c: C, x: number, y: number, o: DrawOpts, seed: number) {
   c.fillStyle = '#f0d898'; c.fillRect(x + 0.47, y + 0.12, 0.05, 0.66);
   rr(c, x + 0.15, y + 0.12, 0.7, 0.66, 0.2); stroke(c);
   smoke(c, x + 0.5, y + 0.3, o.t, seed);
-  c.fillStyle = PAL.woodDark; c.fillRect(x + 0.42, y + 0.78, 0.16, 0.08);
+  doorway(c, x + DOORS.hut.x, y + DOORS.hut.y);
 }
 
 function farm(c: C, x: number, y: number, w: number, h: number, o: DrawOpts, seed: number) {
@@ -250,6 +260,11 @@ function farm(c: C, x: number, y: number, w: number, h: number, o: DrawOpts, see
   for (let i = 1; i < h * 2; i++) {
     for (const px of [x + 0.06, x + w - 0.06]) circle(c, px, y + 0.06 + i * ((h - 0.12) / (h * 2)), 0.035, PAL.woodDark);
   }
+  // gate in the front fence
+  const gx = x + DOORS.farm.x, gy = y + h - 0.06;
+  c.fillStyle = '#c9a571'; c.fillRect(gx - 0.2, gy - 0.05, 0.4, 0.1);
+  circle(c, gx - 0.22, gy, 0.05, PAL.woodDark, PAL.outline, LW * 0.6);
+  circle(c, gx + 0.22, gy, 0.05, PAL.woodDark, PAL.outline, LW * 0.6);
   // scarecrow
   const sx = x + w - 0.42, sy = y + 0.38;
   c.strokeStyle = PAL.woodDark; c.lineWidth = 0.04;

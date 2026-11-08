@@ -9,6 +9,7 @@ export function saveGame(s: GameState) {
       ...s,
       tiles: Array.from(s.tiles).join(''),
       traffic: Array.from(s.traffic, t => Math.round(t * 10) / 10),
+      edges: Array.from(s.edges, t => Math.round(t * 10) / 10),
       occ: undefined,
     };
     localStorage.setItem(KEY, JSON.stringify(data));
@@ -27,6 +28,7 @@ export function loadGame(): GameState | null {
       ...d,
       tiles: Uint8Array.from(String(d.tiles), (c: string) => Number(c)),
       traffic: Float32Array.from(d.traffic),
+      edges: Float32Array.from(d.edges),
       occ: new Int32Array(0),
     };
     rebuildDerived(s);

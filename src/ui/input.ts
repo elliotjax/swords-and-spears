@@ -10,7 +10,7 @@ import { buildingIcon } from './ui';
 //  - drag a building card up onto the map: place it (ghost shows valid/invalid)
 //  - tap a card: placement mode with Place / Cancel buttons
 
-const DRAG_LIFT = 46; // the ghost sits this many px above the finger so it isn't hidden
+const DRAG_LIFT = 0; // px the ghost sits above the finger (0 = building centred under the finger)
 
 export function setupInput(game: Game) {
   const canvas = game.renderer.canvas;

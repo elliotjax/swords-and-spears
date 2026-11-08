@@ -19,6 +19,7 @@ export interface ViewState {
 }
 
 const CH = 8; // tiles per cached chunk
+const WEAR_RES = 16; // pixels per tile in the road texture
 
 export class Renderer {
   canvas: HTMLCanvasElement;
@@ -172,33 +173,77 @@ export class Renderer {
     for (const t of list) tree(c, t.x, t.y, t.r, t.seed, 1);
   }
 
-  // ---------------- desire-path wear layer ----------------
+  // ---------------- desire paths (gravel roads) ----------------
+  // Foot traffic is counted between neighbouring tiles. Each worn link is drawn
+  // as a thin path through tile centres, with smooth curves where paths bend
+  // or branch, so roads join up naturally (diagonals included).
 
   private paintWear(s: GameState) {
-    const R = 6; // pixels per tile in the wear texture
+    const R = WEAR_RES;
     const cv = this.wear;
     if (cv.width !== s.w * R) { cv.width = s.w * R; cv.height = s.h * R; }
     const c = cv.getContext('2d')!;
+    c.setTransform(1, 0, 0, 1, 0, 0);
     c.clearRect(0, 0, cv.width, cv.height);
+    c.setTransform(R, 0, 0, R, 0, 0);
     const P = CONFIG.paths;
-    const layers: [number, number, number, string][] = [
-      [P.faint, P.trail, 1.0, '200,186,128'],
-      [P.trail, P.road, 0.9, '198,167,121'],
-      [P.road, P.road * 1.6, 0.75, '222,203,158'],
-    ];
-    for (const [lo, hi, rad, rgb] of layers) {
-      for (let i = 0; i < s.traffic.length; i++) {
-        const t = s.traffic[i];
-        if (t <= lo) continue;
-        const a = Math.min(1, (t - lo) / (hi - lo));
-        const x = ((i % s.w) + 0.5) * R, y = (Math.floor(i / s.w) + 0.5) * R;
-        const g = c.createRadialGradient(x, y, 0, x, y, rad * R);
-        const peak = lo === P.faint ? 0.55 * a : 0.9 * a;
-        g.addColorStop(0, `rgba(${rgb},${peak})`);
-        g.addColorStop(0.6, `rgba(${rgb},${peak * 0.85})`);
-        g.addColorStop(1, `rgba(${rgb},0)`);
-        c.fillStyle = g;
-        c.fillRect(x - rad * R, y - rad * R, rad * R * 2, rad * R * 2);
+    const W = s.w, N = s.w * s.h;
+    const DIRS = [[1, 0], [0, 1], [1, 1], [-1, 1]];
+    const adj: ({ x: number; y: number; t: number }[] | undefined)[] = new Array(N);
+    const links: { ax: number; ay: number; bx: number; by: number; t: number }[] = [];
+    for (let i = 0; i < N; i++) {
+      for (let d = 0; d < 4; d++) {
+        const t = s.edges[i * 4 + d];
+        if (t < P.faint) continue;
+        const ax = i % W, ay = Math.floor(i / W), bx = ax + DIRS[d][0], by = ay + DIRS[d][1];
+        if (bx < 0 || by < 0 || bx >= W || by >= s.h) continue;
+        const j = by * W + bx;
+        (adj[i] ??= []).push({ x: bx, y: by, t });
+        (adj[j] ??= []).push({ x: ax, y: ay, t });
+        links.push({ ax, ay, bx, by, t });
+      }
+    }
+    const level = (t: number) => (t >= P.road ? 3 : t >= P.trail ? 2 : 1);
+    const network = (minLevel: number, width: number, color: string, alpha = 1) => {
+      c.globalAlpha = alpha;
+      c.lineWidth = width; c.strokeStyle = color; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.beginPath();
+      for (let i = 0; i < N; i++) {
+        const list = adj[i];
+        if (!list) continue;
+        const cx = (i % W) + 0.5, cy = Math.floor(i / W) + 0.5;
+        const mids = list.filter(n => level(n.t) >= minLevel).map(n => ({ x: (cx + n.x + 0.5) / 2, y: (cy + n.y + 0.5) / 2 }));
+        if (mids.length === 1) { c.moveTo(cx, cy); c.lineTo(mids[0].x, mids[0].y); }
+        for (let a = 0; a < mids.length; a++) for (let b = a + 1; b < mids.length; b++) {
+          c.moveTo(mids[a].x, mids[a].y);
+          c.quadraticCurveTo(cx, cy, mids[b].x, mids[b].y);
+        }
+      }
+      c.stroke();
+      c.globalAlpha = 1;
+    };
+    // 1. faintly worn grass
+    network(1, 0.16, '#c9bf92', 0.5);
+    // 2. gravel trail, 3. wide gravel road (dark edge first, then the gravel)
+    network(2, 0.27, '#b3a78f');
+    network(3, 0.42, '#a99c84');
+    network(2, 0.2, '#d8cfbd');
+    network(3, 0.33, '#ded6c6');
+    // little stones
+    for (const l of links) {
+      const lv = level(l.t);
+      if (lv < 2) continue;
+      const half = (lv === 3 ? 0.13 : 0.07);
+      const n = lv === 3 ? 5 : 3;
+      const dx = l.bx - l.ax, dy = l.by - l.ay, len = Math.hypot(dx, dy);
+      const px = -dy / len, py = dx / len;
+      for (let k = 0; k < n; k++) {
+        const h1 = hash(l.ax * 97 + l.bx, l.ay * 89 + l.by, k);
+        const h2 = hash(l.ax * 31 + l.bx, l.ay * 37 + l.by, k + 9);
+        const f = 0.25 + h1 * 0.5, o = (h2 - 0.5) * 2 * half;
+        const x = l.ax + 0.5 + dx * f + px * o, y = l.ay + 0.5 + dy * f + py * o;
+        c.fillStyle = k % 2 ? '#a0947e' : '#f4efe4';
+        c.beginPath(); c.arc(x, y, 0.022 + h2 * 0.012, 0, 7); c.fill();
       }
     }
   }
@@ -235,15 +280,14 @@ export class Renderer {
 
     // worn paths
     if (Math.floor(time * 2) !== this.wearAt) { this.wearAt = Math.floor(time * 2); this.paintWear(s); }
-    c.imageSmoothingQuality = 'low';
+    c.imageSmoothingQuality = 'medium';
     {
-      // only copy the visible part of the wear texture
-      const R = 6;
+      // only copy the visible part of the road texture
+      const R = WEAR_RES;
       const x0 = Math.max(0, Math.floor(tl.x) - 1), y0 = Math.max(0, Math.floor(tl.y) - 1);
       const x1 = Math.min(s.w, Math.ceil(br.x) + 1), y1 = Math.min(s.h, Math.ceil(br.y) + 1);
       if (x1 > x0 && y1 > y0) c.drawImage(this.wear, x0 * R, y0 * R, (x1 - x0) * R, (y1 - y0) * R, x0, y0, x1 - x0, y1 - y0);
     }
-    this.roadPebbles(s, c, tl, br);
 
     // trees
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -265,14 +309,18 @@ export class Renderer {
     }
 
     // villagers
-    const vs = s.villagers.filter(v => v.mode !== 'inside');
+    const vs = s.villagers.filter(v => v.vis > 0.01);
     vs.sort((a, b) => a.y - b.y);
     for (const v of vs) {
-      const x = v.px + (v.x - v.px) * alpha + v.ox * (v.mode === 'walk' ? 1 : 0.3);
-      const y = v.py + (v.y - v.py) * alpha + v.oy * (v.mode === 'walk' ? 1 : 0.3);
+      // walkers stay on the middle of the path; idlers get a small personal offset
+      const off = v.mode === 'idle' ? 1 : 0;
+      const x = v.px + (v.x - v.px) * alpha + v.ox * off;
+      const y = v.py + (v.y - v.py) * alpha + v.oy * off;
       if (x < tl.x - 1 || x > br.x + 1 || y < tl.y - 1 || y > br.y + 1) continue;
-      villager(c, v, x, y, v.mode === 'walk' || (v.mode !== 'inside' && (v.x !== v.px || v.y !== v.py)));
+      c.globalAlpha = v.vis;
+      villager(c, v, x, y, v.mode !== 'inside' && (v.x !== v.px || v.y !== v.py));
     }
+    c.globalAlpha = 1;
 
     // placement ghost
     if (view.ghost) {
@@ -301,22 +349,6 @@ export class Renderer {
     if (this.cam.zoom > 0.45) this.badges(s, c);
     if (view.ghost) this.ghostLabel(s, c, view.ghost);
     void LW;
-  }
-
-  private roadPebbles(s: GameState, c: CanvasRenderingContext2D, tl: { x: number; y: number }, br: { x: number; y: number }) {
-    const P = CONFIG.paths;
-    const x0 = Math.max(0, Math.floor(tl.x)), y0 = Math.max(0, Math.floor(tl.y));
-    const x1 = Math.min(s.w - 1, Math.ceil(br.x)), y1 = Math.min(s.h - 1, Math.ceil(br.y));
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-      const t = s.traffic[y * s.w + x];
-      if (t < P.road) continue;
-      for (let k = 0; k < 4; k++) {
-        if (hash(x, y, 200 + k) < 0.35) continue;
-        const px = x + 0.2 + hash(x, y, 210 + k) * 0.6, py = y + 0.2 + hash(x, y, 220 + k) * 0.6;
-        c.fillStyle = 'rgba(160,140,105,.5)';
-        c.beginPath(); c.ellipse(px, py, 0.05, 0.035, k, 0, 7); c.fill();
-      }
-    }
   }
 
   private badges(s: GameState, c: CanvasRenderingContext2D) {

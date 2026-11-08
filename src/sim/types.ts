@@ -13,6 +13,7 @@ export interface Building {
 
 export type Mode = 'inside' | 'walk' | 'work' | 'idle';
 export type Carry = 'basket' | 'logs' | 'coins' | null;
+export interface Pt { x: number; y: number }
 
 export interface Villager {
   id: number;
@@ -21,13 +22,16 @@ export interface Villager {
   home: number | null;       // building id
   job: number | null;        // building id
   mode: Mode;
-  inside: number | null;     // building id while hidden inside
+  inside: number | null;     // building id while inside (or entering)
   goalKey: string;           // what the villager is currently trying to do
   goalB: number | null;      // goal building id
   goalKind: 'home' | 'job' | 'hall' | 'wander';
-  path: number[];            // remaining tile indices to walk
-  dest: { x: number; y: number } | null; // final free-move point (inside work area)
+  way: Pt[];                 // free-walk points (around a building, to/from its door)
+  path: number[];            // tiles to walk along
+  approach: boolean;         // after the path, walk along the building to its door
+  dest: Pt | null;           // work spot inside a work area
   timer: number;             // seconds to wait
+  vis: number;               // 0..1 how visible (fades at doorways)
   lastTile: number;
   hallDay: number;           // last day this villager visited the hall
   carry: Carry;
@@ -44,7 +48,8 @@ export interface GameState {
   rng: number;
   w: number; h: number;
   tiles: Uint8Array;
-  traffic: Float32Array;
+  traffic: Float32Array;     // foot traffic per tile (pathfinding prefers worn tiles)
+  edges: Float32Array;       // foot traffic between neighbouring tiles (drawn as roads), 4 per tile
   occ: Int32Array;           // building id per tile, -1 = empty (rebuilt on load)
   buildings: Building[];
   villagers: Villager[];
@@ -52,7 +57,7 @@ export interface GameState {
   tick: number;
   wood: number;
   gold: number;
-  granary: number;           // lb of food stored
+  food: number;              // lb of food stored in the granary
   hallLevel: number;         // 1-based
   hallId: number | null;
   births: number;

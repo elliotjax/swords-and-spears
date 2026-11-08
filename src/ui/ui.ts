@@ -1,7 +1,7 @@
 import { BUILD_MENU, CONFIG, type BuildingKind, type Category } from '../config';
 import { drawBuilding } from '../render/draw';
 import {
-  addWorker, beds, canPlace, canUpgradeHall, dayFrac, dayNumber, def, getB, granaryCap,
+  addWorker, beds, birthBlock, birthRate, canPlace, canUpgradeHall, dayFrac, dayNumber, def, getB, granaryCap,
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
   removeWorker, upgradeHall,
 } from '../sim/sim';
@@ -156,9 +156,9 @@ export class UI {
     const homeless = s.villagers.filter(v => v.home == null).length;
     const openJobs = s.buildings.reduce((a, b) => a + Math.max(0, (def(b.kind).workers ?? 0) - b.workers.length), 0);
     const has = (k: string) => s.buildings.some(b => b.kind === k);
-    if (!has('farm')) return { title: 'Build a Farm', sub: 'Your people need food', level: r.food < 0 && s.granary <= 0.01 ? 'bad' : 'warn', go: 'food' };
-    if (s.granary <= 0.01 && r.food < 0) return { title: 'Starving!', sub: 'Granary empty. Assign farmers', level: 'bad', go: 'villagers' };
-    if (r.food < 0) return { title: 'Food shortage', sub: `Granary draining ${fmt(-r.food)} lb/day`, level: 'warn', go: 'villagers' };
+    if (!has('farm')) return { title: 'Build a Farm', sub: 'Your people need food', level: r.food < 0 && s.food <= 0.01 ? 'bad' : 'warn', go: 'food' };
+    if (s.food <= 0.01 && r.food < 0) return { title: 'Starving!', sub: 'Granary empty. Assign farmers', level: 'bad', go: 'villagers' };
+    if (r.food < 0) return { title: 'Food shortage', sub: `Food dropping ${fmt(-r.food)} lb/day`, level: 'warn', go: 'villagers' };
     if (homeless > 0 && houseCount(s) < houseCap(s)) return { title: 'Need houses', sub: `${homeless} villagers have no bed`, level: 'warn', go: 'housing' };
     if (idleCount(s) > 0 && openJobs > 0) return { title: `${idleCount(s)} idle villagers`, sub: 'Tap to give them jobs', level: 'warn', go: 'villagers' };
     if (houseCount(s) >= houseCap(s) && beds(s) <= population(s) && CONFIG.townHall.levels[s.hallLevel])
@@ -172,16 +172,19 @@ export class UI {
     const s = this.s;
     const r = rates(s);
     const cap = granaryCap(s);
-    const daysStored = s.granary / Math.max(0.001, population(s) * CONFIG.food.perVillagerPerDay);
+    const pct = Math.round(Math.min(100, (s.food / cap) * 100));
     const pop = population(s);
+    const br = birthRate(s);
+    const fc = r.food >= 0 ? 'var(--good)' : 'var(--bad)';
     document.getElementById('status')!.innerHTML = `
       <div class="srow"><span class="ic">${IC.food}</span><span class="lb">Food</span>
-        <span class="vl" style="color:${r.food >= 0 ? 'var(--good)' : 'var(--bad)'}">${sign(r.food)} lb/day</span></div>
-      <div class="gbar"><i style="width:${Math.min(100, (s.granary / cap) * 100)}%;background:${s.granary / cap < 0.2 ? 'var(--bad)' : 'var(--good)'}"></i></div>
-      <div class="gnote">Granary ${fmt(pop ? daysStored : 0)} / ${CONFIG.food.granaryDays} days</div>
+        <span class="vl">${Math.floor(s.food)} lb<small style="color:${fc}">${sign(r.food)}/d</small></span></div>
+      <div class="gbar"><i style="width:${pct}%;background:${pct < 20 ? 'var(--bad)' : 'var(--good)'}"></i></div>
+      <div class="gnote">Granary ${pct}% full</div>
       <div class="srow"><span class="ic">${IC.wood}</span><span class="lb">Wood</span><span class="vl">${Math.floor(s.wood)}${r.wood ? `<small>+${fmt(r.wood)}/d</small>` : ''}</span></div>
       <div class="srow"><span class="ic">${IC.gold}</span><span class="lb">Gold</span><span class="vl">${Math.floor(s.gold)}<small>+${fmt(r.gold)}/d</small></span></div>
       <div class="srow"><span class="ic">${IC.people}</span><span class="lb">Villagers</span><span class="vl">${pop} / ${beds(s)}</span></div>
+      <div class="srow"><span class="ic">${IC.baby}</span><span class="lb">Births</span><span class="vl" style="color:${br ? 'var(--good)' : 'var(--muted)'}">${fmt(br)}/day</span></div>
       <div class="srow"><span class="ic">${IC.idle}</span><span class="lb">Idle</span><span class="vl" style="color:var(--warn)">${idleCount(s)}</span></div>
       <div class="srow"><span class="ic">${IC.army}</span><span class="lb">Army</span><span class="vl">0% / ${Math.round(30)}%</span></div>`;
 
@@ -326,7 +329,8 @@ export class UI {
         <button data-act="add" data-id="${b.id}" ${b.workers.length < d.workers! && idleCount(s) ? '' : 'disabled'}>+</button></div></div>`;
     }).join('');
     return `<div class="panel sheetp"><h3>Villagers<button class="x" data-act="close" data-tab="build" aria-label="Close">✕</button></h3>
-      <p>Population <b>${population(s)}</b> · Idle <b style="color:var(--warn)">${idleCount(s)}</b> · Homeless <b>${homeless}</b> · Born <b>${s.births}</b></p>
+      <p>Population <b>${population(s)}</b> · Idle <b style="color:var(--warn)">${idleCount(s)}</b> · Homeless <b>${homeless}</b> · Born so far <b>${s.births}</b></p>
+      <p>${birthBlock(s) ? `No births right now: <b style="color:var(--bad)">${birthBlock(s)}</b>` : `Births: about <b style="color:var(--good)">${fmt(birthRate(s))} per day</b>`}</p>
       ${rows || '<p>Build a Farm, Lumber Camp or Market to create jobs.</p>'}</div>`;
   }
 

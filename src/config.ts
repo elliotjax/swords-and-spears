@@ -28,10 +28,10 @@ export interface BuildingDef {
 }
 
 export const CONFIG = {
-  version: '0.2.0',
+  version: '0.3.0',
 
   time: {
-    dayLengthSeconds: 45,     // real seconds per game day at 1x
+    dayLengthSeconds: 300,    // real seconds per game day at 1x (5 minutes)
     ticksPerSecond: 20,       // simulation steps per real second at 1x
     speeds: [0, 1, 2, 3],
     autosaveSeconds: 15,      // real seconds between autosaves
@@ -40,11 +40,11 @@ export const CONFIG = {
   // Daily schedule, as fractions of a day (0 = dawn, 1 = next dawn)
   schedule: {
     workStart: 0.06,          // villagers leave home for work
-    workEnd: 0.66,            // villagers leave work
+    workEnd: 0.68,            // villagers leave work
     sleepStart: 0.86,         // everyone heads home to sleep
-    personalJitter: 0.05,     // each villager varies by up to this much
+    personalJitter: 0.03,     // each villager varies by up to this much
     hallVisitChance: 0.4,     // chance per evening to visit the town hall
-    hallVisitSeconds: 3,      // game seconds spent inside the hall
+    hallVisitSeconds: 6,      // game seconds spent inside the hall
     nightTint: 0.22,          // how dark the night gets (0 = off)
   },
 
@@ -60,36 +60,39 @@ export const CONFIG = {
     villagers: 12,
     wood: 200,
     gold: 100,
-    granaryDays: 3,           // food in the granary at the start, in days of use
+    foodDays: 0.5,            // food in the granary at the start, in days of use
   },
 
   food: {
-    perVillagerPerDay: 2,     // lb eaten per villager per day
-    granaryDays: 5,           // granary holds this many days of food use
+    perVillagerPerDay: 12,    // lb eaten per villager per day
+    granaryDays: 1.5,         // granary holds this many days of food use (shown as %)
   },
 
   tax: {
-    goldPerVillagerPerDay: 0.25,
+    goldPerVillagerPerDay: 1.5,
   },
 
   births: {
-    chancePerHousePerDay: 0.1, // per house with a free bed, while food surplus > 0
+    chancePerHousePerDay: 1.2, // per house with a free bed, while food is going up
   },
 
   villagers: {
     walkTilesPerSecond: 2.0,  // game seconds (1x real time)
     forestWalkCost: 1.8,      // forest tiles are slower to path through
     wanderRadius: 3,          // idle villagers wander this far from the hall
+    idlePauseMin: 4,          // idle villagers stand around this long (seconds)...
+    idlePauseMax: 10,         // ...up to this long, then stroll somewhere else
+    doorFadeSeconds: 0.4,     // how quickly villagers fade in/out at doorways
   },
 
   // Desire paths: foot traffic wears roads into the ground
   paths: {
-    trafficPerStep: 1,        // added each time a villager enters a tile
-    decayPerDay: 0.12,        // share of traffic that fades each day
-    faint: 4,                 // traffic needed to look faintly worn
-    trail: 14,                // ...to look like a dirt trail
-    road: 40,                 // ...to look like a well-worn road
-    maxTraffic: 120,          // cap so roads fade in reasonable time
+    trafficPerStep: 1,        // added each time a villager walks from one tile to the next
+    decayPerDay: 0.5,         // share of traffic that fades each day
+    faint: 3,                 // traffic needed to look faintly worn
+    trail: 10,                // ...to look like a thin gravel trail
+    road: 28,                 // ...to look like a wide gravel road
+    maxTraffic: 90,           // cap so roads fade in reasonable time
     preferWorn: 0.35,         // 0..1, how much pathfinding prefers worn tiles
     roadSpeedBonus: 0,        // e.g. 0.3 = 30% faster on roads (off for now)
   },
@@ -132,16 +135,16 @@ export const CONFIG = {
     },
     farm: {
       name: 'Farm', category: 'food', w: 3, h: 3, cost: { wood: 40, gold: 0 },
-      allowedTiles: ['grass'], workers: 8, output: { food: 35 }, grassBonus: 0.25,
+      allowedTiles: ['grass'], workers: 8, output: { food: 220 }, grassBonus: 0.25,
       badge: 'green',
     },
     lumberCamp: {
       name: 'Lumber Camp', category: 'wood', w: 2, h: 2, cost: { wood: 30, gold: 0 },
-      allowedTiles: ['forest'], workers: 6, output: { wood: 20 }, badge: 'gold',
+      allowedTiles: ['forest'], workers: 6, output: { wood: 130 }, badge: 'gold',
     },
     market: {
       name: 'Market', category: 'trade', w: 2, h: 2, cost: { wood: 60, gold: 0 },
-      allowedTiles: ['grass'], workers: 4, output: { gold: 8 }, badge: 'green',
+      allowedTiles: ['grass'], workers: 4, output: { gold: 50 }, badge: 'green',
     },
     barracks: {
       name: 'Barracks', category: 'defense', w: 3, h: 2, cost: { wood: 80, gold: 0 },
