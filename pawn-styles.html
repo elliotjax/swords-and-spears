@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Villager Sprite Options</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root { --bg: #eef0ea; --card: #fff; --text: #262b38; --muted: #667086; --accent: #d6453d; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1d2026; --card: #2a2e36; --text: #eef0f4; --muted: #a3abbb; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: Nunito, system-ui, sans-serif; }
+  main { max-width: 460px; margin: 0 auto; padding: 16px 16px 40px; }
+  h1 { font-size: 22px; margin: 6px 0 4px; }
+  .intro { color: var(--muted); font-weight: 600; font-size: 14px; margin: 0 0 14px; line-height: 1.4; }
+  .card { background: var(--card); border-radius: 16px; padding: 12px; margin-bottom: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+  .card h2 { margin: 2px 2px 6px; font-size: 18px; }
+  .card h2 small { color: var(--accent); font-size: 13px; margin-left: 6px; }
+  .lbl { font-size: 11.5px; font-weight: 800; color: var(--muted); margin: 8px 2px 4px; text-transform: uppercase; letter-spacing: .04em; }
+  canvas { display: block; width: 100%; border-radius: 10px; image-rendering: pixelated; }
+  .card p { margin: 8px 2px 2px; font-size: 14px; line-height: 1.45; color: var(--muted); font-weight: 600; }
+  .card p b { color: var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Villager &amp; soldier options</h1>
+  <p class="intro">Each option is shown at normal game zoom, zoomed in, and as a big close-up. Order in the close-ups: villager, swordsman, spearman, archer, cavalry. Pick one, or mix (e.g. "2's colors on 1's size").</p>
+  <div id="cards"></div>
+</main>
+<script>
+// Sprites are little pixel maps. '.' = empty. Palette letters below.
+const PAL = {
+  h: '#5a3a24', s: '#f0c8a0', T: '#4f7fc4', U: '#b3323a', V: '#d9a441', W: '#5a8f5a', l: '#3e3028',
+  g: '#b4bcc8', G: '#7a8292', R: '#c0392b', r: '#8e2a23', w: '#e6eaf0', S: '#8a6440', o: '#e8b84a',
+  p: '#d0d6de', '|': '#7a5434', b: '#8a5c36', q: '#6b4a30', H: '#4f8a3a', n: '#8a5a3a', N: '#5a3824', m: '#3e2a1c',
+  y: '#e8c84a', k: '#2a2230', f: '#ffffff', F: '#4f9ad8', z: '#9a5ad8', x: '#e8e0d0',
+};
+// Tunic letters used to vary villager colours: T U V W
+
+const OPTIONS = [
+  {
+    title: 'Today', tag: 'for comparison',
+    text: 'Tiny 2×3 people. Soldiers differ by only a pixel or two, so they blur together.',
+    civ: ['sh', 'TT', 'l.'],
+    sword: ['.Gg.', 'SRRw', '.r..'],
+    spear: ['..p', '..|', 'Gg|', 'RR.', 'r..'],
+    archer: ['.Gg.', 'bRRb', '.r..'],
+    cav: ['.Gg..', '..R..', 'nnnnm', 'N..N.'],
+  },
+  {
+    title: '1 · Taller figures',
+    text: '<b>A bit bigger (3 wide × 5 tall), seen from the front.</b> Head, face, body and legs. Weapons sit beside the body: a shield and sword, a spear taller than the soldier, a bow and quiver. Easy to tell apart, still small.',
+    civ: ['.h.', '.s.', 'TTT', '.T.', 'l.l'],
+    sword: ['.g.', '.s.', 'SRw', 'SRw', 'l.l'],
+    spear: ['..p', '.g|', '.s|', 'RR|', '.R|', 'l.l'],
+    archer: ['.H.', '.s.', 'bRq', 'bR.', 'l.l'],
+    cav: ['.g...', '.s...', 'RRR..', 'nnnnm', 'nnnn.', 'N..N.'],
+  },
+  {
+    title: '2 · Colour-coded uniforms',
+    text: '<b>Same tiny size as today, but each unit type has its own uniform colour.</b> Swordsmen in steel armour, spearmen with yellow caps, archers in green hoods, cavalry on horses. Readable from far away by colour alone; red trim marks them as yours.',
+    civ: ['sh', 'TT', 'l.'],
+    sword: ['gg.', 'GRw', 'l..'],
+    spear: ['..p', 'yy|', 'RR|', 'l..'],
+    archer: ['HH.', 'HRb', 'l..'],
+    cav: ['.gg..', 'nRRnm', 'N..N.'],
+  },
+  {
+    title: '3 · Chunky with outlines',
+    text: '<b>The biggest and boldest (5 wide), with a dark outline</b> so every person pops off the grass and floors. Big heads, clear helmets and weapons. Most readable, but crowds take more space and it looks more "cartoon".',
+    civ: ['.kkk.', 'khhhk', 'ksssk', 'kTTTk', 'kTTTk', '.klk.'],
+    sword: ['.kkk..', 'kgggk.', 'ksssk.', 'SRRRww', 'SRRRk.', '.klk..'],
+    spear: ['.....p', '.kkk.|', 'kgggk|', 'ksssk|', 'kRRRR|', 'kRRRk|', '.klk..'],
+    archer: ['.kkk..', 'kHHHk.', 'ksssk.', 'bRRRqk', 'bRRRk.', '.klk..'],
+    cav: ['..kkk...', '.kgggk..', '.ksssk..', 'kRRRRk..', 'nnnnnnmk', 'nnnnnnk.', '.N...N..'],
+  },
+  {
+    title: '4 · Tiny with squad pennants',
+    text: '<b>Keeps today\'s tiny people, but every soldier carries a little coloured pennant</b> on a pole above their head: white for swordsmen, yellow for spearmen, green for archers, purple for cavalry. A squad marching together looks like a row of flags.',
+    civ: ['sh', 'TT', 'l.'],
+    sword: ['ff..', 'f|..', '.|..', 'Gg..', 'SRw.', 'r...'],
+    spear: ['yy.p', 'y|.|', '.|.|', 'Gg|.', 'RR..', 'r...'],
+    archer: ['HH..', 'H|..', '.|..', 'Gg..', 'bRb.', 'r...'],
+    cav: ['zz...', 'z|...', '.|...', 'Gg...', 'nRRnm', 'N..N.'],
+  },
+];
+
+const TUNICS = ['T', 'U', 'V', 'W'];
+function drawSprite(c, sprite, x, y, p, tunic = 'T') {
+  const h = sprite.length, w = Math.max(...sprite.map(r => r.length));
+  const x0 = x - Math.floor(w / 2), y0 = y - h + 1;
+  // soft shadow
+  c.fillStyle = 'rgba(0,0,0,.22)'; c.fillRect((x0 + 1) * p, (y + 1) * p, (w - 1) * p, p);
+  for (let r = 0; r < h; r++) for (let i = 0; i < sprite[r].length; i++) {
+    let ch = sprite[r][i];
+    if (ch === '.') continue;
+    if (ch === 'T') ch = tunic;
+    c.fillStyle = PAL[ch] || '#f0f';
+    c.fillRect((x0 + i) * p, (y0 + r) * p, p, p);
+  }
+}
+
+function ground(c, W, H, p, seed) {
+  let t = seed;
+  const rnd = () => ((t = (t * 9301 + 49297) % 233280) / 233280);
+  c.fillStyle = '#6f8a4a'; c.fillRect(0, 0, W * p, H * p);
+  const sp = ['#7d985a', '#62803f', '#86a062', '#5a7638'];
+  for (let i = 0; i < W * H * 0.25; i++) { c.fillStyle = sp[i % 4]; c.fillRect(Math.floor(rnd() * W) * p, Math.floor(rnd() * H) * p, p, p); }
+  // a gravel road
+  for (let x = 0; x < W; x++) for (let dy = 0; dy < 4; dy++) { c.fillStyle = ['#bdb6a4', '#a9a290', '#cfc9b8'][(x * 3 + dy) % 3]; c.fillRect(x * p, (Math.floor(H * 0.55) + dy) * p, p, p); }
+  // a slice of a roofless house (wall + floor + beds)
+  const hx = 2, hy = 2, hw = 20, hh = 14;
+  c.fillStyle = '#6b4a30'; c.fillRect(hx * p, hy * p, hw * p, hh * p);
+  c.fillStyle = '#9a7650'; c.fillRect((hx + 2) * p, (hy + 2) * p, (hw - 4) * p, (hh - 4) * p);
+  for (let i = 0; i < 4; i++) { c.fillStyle = '#5e4029'; c.fillRect((hx + 3 + i * 4) * p, (hy + 3) * p, 3 * p, 6 * p); c.fillStyle = ['#a33a3a', '#3a5a9a', '#4a7a3a', '#9a6a2a'][i]; c.fillRect((hx + 3 + i * 4) * p, (hy + 5) * p, 3 * p, 4 * p); c.fillStyle = '#ebe3d2'; c.fillRect((hx + 3 + i * 4) * p, (hy + 3) * p, 3 * p, 2 * p); }
+}
+
+function scene(opt, p) {
+  const W = 72, H = 40; // art pixels (4.5 x 2.5 tiles at 16 px per tile)
+  const cv = document.createElement('canvas');
+  cv.width = W * p; cv.height = H * p;
+  const c = cv.getContext('2d');
+  ground(c, W, H, p, 7);
+  // villagers: one inside the house, a few on the road and grass
+  drawSprite(c, opt.civ, 8, 12, p, 'U');
+  [[28, 10, 'T'], [33, 14, 'V'], [5, 30, 'W'], [12, 27, 'T'], [40, 33, 'U']].forEach(([x, y, t]) => drawSprite(c, opt.civ, x, y, p, t));
+  // a little squad of each on the road / grass
+  const row = (sp, x, y, n, dx) => { for (let i = 0; i < n; i++) drawSprite(c, sp, x + i * dx, y, p); };
+  row(opt.sword, 46, 12, 3, 5);
+  row(opt.spear, 46, 24, 3, 5);
+  row(opt.archer, 20, 37, 3, 5);
+  row(opt.cav, 52, 37, 2, 8);
+  return cv;
+}
+
+function sheet(opt) {
+  const p = 9, W = 44, H = 10;
+  const cv = document.createElement('canvas');
+  cv.width = W * p; cv.height = H * p;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#6f8a4a'; c.fillRect(0, 0, cv.width, cv.height);
+  const list = [opt.civ, opt.sword, opt.spear, opt.archer, opt.cav];
+  list.forEach((sp, i) => drawSprite(c, sp, 4 + i * 9, 8, p, 'T'));
+  return cv;
+}
+
+const host = document.getElementById('cards');
+for (const opt of OPTIONS) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `<h2>${opt.title}${opt.tag ? `<small>${opt.tag}</small>` : ''}</h2>`;
+  const add = (label, cv) => { const l = document.createElement('div'); l.className = 'lbl'; l.textContent = label; card.appendChild(l); card.appendChild(cv); };
+  // normal game zoom: about 3.25 screen px per art pixel on a phone
+  const normal = scene(opt, 4); normal.style.width = Math.round(72 * 3.25) + 'px'; normal.style.maxWidth = '100%';
+  add('Normal game zoom', normal);
+  add('Zoomed in', scene(opt, 8));
+  add('Close-up: villager, swordsman, spearman, archer, cavalry', sheet(opt));
+  const p = document.createElement('p'); p.innerHTML = opt.text; card.appendChild(p);
+  host.appendChild(card);
+}
+</script>
+</body>
+</html>
