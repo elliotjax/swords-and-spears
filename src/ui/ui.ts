@@ -8,6 +8,7 @@ import {
 import type { Building, GameState } from '../sim/types';
 import type { Game } from '../main';
 import { IC } from './icons';
+import { BUILD_ID } from '../update';
 
 type Tab = 'build' | 'villagers' | 'military' | 'tech' | 'map';
 
@@ -393,7 +394,7 @@ export class UI {
 
   private menuHtml() {
     return `<div class="panel sheetp"><h3>Menu<button class="x" data-act="close" aria-label="Close">✕</button></h3>
-      <p>The game saves automatically. Version ${CONFIG.version}.</p>
+      <p>The game saves automatically. Version ${CONFIG.version} (build ${BUILD_ID}).</p>
       <button class="btn ghost" data-act="recenter">Center on Town Hall</button>
       <button class="btn danger" data-act="newgame">${this.confirmNew ? 'Tap again: erase and start over' : 'New game'}</button></div>`;
   }

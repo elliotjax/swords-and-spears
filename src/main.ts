@@ -5,6 +5,7 @@ import { allAsleep, canPlace, getB, newGame, place, tick } from './sim/sim';
 import type { GameState } from './sim/types';
 import { setupInput } from './ui/input';
 import { UI } from './ui/ui';
+import { checkForUpdate } from './update';
 
 // =====================================================================
 //  Game loop: runs the simulation at a fixed rate, draws every frame.
@@ -112,10 +113,14 @@ export class Game {
       } else {
         this.speed = this.speedBeforeHide;
         last = performance.now();
+        checkForUpdate(() => saveGame(this.s));
       }
       this.ui.update(true);
     });
     window.addEventListener('pagehide', () => saveGame(this.s));
+    // look for a newer published version now and every 2 minutes
+    checkForUpdate(() => saveGame(this.s));
+    setInterval(() => checkForUpdate(() => saveGame(this.s)), 120000);
     window.addEventListener('resize', () => { this.renderer.resize(); });
   }
 }
