@@ -280,6 +280,21 @@ export function upgradeHall(s: GameState): boolean {
   return true;
 }
 
+// ---------- testing tools ----------
+
+/** Testing: add villagers at the town hall (they move into free beds if there are any). */
+export function spawnVillagers(s: GameState, n: number): boolean {
+  const hall = getB(s, s.hallId);
+  if (!hall) return false;
+  const D = doorPt(hall);
+  for (let i = 0; i < n; i++) {
+    const v = makeVillager(s, D.x + (rand(s) - 0.5) * 1.5, D.y + 0.6 + rand(s) * 0.8);
+    s.villagers.push(v);
+  }
+  assignHomes(s);
+  return true;
+}
+
 // ---------- job assignment ----------
 
 export function addWorker(s: GameState, bid: number): boolean {

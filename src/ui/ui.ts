@@ -3,7 +3,7 @@ import { drawBuilding } from '../render/draw';
 import {
   addWorker, allAsleep, beds, carrierCount, deliveryLoss, birthBlock, birthRate, canPlace, canUpgradeHall, dayNumber, def, foodCap, foodStored, getB, hourOf,
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
-  removeWorker, upgradeHall,
+  removeWorker, spawnVillagers, upgradeHall,
 } from '../sim/sim';
 import type { Building, GameState } from '../sim/types';
 import type { Game } from '../main';
@@ -68,6 +68,12 @@ export class UI {
           <button id="menuBtn" class="panel" data-act="menu" aria-label="Menu">${IC.menu}</button>
         </div>
       </div>
+      ${CONFIG.showTestTools ? `<div id="testbar" class="panel" aria-label="Testing tools">
+        <button data-speed="${CONFIG.testSpeed}" aria-label="${CONFIG.testSpeed}x speed">${IC.fast}<span>${CONFIG.testSpeed}×</span></button>
+        <button data-act="testVillagers" aria-label="Add 10 villagers">${IC.addPeople}<span>+10</span></button>
+        <button data-act="testGold" aria-label="Add 100 gold">${IC.gold}<span>+100</span></button>
+        <button data-act="testWood" aria-label="Add 100 wood">${IC.wood}<span>+100</span></button>
+      </div>` : ''}
       <div id="banner" class="panel hidden"></div>
       <div id="toast"></div>
       <div id="bottom">
@@ -139,6 +145,9 @@ export class UI {
         break;
       case 'recenter': if (s.hallId != null) g.centerOn(s.hallId); this.menuOpen = false; break;
       case 'card': break; // handled by input (tap vs drag)
+      case 'testVillagers': this.toast(spawnVillagers(s, 10) ? '+10 villagers' : 'Place the Town Hall first'); break;
+      case 'testGold': s.gold += 100; this.toast('+100 gold'); break;
+      case 'testWood': s.wood += 100; this.toast('+100 wood'); break;
     }
     this.update(true);
   }
@@ -194,7 +203,7 @@ export class UI {
       <div class="srow"><span class="ic">${IC.idle}</span><span class="lb">Idle</span><span class="vl" style="color:var(--warn)">${idleCount(s)}</span></div>
       <div class="srow"><span class="ic">${IC.army}</span><span class="lb">Army</span><span class="vl">0% / ${Math.round(30)}%</span></div>`;
 
-    document.querySelectorAll<HTMLButtonElement>('#speeds button').forEach(b =>
+    document.querySelectorAll<HTMLButtonElement>('button[data-speed]').forEach(b =>
       b.classList.toggle('on', Number(b.dataset.speed) === this.game.speed));
 
     this.updateClock();

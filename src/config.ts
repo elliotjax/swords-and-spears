@@ -118,6 +118,9 @@ export const CONFIG = {
     ] as { houseCap: number; upgradeCost?: { wood: number; gold: number } }[],
   },
 
+  showTestTools: true,        // the testing sidebar on the right (10x, +villagers, +gold, +wood)
+  testSpeed: 10,              // speed of the sidebar's fast button
+
   removeRefund: 0.5,          // share of cost refunded when removing a building
 
   buildings: {
