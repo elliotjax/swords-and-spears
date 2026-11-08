@@ -234,7 +234,7 @@ export const CONFIG = {
   camera: {
     tilePx: 65,               // tile size on screen at default zoom
     minZoom: 0.35,
-    maxZoom: 2.2,
+    maxZoom: 1.7,
   },
 };
 

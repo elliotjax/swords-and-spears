@@ -1,9 +1,10 @@
 import { CONFIG, type BuildingKind } from '../config';
-import { hash, noise2 } from '../sim/rng';
-import { canPlace, dayFrac, def, getB } from '../sim/sim';
-import { FOREST, type GameState } from '../sim/types';
-import { drawBuilding, LW, rr, tree, villager } from './draw';
+import { hash } from '../sim/rng';
+import { canPlace, dayFrac, def } from '../sim/sim';
+import type { GameState } from '../sim/types';
+import { rr } from './draw';
 import { PAL } from './palette';
+import { bedSlots, buildingCanvas, drawPawn, paintGround, paintRoads, paintWorld, R } from './pixel';
 
 // =====================================================================
 //  Renderer: reads the game state and draws it. Never changes the state.
@@ -18,8 +19,6 @@ export interface ViewState {
   selected: number | null;
 }
 
-const CH = 8; // tiles per cached chunk
-const WEAR_RES = 16; // pixels per tile in the road texture
 
 export class Renderer {
   canvas: HTMLCanvasElement;
@@ -27,21 +26,23 @@ export class Renderer {
   cam: Camera = { x: 20, y: 20, zoom: 1 };
   dpr = 1;
   vw = 0; vh = 0;
-  private ground = new Map<string, HTMLCanvasElement>();
-  private trees = new Map<string, HTMLCanvasElement>();
-  private treeSig = '';
+  // pixel-art layers (R art pixels per tile), scaled up crisply each frame
+  private groundCv: HTMLCanvasElement | null = null;
+  private groundSeed = NaN;
   private wear: HTMLCanvasElement;
   private wearOld: HTMLCanvasElement;
   private wearAt = -1;
   private wearFade = 1;
   private lastTime = 0;
-  private seed = 0;
+  private worldCv: HTMLCanvasElement;
+  private worldSig = '';
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.wear = document.createElement('canvas');
     this.wearOld = document.createElement('canvas');
+    this.worldCv = document.createElement('canvas');
     this.resize();
   }
 
@@ -70,275 +71,94 @@ export class Renderer {
   }
 
   /** Clear cached map images (e.g. when starting a new game). */
-  reset() { this.ground.clear(); this.trees.clear(); this.treeSig = ''; this.wearAt = -1; }
+  reset() { this.groundCv = null; this.groundSeed = NaN; this.worldSig = ''; this.wearAt = -1; }
 
   // ---------------- chunk caches ----------------
-
-  private bucket() {
-    const r = this.ppt * this.dpr;
-    const b = Math.pow(2, Math.ceil(Math.log2(r) * 2) / 2);
-    return Math.max(8, Math.min(220, b));
-  }
-
-  private chunk(cache: Map<string, HTMLCanvasElement>, s: GameState, cx: number, cy: number,
-    res: number, paint: (c: CanvasRenderingContext2D, x0: number, y0: number) => void) {
-    const key = `${cx},${cy},${res}`;
-    let cv = cache.get(key);
-    if (cv) { cache.delete(key); cache.set(key, cv); return cv; } // LRU touch
-    cv = document.createElement('canvas');
-    cv.width = cv.height = Math.ceil(CH * res);
-    const c = cv.getContext('2d')!;
-    c.setTransform(res, 0, 0, res, -cx * CH * res, -cy * CH * res);
-    paint(c, cx * CH, cy * CH);
-    cache.set(key, cv);
-    while (cache.size > 48) cache.delete(cache.keys().next().value!);
-    void s;
-    return cv;
-  }
-
-  private paintGround(s: GameState, c: CanvasRenderingContext2D, x0: number, y0: number) {
-    // soft colour patches: one pixel per tile, smoothly stretched (no hard edges)
-    const M = 3, n = CH + M * 2;
-    const tex = document.createElement('canvas');
-    tex.width = tex.height = n;
-    const tc = tex.getContext('2d')!;
-    const img = tc.createImageData(n, n);
-    const sd = s.seed;
-    const lerp = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t);
-    const base = [139, 199, 122], light = [161, 214, 143], dark = [116, 178, 102], forestC = [104, 166, 92], off = [110, 160, 100];
-    for (let ty = 0; ty < n; ty++) for (let tx = 0; tx < n; tx++) {
-      const x = x0 - M + tx, y = y0 - M + ty;
-      const inMap = x >= 0 && y >= 0 && x < s.w && y < s.h;
-      let col: number[];
-      if (!inMap) col = off;
-      else if (s.tiles[y * s.w + x] === FOREST) col = forestC;
-      else {
-        const v = noise2(x / 4.5, y / 4.5, sd + 3) * 0.75 + noise2(x / 1.7, y / 1.7, sd + 9) * 0.25;
-        col = v > 0.56 ? lerp(base, light, Math.min(1, (v - 0.56) * 4)) : v < 0.42 ? lerp(base, dark, Math.min(1, (0.42 - v) * 4)) : base;
-      }
-      const k = (ty * n + tx) * 4;
-      img.data[k] = col[0]; img.data[k + 1] = col[1]; img.data[k + 2] = col[2]; img.data[k + 3] = 255;
-    }
-    tc.putImageData(img, 0, 0);
-    c.imageSmoothingEnabled = true;
-    c.imageSmoothingQuality = 'high';
-    c.drawImage(tex, x0 - M + 0.5, y0 - M + 0.5, n, n);
-    // small details
-    for (let y = y0; y < y0 + CH; y++) for (let x = x0; x < x0 + CH; x++) {
-      if (x < 0 || y < 0 || x >= s.w || y >= s.h) continue;
-      const forest = s.tiles[y * s.w + x] === FOREST;
-      const tufts = forest ? 1 : 3;
-      c.strokeStyle = forest ? '#4e8e4c' : '#6aa95c'; c.lineWidth = 0.022; c.lineCap = 'round';
-      c.beginPath();
-      for (let k = 0; k < tufts; k++) {
-        if (hash(x, y, sd + 10 + k) < 0.45) continue;
-        const tx = x + hash(x, y, sd + 20 + k), ty = y + hash(x, y, sd + 30 + k);
-        c.moveTo(tx - 0.05, ty - 0.06); c.lineTo(tx - 0.02, ty);
-        c.moveTo(tx, ty - 0.09); c.lineTo(tx, ty);
-        c.moveTo(tx + 0.05, ty - 0.06); c.lineTo(tx + 0.02, ty);
-      }
-      c.stroke();
-      if (!forest && hash(x, y, sd + 40) < 0.16) {
-        const fx = x + hash(x, y, sd + 41) * 0.8 + 0.1, fy = y + hash(x, y, sd + 42) * 0.8 + 0.1;
-        const col = ['#ffffff', '#ffe27a', '#f6a6c1', '#ffffff'][(hash(x, y, sd + 43) * 4) | 0];
-        for (let k = 0; k < 3; k++) {
-          c.fillStyle = col; c.beginPath();
-          c.arc(fx + (k - 1) * 0.07, fy + (k % 2) * 0.06, 0.028, 0, 7); c.fill();
-        }
-      }
-      if (!forest && hash(x, y, sd + 50) < 0.07) {
-        const px = x + hash(x, y, sd + 51) * 0.8 + 0.1, py = y + hash(x, y, sd + 52) * 0.8 + 0.1;
-        c.fillStyle = '#c9c4b5'; c.beginPath(); c.ellipse(px, py, 0.06, 0.04, 0.3, 0, 7); c.fill();
-        c.fillStyle = '#e4e0d4'; c.beginPath(); c.ellipse(px - 0.015, py - 0.012, 0.03, 0.018, 0.3, 0, 7); c.fill();
-      }
-    }
-  }
-
-  private paintTrees(s: GameState, c: CanvasRenderingContext2D, x0: number, y0: number) {
-    const list: { x: number; y: number; r: number; seed: number }[] = [];
-    for (let y = y0 - 1; y < y0 + CH + 1; y++) for (let x = x0 - 1; x < x0 + CH + 1; x++) {
-      if (x < 0 || y < 0 || x >= s.w || y >= s.h) continue;
-      const i = y * s.w + x;
-      if (s.tiles[i] !== FOREST) continue;
-      const b = s.occ[i] >= 0 ? getB(s, s.occ[i]) : undefined;
-      if (b && b.kind === 'lumberCamp') continue; // the camp has cleared these trees
-      const n = 2 + (hash(x, y, s.seed + 60) < 0.5 ? 1 : 0);
-      for (let k = 0; k < n; k++) {
-        list.push({
-          x: x + 0.2 + hash(x, y, s.seed + 61 + k) * 0.6,
-          y: y + 0.2 + hash(x, y, s.seed + 71 + k) * 0.6,
-          r: 0.3 + hash(x, y, s.seed + 81 + k) * 0.17,
-          seed: x * 1000 + y * 7 + k,
-        });
-      }
-    }
-    list.sort((a, b) => a.y - b.y);
-    for (const t of list) tree(c, t.x, t.y, t.r, t.seed, 0);
-    for (const t of list) tree(c, t.x, t.y, t.r, t.seed, 1);
-  }
-
-  // ---------------- desire paths (gravel roads) ----------------
-  // Foot traffic is counted between neighbouring tiles. Each worn link is drawn
-  // as a thin path through tile centres, with smooth curves where paths bend
-  // or branch, so roads join up naturally (diagonals included).
-
-  private paintWear(s: GameState, cv: HTMLCanvasElement) {
-    const R = WEAR_RES;
-    if (cv.width !== s.w * R) { cv.width = s.w * R; cv.height = s.h * R; }
-    const c = cv.getContext('2d')!;
-    c.setTransform(1, 0, 0, 1, 0, 0);
-    c.clearRect(0, 0, cv.width, cv.height);
-    c.setTransform(R, 0, 0, R, 0, 0);
-    const W = s.w, N = s.w * s.h;
-    const DIRS = [[1, 0], [0, 1], [1, 1], [-1, 1]];
-    const adj: ({ x: number; y: number; t: number }[] | undefined)[] = new Array(N);
-    const links: { ax: number; ay: number; bx: number; by: number; t: number }[] = [];
-    for (let i = 0; i < N; i++) {
-      for (let d = 0; d < 4; d++) {
-        const t = s.edgeLevel[i * 4 + d];
-        if (!t) continue;
-        const ax = i % W, ay = Math.floor(i / W), bx = ax + DIRS[d][0], by = ay + DIRS[d][1];
-        if (bx < 0 || by < 0 || bx >= W || by >= s.h) continue;
-        const j = by * W + bx;
-        (adj[i] ??= []).push({ x: bx, y: by, t });
-        (adj[j] ??= []).push({ x: ax, y: ay, t });
-        links.push({ ax, ay, bx, by, t });
-      }
-    }
-    const level = (t: number) => t; // 1 faint, 2 gravel trail, 3 gravel road
-    const network = (minLevel: number, width: number, color: string, alpha = 1) => {
-      c.globalAlpha = alpha;
-      c.lineWidth = width; c.strokeStyle = color; c.lineCap = 'round'; c.lineJoin = 'round';
-      c.beginPath();
-      for (let i = 0; i < N; i++) {
-        const list = adj[i];
-        if (!list) continue;
-        const cx = (i % W) + 0.5, cy = Math.floor(i / W) + 0.5;
-        const mids = list.filter(n => level(n.t) >= minLevel).map(n => ({ x: (cx + n.x + 0.5) / 2, y: (cy + n.y + 0.5) / 2 }));
-        if (mids.length === 1) { c.moveTo(cx, cy); c.lineTo(mids[0].x, mids[0].y); }
-        for (let a = 0; a < mids.length; a++) for (let b = a + 1; b < mids.length; b++) {
-          c.moveTo(mids[a].x, mids[a].y);
-          c.quadraticCurveTo(cx, cy, mids[b].x, mids[b].y);
-        }
-      }
-      c.stroke();
-      c.globalAlpha = 1;
-    };
-    // 1. faintly worn grass
-    network(1, 0.16, '#c9bf92', 0.5);
-    // 2. gravel trail, 3. wide gravel road (dark edge first, then the gravel)
-    network(2, 0.27, '#b3a78f');
-    network(3, 0.42, '#a99c84');
-    network(2, 0.2, '#d8cfbd');
-    network(3, 0.33, '#ded6c6');
-    // little stones
-    for (const l of links) {
-      const lv = level(l.t);
-      if (lv < 2) continue;
-      const half = (lv === 3 ? 0.13 : 0.07);
-      const n = lv === 3 ? 5 : 3;
-      const dx = l.bx - l.ax, dy = l.by - l.ay, len = Math.hypot(dx, dy);
-      const px = -dy / len, py = dx / len;
-      for (let k = 0; k < n; k++) {
-        const h1 = hash(l.ax * 97 + l.bx, l.ay * 89 + l.by, k);
-        const h2 = hash(l.ax * 31 + l.bx, l.ay * 37 + l.by, k + 9);
-        const f = 0.25 + h1 * 0.5, o = (h2 - 0.5) * 2 * half;
-        const x = l.ax + 0.5 + dx * f + px * o, y = l.ay + 0.5 + dy * f + py * o;
-        c.fillStyle = k % 2 ? '#a0947e' : '#f4efe4';
-        c.beginPath(); c.arc(x, y, 0.022 + h2 * 0.012, 0, 7); c.fill();
-      }
-    }
-  }
 
   // ---------------- frame ----------------
 
   render(s: GameState, view: ViewState, alpha: number, time: number) {
     const c = this.ctx, d = this.dpr, ppt = this.ppt;
     c.setTransform(1, 0, 0, 1, 0, 0);
-    c.fillStyle = '#6d9d62'; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    // visible tile range
+    c.fillStyle = '#4f6636'; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
     const tl = this.screenToWorld(0, 0), br = this.screenToWorld(this.vw, this.vh);
-    const cx0 = Math.floor(tl.x / CH) - 0, cy0 = Math.floor(tl.y / CH);
-    const cx1 = Math.floor(br.x / CH), cy1 = Math.floor(br.y / CH);
-    const res = this.bucket();
 
-    const sig = s.buildings.filter(b => b.kind === 'lumberCamp').map(b => b.id).join(',') + ':' + s.seed;
-    if (sig !== this.treeSig) { this.trees.clear(); this.treeSig = sig; }
-
-    const blit = (cv: HTMLCanvasElement, cx: number, cy: number) => {
-      const p0 = this.worldToScreen(cx * CH, cy * CH), p1 = this.worldToScreen((cx + 1) * CH, (cy + 1) * CH);
-      const x0 = Math.round(p0.x * d), y0 = Math.round(p0.y * d);
-      c.drawImage(cv, x0, y0, Math.round(p1.x * d) - x0, Math.round(p1.y * d) - y0);
+    // screen position (device px) of art pixel 0,0, and device px per art pixel
+    const ox = (this.vw / 2 - this.cam.x * ppt) * d, oy = (this.vh / 2 - this.cam.y * ppt) * d;
+    const p = (ppt / R) * d;
+    c.imageSmoothingEnabled = false;
+    const ax0 = Math.max(0, Math.floor(tl.x * R) - 2), ay0 = Math.max(0, Math.floor(tl.y * R) - 2);
+    const ax1 = Math.min(s.w * R, Math.ceil(br.x * R) + 2), ay1 = Math.min(s.h * R, Math.ceil(br.y * R) + 2);
+    const blit = (cv: HTMLCanvasElement, a = 1) => {
+      if (a <= 0.001 || !cv.width || ax1 <= ax0 || ay1 <= ay0) return;
+      c.globalAlpha = a;
+      c.drawImage(cv, ax0, ay0, ax1 - ax0, ay1 - ay0, ox + ax0 * p, oy + ay0 * p, (ax1 - ax0) * p, (ay1 - ay0) * p);
+      c.globalAlpha = 1;
     };
 
-    c.imageSmoothingEnabled = true;
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++)
-      blit(this.chunk(this.ground, s, cx, cy, res, (g, x, y) => this.paintGround(s, g, x, y)), cx, cy);
+    // 1. ground (painted once per map)
+    if (!this.groundCv || this.groundSeed !== s.seed) { this.groundCv = paintGround(s); this.groundSeed = s.seed; }
+    blit(this.groundCv);
 
-    // world transform: 1 unit = 1 tile
-    const wt = () => c.setTransform(ppt * d, 0, 0, ppt * d, (this.vw / 2 - this.cam.x * ppt) * d, (this.vh / 2 - this.cam.y * ppt) * d);
-    wt();
-
-    // roads: redrawn only when they change (once a night), new roads fade in
+    // 2. roads: repainted only when they change (once a night), new roads fade in
     if (s.roadVersion !== this.wearAt) {
       const first = this.wearAt === -1;
       this.wearAt = s.roadVersion;
-      [this.wear, this.wearOld] = [this.wearOld, this.wear]; // keep the old picture to fade from
-      this.paintWear(s, this.wear);
+      [this.wear, this.wearOld] = [this.wearOld, this.wear];
+      paintRoads(s, this.wear);
       this.wearFade = first ? 1 : 0;
       if (first) this.wearOld.getContext('2d')!.clearRect(0, 0, this.wearOld.width, this.wearOld.height);
     }
     this.wearFade = Math.min(1, this.wearFade + (time - this.lastTime) / CONFIG.paths.fadeInSeconds);
     this.lastTime = time;
-    c.imageSmoothingQuality = 'medium';
-    {
-      // only copy the visible part of the road texture
-      const R = WEAR_RES;
-      const x0 = Math.max(0, Math.floor(tl.x) - 1), y0 = Math.max(0, Math.floor(tl.y) - 1);
-      const x1 = Math.min(s.w, Math.ceil(br.x) + 1), y1 = Math.min(s.h, Math.ceil(br.y) + 1);
-      const blitW = (cv: HTMLCanvasElement, a: number) => {
-        if (a <= 0.001 || !cv.width) return;
-        c.globalAlpha = a;
-        if (x1 > x0 && y1 > y0) c.drawImage(cv, x0 * R, y0 * R, (x1 - x0) * R, (y1 - y0) * R, x0, y0, x1 - x0, y1 - y0);
-      };
-      blitW(this.wearOld, 1 - this.wearFade);
-      blitW(this.wear, this.wearFade);
-      c.globalAlpha = 1;
-    }
+    blit(this.wearOld, 1 - this.wearFade);
+    blit(this.wear, this.wearFade);
 
-    // trees
-    c.setTransform(1, 0, 0, 1, 0, 0);
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++)
-      blit(this.chunk(this.trees, s, cx, cy, res, (g, x, y) => this.paintTrees(s, g, x, y)), cx, cy);
+    // 3. buildings (roofless) + trees: repainted when buildings change or granaries fill up
+    const sig = `${s.version}|${s.hallLevel}|${s.seed}|` + s.buildings.map(b => {
+      const fs = def(b.kind).foodStorage;
+      return fs && b.kind !== 'townHall' ? Math.round((b.food / fs) * 12) : '';
+    }).join(',');
+    if (sig !== this.worldSig) { this.worldSig = sig; paintWorld(s, this.worldCv); }
+    blit(this.worldCv);
+
+    // world transform for vector overlays: 1 unit = 1 tile
+    const wt = () => c.setTransform(ppt * d, 0, 0, ppt * d, ox, oy);
     wt();
+    const selB = view.selected != null ? s.buildings.find(b => b.id === view.selected) : undefined;
+    if (selB) {
+      c.setLineDash([0.12, 0.08]); c.lineWidth = 0.05; c.strokeStyle = '#ffffff';
+      c.strokeRect(selB.x + 0.03, selB.y + 0.03, selB.w - 0.06, selB.h - 0.06);
+      c.setLineDash([]);
+    }
 
-    // buildings (sorted top to bottom)
-    const bs = [...s.buildings].sort((a, b) => a.y + a.h - (b.y + b.h));
-    for (const b of bs) {
-      if (b.x > br.x + 1 || b.y > br.y + 1 || b.x + b.w < tl.x - 1 || b.y + b.h < tl.y - 1) continue;
-      drawBuilding(c, b.kind, b.x, b.y, b.w, b.h, { t: time, level: s.hallLevel, seed: b.id });
-      if (b.id === view.selected) {
-        c.setLineDash([0.12, 0.08]);
-        c.lineWidth = 0.05; c.strokeStyle = '#ffffff';
-        rr(c, b.x + 0.02, b.y + 0.02, b.w - 0.04, b.h - 0.04, 0.1); c.stroke();
-        c.setLineDash([]);
+    // 4. people: tiny pixel villagers, also visible inside (roofless) buildings
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    const people: { v: (typeof s.villagers)[number]; ax: number; ay: number; walk: boolean }[] = [];
+    for (const v of s.villagers) {
+      let ax: number, ay: number;
+      if (v.mode === 'inside' && v.vis < 0.5) {
+        const b = s.buildings.find(q => q.id === v.inside);
+        if (!b) continue;
+        const slots = bedSlots(b.kind), idx = b.residents.indexOf(v.id);
+        if (slots.length && idx >= 0 && v.goalKind === 'home') {
+          const sl = slots[idx % slots.length];
+          ax = b.x * R + sl.x; ay = b.y * R + sl.y; // asleep / resting in their bed
+        } else {
+          ax = b.x * R + 5 + Math.floor(hash(v.id, 1) * (b.w * R - 10));
+          ay = b.y * R + 6 + Math.floor(hash(v.id, 2) * (b.h * R - 12));
+        }
+      } else {
+        const off = v.mode === 'idle' ? 1 : 0;
+        ax = Math.floor((v.px + (v.x - v.px) * alpha + v.ox * off) * R);
+        ay = Math.floor((v.py + (v.y - v.py) * alpha + v.oy * off) * R);
       }
+      if (ax < ax0 - 4 || ax > ax1 + 4 || ay < ay0 - 4 || ay > ay1 + 4) continue;
+      people.push({ v, ax, ay, walk: v.mode !== 'inside' && (v.x !== v.px || v.y !== v.py) });
     }
-
-    // villagers
-    const vs = s.villagers.filter(v => v.vis > 0.01);
-    vs.sort((a, b) => a.y - b.y);
-    for (const v of vs) {
-      // walkers stay on the middle of the path; idlers get a small personal offset
-      const off = v.mode === 'idle' ? 1 : 0;
-      const x = v.px + (v.x - v.px) * alpha + v.ox * off;
-      const y = v.py + (v.y - v.py) * alpha + v.oy * off;
-      if (x < tl.x - 1 || x > br.x + 1 || y < tl.y - 1 || y > br.y + 1) continue;
-      c.globalAlpha = v.vis;
-      villager(c, v, x, y, v.mode !== 'inside' && (v.x !== v.px || v.y !== v.py));
-    }
-    c.globalAlpha = 1;
+    people.sort((a, b) => a.ay - b.ay);
+    for (const q of people) drawPawn(c, q.v, q.ax, q.ay, p, ox, oy, q.walk);
+    wt();
 
     // chapel radius: shown while placing a chapel, or when one is selected
     const ring = (cx: number, cy: number, r: number) => {
@@ -347,7 +167,6 @@ export class Renderer {
       c.setLineDash([0.18, 0.12]); c.lineWidth = 0.05; c.strokeStyle = 'rgba(217,162,30,.9)';
       c.stroke(); c.setLineDash([]);
     };
-    const selB = view.selected != null ? s.buildings.find(b => b.id === view.selected) : undefined;
     if (selB && def(selB.kind).happyRadius) ring(selB.x + selB.w / 2, selB.y + selB.h / 2, def(selB.kind).happyRadius!);
     if (view.ghost && def(view.ghost.kind).happyRadius) {
       const df = def(view.ghost.kind);
@@ -358,9 +177,12 @@ export class Renderer {
     if (view.ghost) {
       const g = view.ghost, df = def(g.kind);
       const ok = canPlace(s, g.kind, g.x, g.y).ok;
-      c.globalAlpha = 0.6;
-      drawBuilding(c, g.kind, g.x, g.y, df.w, df.h, { t: time, level: s.hallLevel });
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      const pic = buildingCanvas(g.kind);
+      c.globalAlpha = 0.7; c.imageSmoothingEnabled = false;
+      c.drawImage(pic, ox + g.x * R * p, oy + g.y * R * p, pic.width * p, pic.height * p);
       c.globalAlpha = 1;
+      wt();
       c.fillStyle = ok ? 'rgba(70,200,95,.32)' : 'rgba(214,69,61,.32)';
       c.fillRect(g.x, g.y, df.w, df.h);
       c.setLineDash([0.14, 0.09]); c.lineWidth = 0.05;
@@ -380,7 +202,6 @@ export class Renderer {
     // worker badges (screen space)
     if (this.cam.zoom > 0.45) this.badges(s, c);
     if (view.ghost) this.ghostLabel(s, c, view.ghost);
-    void LW;
   }
 
   private badges(s: GameState, c: CanvasRenderingContext2D) {

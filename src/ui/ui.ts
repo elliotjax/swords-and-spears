@@ -1,5 +1,5 @@
 import { BUILD_MENU, CONFIG, type BuildingKind, type Category, type UnitKind } from '../config';
-import { drawBuilding, villager as drawVillager } from '../render/draw';
+import { buildingCanvas, drawPawn } from '../render/pixel';
 import {
   addWorker, allAsleep, beds, carrierCount, deliveryLoss, birthBlock, birthRate, canPlace, canUpgradeHall, dayNumber, def, foodCap, foodStored, getB, hourOf,
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
@@ -18,17 +18,7 @@ const iconCache = new Map<string, string>();
 export function buildingIcon(kind: BuildingKind): string {
   let url = iconCache.get(kind);
   if (url) return url;
-  const d = def(kind);
-  const cv = document.createElement('canvas');
-  const W = 108, H = 80;
-  cv.width = W; cv.height = H;
-  const c = cv.getContext('2d')!;
-  const scale = Math.min((W - 6) / d.w, (H - 6) / d.h);
-  c.translate((W - d.w * scale) / 2, (H - d.h * scale) / 2);
-  c.scale(scale, scale);
-  if (kind === 'lumberCamp') { c.fillStyle = '#3f9a5f'; c.beginPath(); c.arc(d.w / 2, d.h / 2, d.w * 0.55, 0, 7); c.fill(); }
-  drawBuilding(c, kind, 0, 0, d.w, d.h, { t: 0.3, level: 1, seed: 3 });
-  url = cv.toDataURL();
+  url = buildingCanvas(kind).toDataURL(); // pixel art; shown with crisp scaling (CSS)
   iconCache.set(kind, url);
   return url;
 }
@@ -39,12 +29,10 @@ export function unitIcon(u: UnitKind): string {
   let url = unitCache.get(u);
   if (url) return url;
   const cv = document.createElement('canvas');
-  cv.width = cv.height = 72;
+  cv.width = cv.height = 64;
   const c = cv.getContext('2d')!;
-  const k = u === 'cavalry' ? 105 : u === 'spearmen' ? 110 : 150;
-  c.translate(u === 'archers' || u === 'swordsmen' ? 43 : 36, u === 'spearmen' ? 44 : 38); c.scale(k, k);
-  const v = { unit: u, dir: -Math.PI / 2, step: 0, carry: null, look: { tunic: 0, hair: 0, skin: 0 } } as unknown as Villager;
-  drawVillager(c, v, 0, 0, false);
+  const v = { unit: u, step: 0, carry: null, look: { tunic: 0, hair: 0, skin: 0 } } as unknown as Villager;
+  drawPawn(c, v, 0, 0, 9, 30, 36, false);
   url = cv.toDataURL();
   unitCache.set(u, url);
   return url;

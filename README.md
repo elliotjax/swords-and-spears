@@ -72,7 +72,17 @@ The owner does not care about the tech, only that it works well on a phone and i
 
 ## 6. Art direction and UI
 
-### 6.1 Chosen direction
+### 6.0 Map art: ROOFLESS PIXEL (Decided, replaces 6.2 for the map)
+The owner picked **"B · Roofless Pixel"** from the art-style mockups (`public/art-styles.html`, live at `/art-styles.html`).
+- The map is **pixel art at 16 art-pixels per tile**, scaled up crisply (no blur). Earthy, muted colors.
+- **No roofs:** every building shows its walls, floor and furniture (beds, tables, sacks, pews, bar counter...). Doors are gaps in the front wall.
+- **Villagers are tiny pixel people** (about 2 × 3 art pixels: head, shoulders, legs that step when walking). Soldiers have red tunics, steel helmets and their weapon; cavalry ride horses.
+- **People are visible inside buildings**, e.g. asleep in their own beds at night.
+- Roads are crisp pixel gravel; the granary shows sacks filling up as food is stored.
+- The **UI panels stay in the mockup E style** (6.3).
+- Max zoom is capped (1.7) so pixels don't get too chunky.
+
+### 6.1 Chosen direction (original; the UI part still applies)
 The owner **likes the "Prison Architect" style UI from mockup E (Flat vector)** and wants the game to feel like it. Art style is **top-down**, **flat vector**, with **more detail than a basic shapes look** (the owner found the first round too simple). Treat mockup E as the target and mockups D and F as references for mood only.
 
 A visual reference file is included: **`design/design-mockups.html`** (three phone-size mockups side by side: D muted top-down, E flat vector, F dusk). Open it in a browser. **E is the one to match.**
@@ -436,6 +446,7 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Roads + keeper update (built):** roads update once a night and fade in, build over ~2/4/6 days, fade ~1 level per 3 days, all traffic counts; new buildings start full of idle workers; granary needs 1 keeper assigned to accept food ("Granary has no keeper" alert). Old saves can't be loaded (start a new game).
 - **Food numbers (Decided):** villagers eat 4 lb/day; farms rescaled to 85 lb/day (106 on grassland) so ~30% farmers still feeds everyone; granary still 500 lb (now about 125 villager-days); farm holds 100 lb.
 - **Military + town update (built):** Swordsmen/Spearmen/Archers (10) and Cavalry (5) squads; recruiting from idle villagers; Barracks (2×2, 30) and Training Grounds (3×3, 50); ranks Recruit → Trained (7 days) → Veteran (+30) → Sergeant → Elite (+120); upkeep; disband; Military tab (Overview with formation preview, Recruit); soldier art sketch. Houses are now House 10 / Longhouse 25 / Manor 50. Tavern and Chapel (with radius) as free-time places; happiness shown (no effect yet). 5 Town Hall levels. Unlock cheat. Walking 3 tiles/s. Granary is the 1st or 2nd evening stop. Old saves can't be loaded.
+- **Pixel art (built):** whole map redrawn in the roofless pixel style; tiny pixel villagers and soldiers; people visible inside buildings (asleep in beds at night); pixel build-menu pictures. Much faster to draw (60 fps with 300 villagers in the stress test).
 - **Next (owner's priorities):** 1) military stats and how fighting works, 2) battles. Also still open: tech tree, happiness effects, where people eat.
 - Then: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 

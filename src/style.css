@@ -175,3 +175,6 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 .ftok span { position: absolute; right: -4px; bottom: -4px; background: var(--accent); color: #fff; font-size: 9.5px; font-weight: 800; border-radius: 999px; padding: 0 4px; }
 .ftok.raw { opacity: .45; border-style: dashed; }
 .fempty { font-size: 10.5px; font-weight: 700; color: rgba(38,43,56,.4); }
+
+/* pixel art pictures stay crisp */
+.card img, .sheetp h3 img, .sqrow img, .ucard img, .ftok img, #dragcard { image-rendering: pixelated; }
