@@ -9,7 +9,7 @@ import { FOREST, GRASS, type Building, type GameState, type Pt, type Villager } 
 //  One call to tick() = one fixed step of 1/ticksPerSecond game-seconds.
 // =====================================================================
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const DT = 1 / CONFIG.time.ticksPerSecond;
 export const TICKS_PER_DAY = CONFIG.time.dayLengthSeconds * CONFIG.time.ticksPerSecond;
 
