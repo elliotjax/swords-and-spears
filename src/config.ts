@@ -81,7 +81,7 @@ export const CONFIG = {
   },
 
   food: {
-    perVillagerPerDay: 12,    // lb eaten per villager per day (eaten slowly during free time only)
+    perVillagerPerDay: 4,     // lb eaten per villager per day (eaten slowly during free time only)
     deliveriesPerDay: 4,      // trips each carrier makes to a granary per workday
     carrierShare: 0.25,       // share of a farm's workers who carry food (rounded up, at least 1)
                               // carriers take everything waiting at the farm; while they are away
@@ -166,8 +166,8 @@ export const CONFIG = {
     },
     farm: {
       name: 'Farm', category: 'food', w: 3, h: 3, cost: { wood: 40, gold: 0 },
-      allowedTiles: ['grass'], workers: 8, output: { food: 256 }, grassBonus: 0.25,
-      farmStorage: 200, badge: 'green',
+      allowedTiles: ['grass'], workers: 8, output: { food: 85 }, grassBonus: 0.25,
+      farmStorage: 100, badge: 'green',
     },
     granary: {
       name: 'Granary', category: 'food', w: 1, h: 2, cost: { wood: 40, gold: 0 },

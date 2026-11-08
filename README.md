@@ -257,7 +257,7 @@ This is a signature feature. It is also what makes the colony satisfying to watc
   - **8 PM until each worker's wake-up time: sleep** (the screen gets darker). Villagers without a job get up at 5 AM.
   - **Night fast-forward:** while everyone is indoors asleep, time runs **2× faster than the chosen speed** (1x → 2x, 2x → 4x, 3x → 6x). The clock shows "Sleep ⏩".
 - **Calendar (Decided):** shown as **"Day 1, Year 0"**. A year is **24 days** for now (config); day 25 is "Day 1, Year 1".
-- **Day length (Decided):** 1 game day = **5 minutes** of real time at 1x. The game's pace in real time stays the same as the first version, so per-day numbers are bigger (for example a full farm makes about 220 lb/day).
+- **Day length (Decided):** 1 game day = **5 minutes** of real time at 1x. The game's pace in real time stays the same as the first version, so per-day numbers are bigger (for example a full farm makes about 85 lb/day).
 - Rates in the UI are shown **per day** (for example lb/day, gold/day).
 - Possible later: **seasons** (planting, harvest, winter) to give long sessions a rhythm. **Not decided. Not in v1.**
 
@@ -319,13 +319,13 @@ These are only starting points for the first playable. The owner will tune them 
 | Day length | 5 min real time at 1x |
 | Starting villagers | 12 |
 | Starting resources | 200 wood, 100 gold |
-| Villager food need | 12 lb/day each |
+| Villager food need | 4 lb/day each |
 | House capacity | 4 villagers (Hut 2, Cottage 6, Longhouse 8: placeholders) |
 | House costs (wood) | Hut 15, House 25, Cottage 45, Longhouse 70 |
-| Farm | capacity 8, full output 256 lb/day (320 on grassland), cost 40 wood, grassland bonus +25%, holds 200 lb before it must be delivered |
+| Farm | capacity 8, full output 85 lb/day (about 106 on grassland), cost 40 wood, grassland bonus +25%, holds 100 lb before it must be delivered |
 | Granary | 1×2, cost 40 wood, holds 500 lb; 25% of farmers carry, 4 trips per workday each, carrying everything waiting |
 | Town Hall food storage | 150 lb; colony starts with 100 lb |
-| **Food balance target (Decided)** | about **30% of the population farming** feeds everyone (soldiers eat but don't work). Planned split: ~30% farmers, 30–40% soldiers, ~30% everything else. Each farmer makes 40 lb/day on grassland; each villager eats 12. |
+| **Food balance target (Decided)** | about **30% of the population farming** feeds everyone (soldiers eat but don't work). Planned split: ~30% farmers, 30–40% soldiers, ~30% everything else. Each farmer makes about 13.3 lb/day on grassland; each villager eats **4 lb/day** (Decided). |
 | Lumber Camp | capacity 6, full output about 130 wood/day, cost 30 wood, forest tile only |
 | Market | capacity 4, about 50 gold/day at full staff, cost 60 wood |
 | Barracks | cost 80 wood (not in v1) |
@@ -415,6 +415,7 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Schedule + carriers update (built):** granary is 1×2; only 25% of farmers carry food (everything waiting, 4 trips/day); carriers don't farm while away (delivery penalty shown on the farm panel, and included in the food rate); work 5 AM–5 PM with personal wake-up times so everyone is at work by 5; free time 5–8 PM; sleep from 8 PM; night runs 2× faster while everyone is asleep; clock shows "Day N, Year Y" (24-day years). Tested: all workers at work at 5:00, shown food rate matches real output (302 vs 305 lb/day). Old saves can't be loaded (start a new game).
 - **Free-time errands (built):** evening routes (house / Town Hall / Market / Granary), milling around at each stop, nearer stops preferred, home by bedtime; food eaten only during free time. Tested: 2–4 stops per villager, everyone home by bedtime, food never drops outside free time.
 - **Roads + keeper update (built):** roads update once a night and fade in, build over ~2/4/6 days, fade ~1 level per 3 days, all traffic counts; new buildings start full of idle workers; granary needs 1 keeper assigned to accept food ("Granary has no keeper" alert). Old saves can't be loaded (start a new game).
+- **Food numbers (Decided):** villagers eat 4 lb/day; farms rescaled to 85 lb/day (106 on grassland) so ~30% farmers still feeds everyone; granary still 500 lb (now about 125 villager-days); farm holds 100 lb.
 - Next: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 
 - **Testing sidebar (built):** a small vertical bar on the right edge with **10× speed**, **+10 villagers**, **+100 gold**, **+100 wood**. Turn it off with `showTestTools: false` in `src/config.ts` (the fast speed is `testSpeed`).
