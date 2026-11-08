@@ -173,7 +173,8 @@ export const CONFIG = {
   battle: {
     fieldW: 26, fieldH: 15,     // battlefield size in tiles
     soldierHp: 100,             // every soldier starts with this much HP
-    spacing: 0.62,              // gap between soldiers in a formation (tiles)
+    spacing: 0.4,               // gap between soldiers in a formation (tiles) — tight, like a real army
+    squadGap: 2.3,              // gap between squad centres standing in the same line (tiles)
     aggroRange: 2.2,            // soldiers start fighting enemies this close (tiles)
     breakAt: 0.2,               // a squad breaks at this share of its total HP...
     fightAfterBreakSeconds: 20, // ...fights on this long, then flees off its own side

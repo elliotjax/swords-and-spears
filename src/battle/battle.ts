@@ -64,7 +64,7 @@ export function createBattle(setup: BattleSetup, seed = 1): BattleState {
     // default formation: swordsmen in front, spearmen behind, archers at the back, cavalry on the flanks
     const lines: Record<string, SquadSetup[]> = { swordsmen: [], spearmen: [], archers: [], cavalry: [] };
     for (const q of list) lines[q.unit].push(q);
-    const depthX: Record<string, number> = { swordsmen: 5.6, spearmen: 4.2, archers: 2.6 };
+    const depthX: Record<string, number> = { swordsmen: 5.2, spearmen: 4.2, archers: 3.0 };
     const nums: Partial<Record<UnitKind, number>> = {};
     const place = (q: SquadSetup, x: number, y: number) => {
       const fx = side === 0 ? x : b.W - x, face = side === 0 ? 1 : -1;
@@ -83,7 +83,7 @@ export function createBattle(setup: BattleSetup, seed = 1): BattleState {
       }
       b.squads.push(sq);
     };
-    const gap = 3.6;
+    const gap = B.squadGap;
     for (const u of ['swordsmen', 'spearmen', 'archers'] as UnitKind[]) {
       const n = lines[u].length;
       lines[u].forEach((q, i) => place(q, depthX[u], b.H / 2 + (i - (n - 1) / 2) * gap));
@@ -127,8 +127,14 @@ export function stepBattle(b: BattleState) {
   const sq = (id: number) => b.squads[id - 1];
   const so = (id: number) => b.soldiers[id - 1];
 
+  // marching pace of each side's infantry (they keep together like one army)
+  const marchPace = [Infinity, Infinity];
+  for (const q of b.squads) if (!q.gone && !q.fleeing && q.unit !== 'cavalry') marchPace[q.side] = Math.min(marchPace[q.side], stats(q.unit).speed);
+
   // squads: health, breaking, fleeing, choosing a target squad, moving
-  for (const q of b.squads) {
+  // (the order flips every step so neither side always reacts first)
+  const squadOrder = Math.round(b.t * BATTLE_TPS) % 2 ? b.squads : [...b.squads].reverse();
+  for (const q of squadOrder) {
     if (q.gone) continue;
     const hp = squadHp(b, q);
     if (squadAlive(b, q) === 0) { q.gone = true; continue; }
@@ -146,6 +152,7 @@ export function stepBattle(b: BattleState) {
       for (const e of b.squads) {
         if (e.side === q.side || e.gone || e.fleeing) continue;
         let d = Math.hypot(e.cx - ax, e.cy - ay);
+        if (q.unit !== 'cavalry' && q.unit !== 'archers') d += Math.abs(e.cy - ay) * 1.5; // infantry: the enemy in front of us
         if (stats(q.unit).strongVs.includes(e.unit)) d -= 5; // prefer what we're good against
         if (stats(e.unit).strongVs.includes(q.unit)) d += 2; // avoid what beats us
         if (d < bd) { bd = d; best = e.id; }
@@ -167,11 +174,21 @@ export function stepBattle(b: BattleState) {
     } else if (q.unit === 'cavalry') {
       if (d > 1.0) move = U.speed;
     } else {
-      // infantry march until their front rank meets the enemy's front, then hold the line
-      if (d > U.reach + 0.35) move = U.speed;
+      // infantry march together (at the pace of the slowest infantry squad on their side)
+      // until their front rank meets the enemy's front, then hold the line
+      if (Math.abs(dx) > U.reach + 0.25) move = b.t - q.lastFight < 2 ? U.speed : marchPace[q.side];
+      else if (Math.abs(dy) > 0.8 && b.t - q.lastFight > 1) { // enemy is beside us (another lane): shift over
+        q.cy += Math.sign(dy) * U.speed * DT;
+        q.cy = Math.max(0.5, Math.min(b.H - 0.5, q.cy));
+      }
     }
     if (move && d > 0.01) {
-      q.cx += (dx / d) * move * DT; q.cy += (dy / d) * move * DT;
+      if (q.unit === 'cavalry') { q.cx += (dx / d) * move * DT; q.cy += (dy / d) * move * DT; }
+      else {
+        // infantry and archers keep their lane: march straight ahead, sliding only a little sideways
+        q.cx += Math.sign(dx) * move * DT;
+        q.cy += Math.max(-0.25, Math.min(0.25, dy)) * move * DT;
+      }
       q.cx = Math.max(0.5, Math.min(b.W - 0.5, q.cx)); q.cy = Math.max(0.5, Math.min(b.H - 0.5, q.cy));
     }
   }
@@ -284,7 +301,7 @@ export function stepBattle(b: BattleState) {
       } else if (meleeNow) {
         // step up to the enemy, but stay roughly in my lane of the line
         const fx = t.x - Math.sign(t.x - s.x || q.face) * reach * 0.85;
-        const fy = backRank && s.unit === 'spearmen' ? sy : t.y * 0.6 + sy * 0.4;
+        const fy = backRank && s.unit === 'spearmen' ? sy : t.y * 0.3 + sy * 0.7; // keep to my lane of the line
         goTo(fx, fy, speed, 0.05);
       } else {
         goTo(sx, sy, speed * 1.1); // archer out of range: keep with the squad
@@ -293,7 +310,8 @@ export function stepBattle(b: BattleState) {
       // no one to fight: keep formation (cavalry regain their charge after a breather)
       s.idle += DT;
       if (s.idle > 3) s.charge = true;
-      goTo(sx, sy, Math.max(speed, stats(q.unit).speed) * 1.15);
+      goTo(sx, sy, Math.max(speed, stats(q.unit).speed) * 1.3);
+      if (!isCav) s.step = q.cx * 30 * q.face; // march in step with the rest of the squad
     }
   }
 
@@ -311,7 +329,7 @@ export function stepBattle(b: BattleState) {
     let px = 0, py = 0;
     nearby(s.x, s.y, 1, e => {
       if (e === s || !alive(e)) return;
-      const dx = s.x - e.x, dy = s.y - e.y, d = Math.hypot(dx, dy), min = e.unit === 'cavalry' || s.unit === 'cavalry' ? 0.55 : 0.4;
+      const dx = s.x - e.x, dy = s.y - e.y, d = Math.hypot(dx, dy), min = e.unit === 'cavalry' || s.unit === 'cavalry' ? 0.42 : 0.3;
       if (d > 0.001 && d < min) { const k = (min - d) * 0.25; px += (dx / d) * k; py += (dy / d) * k; }
     });
     if (px || py) push.set(s, [px, py]);
