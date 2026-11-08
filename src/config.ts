@@ -5,10 +5,10 @@
 
 export type BuildingKind =
   | 'townHall' | 'hut' | 'house' | 'cottage' | 'longhouse' | 'manor'
-  | 'farm' | 'lumberCamp' | 'market' | 'barracks' | 'palisade';
+  | 'farm' | 'granary' | 'lumberCamp' | 'market' | 'barracks' | 'palisade';
 
 export type Category = 'housing' | 'food' | 'wood' | 'trade' | 'defense';
-export type BadgeColor = 'green' | 'blue' | 'gold';
+export type BadgeColor = 'green' | 'blue' | 'gold' | 'storage';
 
 export interface BuildingDef {
   name: string;
@@ -22,13 +22,15 @@ export interface BuildingDef {
   output?: { food?: number; wood?: number; gold?: number }; // per day at full staff
   grassBonus?: number;            // extra output fraction when on grassland
   isHouse?: boolean;              // counts toward the town hall house cap
+  foodStorage?: number;           // lb of food this building can store (granary, town hall)
+  farmStorage?: number;           // lb a farm can hold before a farmer takes it to a granary
   unlockHallLevel?: number;       // locked until this town hall level
   comingSoon?: boolean;           // shows a locked card, cannot be built in v1
   badge?: BadgeColor;
 }
 
 export const CONFIG = {
-  version: '0.3.0',
+  version: '0.4.0',
 
   time: {
     dayLengthSeconds: 300,    // real seconds per game day at 1x (5 minutes)
@@ -37,15 +39,19 @@ export const CONFIG = {
     autosaveSeconds: 15,      // real seconds between autosaves
   },
 
-  // Daily schedule, as fractions of a day (0 = dawn, 1 = next dawn)
+  // Daily schedule in hours (24-hour clock). The day starts at midnight.
+  //  5-8 free time, 8-17 work, 17-20 free time, 20-5 sleep
   schedule: {
-    workStart: 0.06,          // villagers leave home for work
-    workEnd: 0.68,            // villagers leave work
-    sleepStart: 0.86,         // everyone heads home to sleep
-    personalJitter: 0.03,     // each villager varies by up to this much
-    hallVisitChance: 0.4,     // chance per evening to visit the town hall
+    wakeHour: 5,              // villagers get up (free time until work)
+    workStart: 8,             // work begins
+    workEnd: 17,              // work ends (free time until sleep)
+    commuteLeadHours: 0.75,   // workers leave home this early so they arrive by work start
+    sleepStart: 20,           // everyone heads home to sleep
+    startHour: 7,             // time of day when a new colony is founded
+    personalJitter: 0.25,     // hours each villager may be early/late
+    hallVisitChance: 0.4,     // chance per evening (free time) to visit the town hall
     hallVisitSeconds: 6,      // game seconds spent inside the hall
-    nightTint: 0.22,          // how dark the night gets (0 = off)
+    nightTint: 0.24,          // how dark the night gets (0 = off)
   },
 
   map: {
@@ -60,12 +66,13 @@ export const CONFIG = {
     villagers: 12,
     wood: 200,
     gold: 100,
-    foodDays: 0.5,            // food in the granary at the start, in days of use
+    food: 100,                // lb of food stored in the Town Hall at the start
   },
 
   food: {
     perVillagerPerDay: 12,    // lb eaten per villager per day
-    granaryDays: 1.5,         // granary holds this many days of food use (shown as %)
+    deliveriesPerDay: 4,      // trips each farmer makes to a granary per workday
+    carryLb: 25,              // most food a farmer carries per trip
   },
 
   tax: {
@@ -83,6 +90,7 @@ export const CONFIG = {
     idlePauseMin: 4,          // idle villagers stand around this long (seconds)...
     idlePauseMax: 10,         // ...up to this long, then stroll somewhere else
     doorFadeSeconds: 0.4,     // how quickly villagers fade in/out at doorways
+    dropOffSeconds: 1.5,      // time spent inside a granary dropping off food
   },
 
   // Desire paths: foot traffic wears roads into the ground
@@ -111,7 +119,7 @@ export const CONFIG = {
   buildings: {
     townHall: {
       name: 'Town Hall', category: null, w: 3, h: 3,
-      cost: { wood: 0, gold: 0 }, allowedTiles: ['grass'],
+      cost: { wood: 0, gold: 0 }, allowedTiles: ['grass'], foodStorage: 150,
     },
     hut: {
       name: 'Hut', category: 'housing', w: 1, h: 1, cost: { wood: 15, gold: 0 },
@@ -135,8 +143,12 @@ export const CONFIG = {
     },
     farm: {
       name: 'Farm', category: 'food', w: 3, h: 3, cost: { wood: 40, gold: 0 },
-      allowedTiles: ['grass'], workers: 8, output: { food: 220 }, grassBonus: 0.25,
-      badge: 'green',
+      allowedTiles: ['grass'], workers: 8, output: { food: 256 }, grassBonus: 0.25,
+      farmStorage: 200, badge: 'green',
+    },
+    granary: {
+      name: 'Granary', category: 'food', w: 1, h: 1, cost: { wood: 40, gold: 0 },
+      allowedTiles: ['grass'], foodStorage: 500, badge: 'storage',
     },
     lumberCamp: {
       name: 'Lumber Camp', category: 'wood', w: 2, h: 2, cost: { wood: 30, gold: 0 },
@@ -165,7 +177,7 @@ export const CONFIG = {
 
 export const BUILD_MENU: { cat: Category; label: string; kinds: BuildingKind[] }[] = [
   { cat: 'housing', label: 'Housing', kinds: ['hut', 'house', 'cottage', 'longhouse', 'manor'] },
-  { cat: 'food', label: 'Food', kinds: ['farm'] },
+  { cat: 'food', label: 'Food', kinds: ['farm', 'granary'] },
   { cat: 'wood', label: 'Wood', kinds: ['lumberCamp'] },
   { cat: 'trade', label: 'Trade', kinds: ['market'] },
   { cat: 'defense', label: 'Defense', kinds: ['barracks', 'palisade'] },

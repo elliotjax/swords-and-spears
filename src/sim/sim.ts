@@ -9,7 +9,7 @@ import { FOREST, GRASS, type Building, type GameState, type Pt, type Villager } 
 //  One call to tick() = one fixed step of 1/ticksPerSecond game-seconds.
 // =====================================================================
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export const DT = 1 / CONFIG.time.ticksPerSecond;
 export const TICKS_PER_DAY = CONFIG.time.dayLengthSeconds * CONFIG.time.ticksPerSecond;
 
@@ -52,7 +52,7 @@ export function newGame(seed = (Math.random() * 1e9) | 0): GameState {
     buildings: [], villagers: [],
     nextId: 1, tick: 0,
     wood: CONFIG.start.wood, gold: CONFIG.start.gold,
-    food: 0, hallLevel: 1, hallId: null, births: 0, version: 0,
+    hallLevel: 1, hallId: null, births: 0, version: 0,
   };
   return s;
 }
@@ -62,6 +62,7 @@ function makeVillager(s: GameState, x: number, y: number): Villager {
     id: s.nextId++, x, y, px: x, py: y,
     home: null, job: null, mode: 'idle', inside: null,
     goalKey: '', goalB: null, goalKind: 'wander',
+    task: null, deliveries: 0, deliveryDay: -1, backToWork: false,
     way: [], path: [], approach: false, dest: null, timer: rand(s) * 2, vis: 1,
     lastTile: -1, hallDay: -1, carry: null,
     look: { tunic: (rand(s) * 5) | 0, hair: (rand(s) * 5) | 0, skin: (rand(s) * 3) | 0 },
@@ -85,12 +86,22 @@ export const houseCount = (s: GameState) =>
 export const houseCap = (s: GameState) =>
   CONFIG.townHall.levels[s.hallLevel - 1].houseCap;
 export const idleCount = (s: GameState) => s.villagers.filter(v => v.job == null).length;
-export const granaryCap = (s: GameState) =>
-  Math.max(1, population(s)) * CONFIG.food.perVillagerPerDay * CONFIG.food.granaryDays;
+/** Hour of the day, 0..24 (the day starts at midnight). */
+export const hourOf = (s: GameState) => dayFrac(s) * 24;
+/** Total food storage (Town Hall + granaries), in lb. */
+export const foodCap = (s: GameState) =>
+  s.buildings.reduce((a, b) => a + (def(b.kind).foodStorage ?? 0), 0);
+/** Food in storage (what the colony can eat), in lb. */
+export const foodStored = (s: GameState) =>
+  s.buildings.reduce((a, b) => a + (def(b.kind).foodStorage ? b.food : 0), 0);
+/** On shift = at work, or out delivering food / walking back to work (production keeps going). */
+const onShift = (v: Villager) => v.job != null && (
+  (v.mode === 'work' && v.inside === v.job) || v.task != null ||
+  (v.backToWork && v.goalKind === 'job'));
 export const presentWorkers = (s: GameState, b: Building) =>
   b.workers.reduce((a, id) => {
     const v = s.villagers.find(q => q.id === id);
-    return a + (v && v.mode === 'work' && v.inside === b.id ? 1 : 0);
+    return a + (v && v.job === b.id && onShift(v) ? 1 : 0);
   }, 0);
 
 /** Output multiplier for a building with `n` workers (0..1+bonus). */
@@ -173,23 +184,31 @@ export function place(s: GameState, kind: BuildingKind, x: number, y: number): B
   if (!canPlace(s, kind, x, y).ok) return null;
   const d = def(kind);
   s.wood -= d.cost.wood; s.gold -= d.cost.gold;
-  const b: Building = { id: s.nextId++, kind, x, y, w: d.w, h: d.h, workers: [], residents: [] };
+  const b: Building = { id: s.nextId++, kind, x, y, w: d.w, h: d.h, workers: [], residents: [], food: 0 };
   s.buildings.push(b);
   setOcc(s, b, b.id);
   s.version++;
   if (kind === 'townHall') {
     s.hallId = b.id;
-    s.tick = Math.round(TICKS_PER_DAY * (CONFIG.schedule.workStart + 0.02)); // start on a fresh morning
+    s.tick = Math.round((TICKS_PER_DAY * CONFIG.schedule.startHour) / 24); // start in the morning
     // the founding villagers arrive and gather around the new hall
-    s.food = CONFIG.start.villagers * CONFIG.food.perVillagerPerDay * CONFIG.start.foodDays;
+    b.food = CONFIG.start.food;
     for (let i = 0; i < CONFIG.start.villagers; i++) {
       const a = (i / CONFIG.start.villagers) * Math.PI * 2;
       const v = makeVillager(s, x + d.w / 2 + Math.cos(a) * 2.6, y + d.h / 2 + Math.sin(a) * 2.6);
       s.villagers.push(v);
     }
   }
-  // anyone standing on the new building's tiles gets nudged into re-planning
-  for (const v of s.villagers) v.goalKey = '';
+  // anyone standing where the new building went steps out to its doorstep
+  const ex = entryTile(s, b);
+  for (const v of s.villagers) {
+    v.goalKey = ''; // everyone re-plans their route
+    if (v.inside != null || ex < 0) continue;
+    if (v.x >= b.x && v.x < b.x + b.w && v.y >= b.y && v.y < b.y + b.h) {
+      const c = centerOf(s, ex);
+      v.x = v.px = c.x; v.y = v.py = c.y; v.path = []; v.way = [];
+    }
+  }
   assignHomes(s);
   return b;
 }
@@ -203,6 +222,7 @@ export function remove(s: GameState, id: number): boolean {
   for (const v of s.villagers) {
     if (v.job === id) v.job = null;
     if (v.home === id) v.home = null;
+    if (v.task?.to === id) { v.task = null; v.carry = null; }
     if (v.inside === id) { v.inside = null; v.mode = 'idle'; v.way = []; v.path = []; }
     v.goalKey = '';
   }
@@ -305,25 +325,34 @@ export function entryTile(s: GameState, b: Building): number {
   return best;
 }
 
-/**
- * Walking points from a spot next to a building, along the building's edge
- * (the little gap between buildings), to its front door.
- */
-export function laneToDoor(b: Building, from: Pt): Pt[] {
-  const D = doorPt(b);
+/** Walking points along a building's edge from (the edge point nearest) `from` to `to`. */
+function edgeWalk(b: Building, from: Pt, to: Pt): Pt[] {
   const x0 = b.x, y0 = b.y, x1 = b.x + b.w, y1 = b.y + b.h, W = b.w, H = b.h, L = 2 * (W + H);
   const Q = { x: clamp(from.x, x0, x1), y: clamp(from.y, y0, y1) };
-  const E = { x: D.x, y: y1 };
+  const E = { x: clamp(to.x, x0, x1), y: clamp(to.y, y0, y1) };
   const per = (p: Pt) => { // distance along the edge, clockwise from the top-left corner
-    if (p.y <= y0 + 1e-6) return p.x - x0;
-    if (p.x >= x1 - 1e-6) return W + (p.y - y0);
-    if (p.y >= y1 - 1e-6) return W + H + (x1 - p.x);
+    const dt = Math.abs(p.y - y0), dr = Math.abs(p.x - x1), db = Math.abs(p.y - y1), dl = Math.abs(p.x - x0);
+    const m = Math.min(dt, dr, db, dl);
+    if (m === dt) return p.x - x0;
+    if (m === dr) return W + (p.y - y0);
+    if (m === db) return W + H + (x1 - p.x);
     return 2 * W + H + (y1 - p.y);
   };
+  // snap a point that is inside the building onto its nearest edge
+  const snap = (p: Pt): Pt => {
+    const dt = p.y - y0, dr = x1 - p.x, db = y1 - p.y, dl = p.x - x0;
+    const m = Math.min(dt, dr, db, dl);
+    if (m <= 0) return p;
+    if (m === dt) return { x: p.x, y: y0 };
+    if (m === dr) return { x: x1, y: p.y };
+    if (m === db) return { x: p.x, y: y1 };
+    return { x: x0, y: p.y };
+  };
+  const q = snap(Q), e = snap(E);
   const corners = [{ x: x1, y: y0, t: W }, { x: x1, y: y1, t: W + H }, { x: x0, y: y1, t: 2 * W + H }, { x: x0, y: y0, t: 0 }];
-  const tq = per(Q), te = per(E);
+  const tq = per(q), te = per(e);
   const cw = (((te - tq) % L) + L) % L;
-  const pts: Pt[] = [Q];
+  const pts: Pt[] = [q];
   const goCw = cw <= L - cw;
   const span = goCw ? cw : L - cw;
   corners
@@ -331,21 +360,58 @@ export function laneToDoor(b: Building, from: Pt): Pt[] {
     .filter(o => o.d > 1e-6 && o.d < span - 1e-6)
     .sort((a, b) => a.d - b.d)
     .forEach(o => pts.push({ x: o.c.x, y: o.c.y }));
-  pts.push(E, D);
+  pts.push(e);
   return pts;
+}
+
+/**
+ * Walking points from a spot next to a building, along the building's edge
+ * (the little gap between buildings), to its front door.
+ */
+export function laneToDoor(b: Building, from: Pt): Pt[] {
+  const D = doorPt(b);
+  return [...edgeWalk(b, from, { x: D.x, y: b.y + b.h }), D];
+}
+
+/** Nearest free tile touching a building, measured from point p. */
+function nearestFreeAround(s: GameState, b: Building, p: Pt): number {
+  let best = -1, bd = Infinity;
+  for (let y = b.y - 1; y <= b.y + b.h; y++) for (let x = b.x - 1; x <= b.x + b.w; x++) {
+    if (x < 0 || y < 0 || x >= s.w || y >= s.h) continue;
+    const i = y * s.w + x;
+    if (s.occ[i] !== -1) continue;
+    const d = Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
 }
 
 // ---------- villager behaviour ----------
 
 function desired(s: GameState, v: Villager): { kind: Villager['goalKind']; b: number | null } {
   const S = CONFIG.schedule;
-  const t = (dayFrac(s) - v.jitter + 1) % 1;
+  if (v.task) return { kind: 'deliver', b: v.task.to };
+  const h = (hourOf(s) - v.jitter + 24) % 24;
   const day = dayNumber(s);
   const home = v.home ?? s.hallId;
-  if (t < S.workStart || t >= S.sleepStart) return { kind: 'home', b: home };
-  if (t < S.workEnd) return v.job != null ? { kind: 'job', b: v.job } : { kind: 'wander', b: null };
-  if (v.hallDay !== day && hash(v.id, day, 99) < S.hallVisitChance) return { kind: 'hall', b: s.hallId };
-  return { kind: 'home', b: home };
+  if (h < S.wakeHour || h >= S.sleepStart) return { kind: 'home', b: home };
+  if (h >= S.workStart - (v.job != null ? S.commuteLeadHours : 0) && h < S.workEnd)
+    return v.job != null ? { kind: 'job', b: v.job } : { kind: 'wander', b: null };
+  // free time (morning and evening). For now: some visit the town hall in the evening, others stroll.
+  if (h >= S.workEnd && v.hallDay !== day && hash(v.id, day, 99) < S.hallVisitChance) return { kind: 'hall', b: s.hallId };
+  return { kind: 'wander', b: null };
+}
+
+/** Nearest building that can store food and still has room. */
+function nearestStorage(s: GameState, from: Building): Building | undefined {
+  let best: Building | undefined, bd = Infinity;
+  for (const b of s.buildings) {
+    const cap = def(b.kind).foodStorage ?? 0;
+    if (!cap || cap - b.food < 1) continue;
+    const d = Math.hypot(b.x + b.w / 2 - from.x - from.w / 2, b.y + b.h / 2 - from.y - from.h / 2);
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
 }
 
 function startGoal(s: GameState, v: Villager) {
@@ -361,15 +427,23 @@ function startGoal(s: GameState, v: Villager) {
   let start = tileOf(s, v);
   const cur = getB(s, v.inside);
   if (cur) {
-    if (v.mode === 'work') {
-      v.carry = cur.kind === 'farm' ? 'basket' : cur.kind === 'lumberCamp' ? 'logs' : cur.kind === 'market' ? 'coins' : null;
-    }
+    if (v.task) v.carry = 'basket';
+    else if (v.mode === 'work') v.carry = cur.kind === 'lumberCamp' ? 'logs' : cur.kind === 'market' ? 'coins' : null;
     const ex = entryTile(s, cur);
     if (ex >= 0) {
       const out = laneToDoor(cur, centerOf(s, ex)).reverse();
       if (v.mode !== 'work') { v.x = out[0].x; v.y = out[0].y; v.px = v.x; v.py = v.y; }
       v.way = [...out, centerOf(s, ex)];
       start = ex;
+    }
+  }
+  else {
+    // standing on a building's edge (e.g. changed plans on the way to a door):
+    // follow the edge to the nearest open tile instead of cutting through the building
+    const ob = getB(s, s.occ[start]);
+    if (ob) {
+      const ft = nearestFreeAround(s, ob, v);
+      if (ft >= 0) { v.way = [...edgeWalk(ob, v, centerOf(s, ft)), centerOf(s, ft)]; start = ft; }
     }
   }
   v.inside = null;
@@ -406,12 +480,14 @@ function arrive(s: GameState, v: Villager) {
   }
   v.inside = b.id;
   if (v.goalKind === 'job') {
-    v.mode = 'work'; v.carry = null; v.timer = 0;
+    v.mode = 'work'; v.carry = null; v.timer = 0; v.backToWork = false;
     pickWorkSpot(s, v, b);
     return;
   }
-  // home or hall: step through the doorway
-  v.mode = 'inside'; v.carry = null;
+  // home, hall or granary: step through the doorway
+  v.mode = 'inside';
+  if (v.goalKind === 'deliver') { v.timer = CONFIG.villagers.dropOffSeconds; return; }
+  v.carry = null;
   v.timer = CONFIG.schedule.hallVisitSeconds;
 }
 
@@ -453,6 +529,26 @@ function edgeIndex(s: GameState, a: number, b: number): number {
   return dir < 0 ? -1 : (ay * s.w + ax) * 4 + dir;
 }
 
+/** Farmers take the farm's food to the nearest granary a few times per workday. */
+function maybeDeliver(s: GameState, v: Villager): boolean {
+  const b = getB(s, v.inside);
+  if (!b || b.kind !== 'farm' || b.food < 1) return false;
+  const S = CONFIG.schedule, F = CONFIG.food;
+  const day = dayNumber(s);
+  if (v.deliveryDay !== day) { v.deliveryDay = day; v.deliveries = 0; }
+  const h = (hourOf(s) - v.jitter + 24) % 24;
+  const prog = (h - S.workStart) / (S.workEnd - S.workStart);
+  if (v.deliveries >= F.deliveriesPerDay || prog < (v.deliveries + 0.5) / F.deliveriesPerDay) return false;
+  v.deliveries++;
+  const g = nearestStorage(s, b);
+  if (!g) return false;
+  const lb = Math.min(b.food, F.carryLb, (def(g.kind).foodStorage ?? 0) - g.food);
+  b.food -= lb;
+  v.task = { to: g.id, lb };
+  v.goalKey = ''; // re-plan: go deliver
+  return true;
+}
+
 function updateVillager(s: GameState, v: Villager) {
   v.px = v.x; v.py = v.y;
   const want = desired(s, v);
@@ -468,6 +564,18 @@ function updateVillager(s: GameState, v: Villager) {
 
   switch (v.mode) {
     case 'inside': {
+      if (v.goalKind === 'deliver' && v.task) {
+        v.timer -= DT;
+        if (v.timer <= 0) { // put the food in storage, then head back to work
+          const g = getB(s, v.task.to), farm = getB(s, v.job);
+          const room = g ? (def(g.kind).foodStorage ?? 0) - g.food : 0;
+          const put = Math.max(0, Math.min(room, v.task.lb));
+          if (g) g.food += put;
+          if (farm && v.task.lb > put) farm.food += v.task.lb - put; // didn't fit: back to the farm
+          v.task = null; v.carry = null; v.backToWork = true;
+        }
+        return;
+      }
       if (v.goalKind === 'hall') {
         v.timer -= DT;
         if (v.timer <= 0) v.hallDay = dayNumber(s);
@@ -494,6 +602,7 @@ function updateVillager(s: GameState, v: Villager) {
       break;
     }
     case 'work': {
+      if (maybeDeliver(s, v)) break;
       if (v.timer > 0) { v.timer -= DT; break; }
       if (v.dest) {
         if (moveToward(v, v.dest.x, v.dest.y, speed * 0.45)) { v.dest = null; v.timer = 1.5 + rand(s) * 2.5; }
@@ -531,7 +640,7 @@ function updateVillager(s: GameState, v: Villager) {
 /** Why no babies are being born right now (null = births are happening). */
 export function birthBlock(s: GameState): string | null {
   if (rates(s).food <= 0) return 'Food is going down';
-  if (s.food <= 0) return 'Granary is empty';
+  if (foodStored(s) <= 0) return 'Granary is empty';
   if (beds(s) <= population(s)) return 'No free beds';
   return null;
 }
@@ -559,24 +668,31 @@ export function tick(s: GameState) {
 
   // production happens only for workers who are physically at their building
   const S = CONFIG.schedule;
-  const shift = (S.workEnd - S.workStart) * TICKS_PER_DAY;
-  let foodIn = 0;
+  const shift = ((S.workEnd - S.workStart) / 24) * TICKS_PER_DAY;
   const present = new Map<number, number>();
-  for (const v of s.villagers)
-    if (v.mode === 'work' && v.inside != null && v.inside === v.job)
-      present.set(v.inside, (present.get(v.inside) ?? 0) + 1);
+  const hr = hourOf(s);
+  if (hr >= S.workStart && hr < S.workEnd) // work only counts during working hours
+    for (const v of s.villagers)
+      if (v.job != null && onShift(v)) present.set(v.job, (present.get(v.job) ?? 0) + 1);
   for (const b of s.buildings) {
-    const o = def(b.kind).output;
+    const d = def(b.kind), o = d.output;
     if (!o) continue;
     const e = efficiency(s, b, present.get(b.id) ?? 0);
     if (!e) continue;
-    foodIn += ((o.food ?? 0) * e) / shift;
+    // farm food waits at the farm until a farmer carries it to a granary
+    if (o.food) b.food = Math.min(d.farmStorage ?? Infinity, b.food + (o.food * e) / shift);
     s.wood += ((o.wood ?? 0) * e) / shift;
     s.gold += ((o.gold ?? 0) * e) / shift;
   }
+  // everyone eats from storage (fullest store first)
   const pop = population(s);
-  s.food += foodIn - (pop * CONFIG.food.perVillagerPerDay) / TICKS_PER_DAY;
-  s.food = Math.max(0, Math.min(granaryCap(s), s.food));
+  let need = (pop * CONFIG.food.perVillagerPerDay) / TICKS_PER_DAY;
+  const stores = s.buildings.filter(b => def(b.kind).foodStorage && b.food > 0).sort((a, b) => b.food - a.food);
+  for (const b of stores) {
+    if (need <= 0) break;
+    const take = Math.min(b.food, need);
+    b.food -= take; need -= take;
+  }
   s.gold += (pop * CONFIG.tax.goldPerVillagerPerDay) / TICKS_PER_DAY;
 
   // births: need a food surplus, food in the granary, and a free bed

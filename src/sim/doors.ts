@@ -11,6 +11,7 @@ export const DOORS: Record<BuildingKind, { x: number; y: number }> = {
   longhouse: { x: 1.5, y: 1.76 },
   manor: { x: 0.75, y: 2.74 },
   farm: { x: 1.5, y: 2.94 },       // the field gate
+  granary: { x: 0.5, y: 0.88 },
   lumberCamp: { x: 1, y: 1.9 },
   market: { x: 1, y: 1.86 },
   barracks: { x: 1.5, y: 1.78 },

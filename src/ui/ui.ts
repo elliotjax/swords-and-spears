@@ -1,7 +1,7 @@
 import { BUILD_MENU, CONFIG, type BuildingKind, type Category } from '../config';
 import { drawBuilding } from '../render/draw';
 import {
-  addWorker, beds, birthBlock, birthRate, canPlace, canUpgradeHall, dayFrac, dayNumber, def, getB, granaryCap,
+  addWorker, beds, birthBlock, birthRate, canPlace, canUpgradeHall, dayNumber, def, foodCap, foodStored, getB, hourOf,
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
   removeWorker, upgradeHall,
 } from '../sim/sim';
@@ -44,6 +44,7 @@ export class UI {
   private confirmNew = false;
   menuOpen = false;
   pressing = false;
+  private clockKey = '';
   /** Set by the input module: 'tap' placement mode shows a confirm bar */
   placing: BuildingKind | null = null;
 
@@ -52,14 +53,18 @@ export class UI {
     this.root.innerHTML = `
       <div id="status" class="panel"></div>
       <div id="topright">
-        <div id="speeds" class="panel">
-          <button data-speed="0" aria-label="Pause">${IC.pause}</button>
-          <button data-speed="1">1×</button><button data-speed="2">2×</button><button data-speed="3">3×</button>
+        <div id="timepanel" class="panel">
+          <div class="clockrow"><span id="dial"></span>
+            <div class="tt"><b id="dayTxt"></b><span id="timeTxt"></span></div>
+            <span id="phase" class="phase"></span></div>
+          <div id="speeds">
+            <button data-speed="0" aria-label="Pause">${IC.pause}</button>
+            <button data-speed="1">1×</button><button data-speed="2">2×</button><button data-speed="3">3×</button>
+          </div>
         </div>
         <button id="alert" class="panel hidden"></button>
-        <button id="hallChip" class="panel chip"></button>
         <div class="chips-r">
-          <span id="dayChip" class="panel chip"></span>
+          <button id="hallChip" class="panel chip"></button>
           <button id="menuBtn" class="panel" data-act="menu" aria-label="Menu">${IC.menu}</button>
         </div>
       </div>
@@ -156,8 +161,9 @@ export class UI {
     const homeless = s.villagers.filter(v => v.home == null).length;
     const openJobs = s.buildings.reduce((a, b) => a + Math.max(0, (def(b.kind).workers ?? 0) - b.workers.length), 0);
     const has = (k: string) => s.buildings.some(b => b.kind === k);
-    if (!has('farm')) return { title: 'Build a Farm', sub: 'Your people need food', level: r.food < 0 && s.food <= 0.01 ? 'bad' : 'warn', go: 'food' };
-    if (s.food <= 0.01 && r.food < 0) return { title: 'Starving!', sub: 'Granary empty. Assign farmers', level: 'bad', go: 'villagers' };
+    if (!has('farm')) return { title: 'Build a Farm', sub: 'Your people need food', level: r.food < 0 && foodStored(s) <= 0.01 ? 'bad' : 'warn', go: 'food' };
+    if (!has('granary')) return { title: 'Build a Granary', sub: 'Farmers need somewhere to store food', level: 'warn', go: 'food' };
+    if (foodStored(s) <= 0.01 && r.food < 0) return { title: 'Starving!', sub: 'Granary empty. Assign farmers', level: 'bad', go: 'villagers' };
     if (r.food < 0) return { title: 'Food shortage', sub: `Food dropping ${fmt(-r.food)} lb/day`, level: 'warn', go: 'villagers' };
     if (homeless > 0 && houseCount(s) < houseCap(s)) return { title: 'Need houses', sub: `${homeless} villagers have no bed`, level: 'warn', go: 'housing' };
     if (idleCount(s) > 0 && openJobs > 0) return { title: `${idleCount(s)} idle villagers`, sub: 'Tap to give them jobs', level: 'warn', go: 'villagers' };
@@ -171,14 +177,14 @@ export class UI {
   update(force = false) {
     const s = this.s;
     const r = rates(s);
-    const cap = granaryCap(s);
-    const pct = Math.round(Math.min(100, (s.food / cap) * 100));
+    const cap = foodCap(s), stored = foodStored(s);
+    const pct = cap ? Math.round(Math.min(100, (stored / cap) * 100)) : 0;
     const pop = population(s);
     const br = birthRate(s);
     const fc = r.food >= 0 ? 'var(--good)' : 'var(--bad)';
     document.getElementById('status')!.innerHTML = `
       <div class="srow"><span class="ic">${IC.food}</span><span class="lb">Food</span>
-        <span class="vl">${Math.floor(s.food)} lb<small style="color:${fc}">${sign(r.food)}/d</small></span></div>
+        <span class="vl">${Math.floor(stored)} lb<small style="color:${fc}">${sign(r.food)}/d</small></span></div>
       <div class="gbar"><i style="width:${pct}%;background:${pct < 20 ? 'var(--bad)' : 'var(--good)'}"></i></div>
       <div class="gnote">Granary ${pct}% full</div>
       <div class="srow"><span class="ic">${IC.wood}</span><span class="lb">Wood</span><span class="vl">${Math.floor(s.wood)}${r.wood ? `<small>+${fmt(r.wood)}/d</small>` : ''}</span></div>
@@ -191,13 +197,10 @@ export class UI {
     document.querySelectorAll<HTMLButtonElement>('#speeds button').forEach(b =>
       b.classList.toggle('on', Number(b.dataset.speed) === this.game.speed));
 
-    const t = dayFrac(s);
-    const sun = t < 0.08 || t > 0.8 ? '🌙' : '☀️';
-    document.getElementById('dayChip')!.textContent = `${sun} Day ${dayNumber(s)}`;
+    this.updateClock();
     const hc = document.getElementById('hallChip')!;
     hc.textContent = `Town Hall Lv ${s.hallLevel}`;
     hc.classList.toggle('hidden', s.hallId == null);
-    document.getElementById('dayChip')!.classList.toggle('hidden', s.hallId == null);
 
     const al = this.currentAlert();
     const ae = document.getElementById('alert')!;
@@ -216,6 +219,43 @@ export class UI {
       b.classList.toggle('on', b.dataset.tab === this.tab));
 
     this.renderSheet(force);
+  }
+
+  /** The time + speed panel: a small clock dial, day, time, and what villagers are doing. */
+  private updateClock() {
+    const s = this.s, S = CONFIG.schedule;
+    const started = s.hallId != null;
+    const h = hourOf(s);
+    const mins = Math.floor((h * 60) / 15) * 15; // shown in 15-minute steps
+    const hh = Math.floor(mins / 60), mm = mins % 60;
+    const night = h < 5.5 || h >= 19.5;
+    const phase = h < S.wakeHour || h >= S.sleepStart ? ['Sleep', 'sleep'] : h >= S.workStart && h < S.workEnd ? ['Work', 'work'] : ['Free time', 'free'];
+    const key = `${started}|${dayNumber(s)}|${mins}`;
+    if (key === this.clockKey) return;
+    this.clockKey = key;
+    document.getElementById('dayTxt')!.textContent = started ? `Day ${dayNumber(s)}` : 'Day 1';
+    document.getElementById('timeTxt')!.textContent = started
+      ? `${((hh + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'AM' : 'PM'}` : 'Not started';
+    const ph = document.getElementById('phase')!;
+    ph.textContent = started ? phase[0] : '';
+    ph.className = 'phase ' + phase[1];
+    ph.classList.toggle('hidden', !started);
+    // dial: 12-hour face with an hour hand; the face is day-coloured or night-coloured
+    const a = ((h % 12) / 12) * Math.PI * 2 - Math.PI / 2;          // hour hand
+    const m = ((mins % 60) / 60) * Math.PI * 2 - Math.PI / 2;       // minute hand
+    const ticks = Array.from({ length: 12 }, (_, i) => {
+      const t = (i / 12) * Math.PI * 2;
+      return `<circle cx="${16 + Math.cos(t) * 11.5}" cy="${16 + Math.sin(t) * 11.5}" r="${i % 3 ? 0.9 : 1.5}" fill="${night ? '#c9d2ee' : '#8a6a2a'}"/>`;
+    }).join('');
+    const icon = night
+      ? '<path d="M19.5 9.5a5 5 0 1 0 3 8.5 4 4 0 0 1-3-8.5z" fill="#f4e3a3" opacity=".35"/>'
+      : '';
+    document.getElementById('dial')!.innerHTML = `<svg width="34" height="34" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="15" fill="${night ? '#33406e' : '#fbe7a8'}" stroke="${night ? '#1f2848' : '#d9a21e'}" stroke-width="2"/>
+      ${icon}${ticks}
+      <line x1="16" y1="16" x2="${16 + Math.cos(a) * 8.5}" y2="${16 + Math.sin(a) * 8.5}" stroke="${night ? '#ffffff' : '#262b38'}" stroke-width="2.6" stroke-linecap="round"/>
+      <line x1="16" y1="16" x2="${16 + Math.cos(m) * 11}" y2="${16 + Math.sin(m) * 11}" stroke="${night ? '#ffffff' : '#262b38'}" stroke-width="1.3" stroke-linecap="round" opacity=".7"/>
+      <circle cx="16" cy="16" r="2" fill="#d6453d"/></svg>`;
   }
 
   private renderSheet(force: boolean) {
@@ -285,12 +325,18 @@ export class UI {
       const next = CONFIG.townHall.levels[s.hallLevel];
       const can = canUpgradeHall(s);
       body = `<p>Level <b>${s.hallLevel}</b> · Houses <b>${houseCount(s)} / ${houseCap(s)}</b></p>
+        <p>Food stored here <b>${Math.floor(b.food)} / ${d.foodStorage} lb</b></p>
         <p>Villagers visit the hall in the evening. Homeless villagers sleep here.</p>`;
       if (next?.upgradeCost) {
         const unlocks = Object.values(CONFIG.buildings).filter(x => x.unlockHallLevel === s.hallLevel + 1).map(x => x.name);
         body += `<p>Next level: house limit <b>${next.houseCap}</b>${unlocks.length ? `, unlocks <b>${unlocks.join(', ')}</b>` : ''}.</p>
           <button class="btn" data-act="upgrade" ${can.ok ? '' : 'disabled'}>Upgrade to Lv ${s.hallLevel + 1} · ${next.upgradeCost.wood} wood, ${next.upgradeCost.gold} gold</button>`;
       } else body += `<p><b>Max level for now.</b></p>`;
+    } else if (d.foodStorage) {
+      const pct = Math.round((b.food / d.foodStorage) * 100);
+      body = `<p>Stored <b>${Math.floor(b.food)} / ${d.foodStorage} lb</b> (${pct}% full)</p>
+        <div class="bar"><i style="width:${pct}%;background:#b5803a"></i></div>
+        <p>Farmers carry food here from the nearest farm. Your people eat from the Town Hall and granaries.</p>`;
     } else if (d.beds) {
       body = `<p>Residents <b>${b.residents.length} / ${d.beds}</b></p>
         <div class="bar"><i style="width:${(b.residents.length / d.beds) * 100}%;background:#4f7fc4"></i></div>
@@ -308,10 +354,15 @@ export class UI {
         <div class="bar"><i style="width:${eff * 100}%"></i></div>
         <p>At work right now: <b>${here}</b> · Idle villagers: <b>${idleCount(s)}</b></p>
         <p>Full staff makes <b>${res} ${unit}/day</b>${bonus}. Each worker adds an equal share.</p>`;
+      if (d.farmStorage) {
+        const full = b.food >= d.farmStorage - 0.5;
+        body += `<p>Waiting at the farm: <b style="color:${full ? 'var(--bad)' : 'inherit'}">${Math.floor(b.food)} / ${d.farmStorage} lb</b>${full ? ' · <b style="color:var(--bad)">Full! Build a granary</b>' : ''}</p>
+          <p>Farmers carry it to the nearest granary ${CONFIG.food.deliveriesPerDay}× per workday.</p>`;
+      }
     }
     if (b.kind !== 'townHall') {
       const confirm = this.confirmRemove === b.id;
-      body += `<button class="btn danger" data-act="remove" data-id="${b.id}">${confirm ? 'Tap again to remove' : `Remove (refund ${Math.round(CONFIG.removeRefund * 100)}%)`}</button>`;
+      body += `<button class="btn danger" data-act="remove" data-id="${b.id}">${confirm ? (d.foodStorage ? 'Tap again: food inside is lost' : 'Tap again to remove') : `Remove (refund ${Math.round(CONFIG.removeRefund * 100)}%)`}</button>`;
     }
     return `<div class="panel sheetp">${head}${body}</div>`;
   }

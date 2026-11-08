@@ -361,7 +361,7 @@ export class Renderer {
       if (!df.badge) continue;
       const cap = df.beds ?? df.workers ?? 0;
       const n = df.beds ? b.residents.length : b.workers.length;
-      const txt = `${n}/${cap}`;
+      const txt = df.foodStorage ? `${Math.round((b.food / df.foodStorage) * 100)}%` : `${n}/${cap}`;
       const p = this.worldToScreen(b.x + b.w / 2, b.y + 0.05);
       const tw = c.measureText(txt).width;
       const h = 22 * z * d, w = tw + 26 * z * d;
@@ -389,9 +389,10 @@ export class Renderer {
   }
 }
 
+/** 0 = full daylight, 1 = darkest night. Dusk around 18:00-21:00, dawn around 4:00-6:30. */
 export function nightAmount(t: number): number {
-  const S = CONFIG.schedule;
+  const h = t * 24;
   const ss = (a: number, b: number, x: number) => { const k = Math.max(0, Math.min(1, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
-  if (t < 0.12) return 1 - ss(0, 0.12, t);
-  return ss(S.workEnd + 0.04, S.sleepStart + 0.04, t);
+  if (h < 12) return 1 - ss(4, 6.5, h);
+  return ss(18, 21, h);
 }

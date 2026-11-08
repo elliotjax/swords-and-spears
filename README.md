@@ -124,9 +124,9 @@ Phone portrait. The map is full-bleed. The UI floats over it.
 - **Army:** military percentage of population against the cap, for example `12% / 30%`.
 
 **Top right (stacked):**
-1. **Speed controls:** pause, 1x, 2x, 3x. Active one highlighted with the accent color. Each button at least 42 px.
+1. **Time and speed panel (Decided):** one simple panel. Top row: a small round clock dial (light face by day, dark face at night), **Day N**, the time (for example `2:45 PM`, in 15-minute steps) and a small label for what villagers are doing (**Work / Free time / Sleep**). Bottom row: pause, 1x, 2x, 3x. Active speed highlighted with the accent color. Each button at least 42 px.
 2. **Alert card:** for example "Raiders sighted, arrive in 3 days," with a warning icon and accent border. Tapping jumps to the grand map.
-3. **Town hall level chip:** for example `Town Hall Lv 2`.
+3. **Town hall level chip:** for example `Town Hall Lv 2`, with the menu button next to it.
 
 **Bottom (stacked, bottom-anchored):**
 1. **Category chips:** for the Build tab: Housing, Food, Wood, Trade, Defense (scrollable).
@@ -180,9 +180,10 @@ Starting building types:
 
 | Building | Purpose | Notes |
 |---|---|---|
-| **Town Hall** | Center of the colony. Placed first. | Its **level gates progression** (7.5). Villagers walk here (7.6). Losing it ends the game. |
+| **Town Hall** | Center of the colony. Placed first. | Its **level gates progression** (7.5). Villagers walk here (7.6). Losing it ends the game. **Stores a little food (150 lb)** so the colony can start before a granary exists. |
 | **House** (and variants) | Houses villagers. | Fixed villager capacity. The **number of houses is capped by Town Hall level.** Variants in the mockup: **Hut, House, Cottage, Longhouse, Manor** (Manor locked until Hall Lv 3). TBD which exist in v1. |
-| **Farm** | Produces food. | Better output on grassland. Two kinds of "farm" exist: **food farm** and **wood farm** (below). |
+| **Farm** | Produces food. | Better output on grassland. Two kinds of "farm" exist: **food farm** and **wood farm** (below). **Food made at a farm is stored at the farm first** and doesn't count until a farmer carries it to a granary. |
+| **Granary** *(Decided)* | Stores food. | **1×1 tile**, holds **500 lb**. Farmers carry food from their farm to the **nearest granary** (or Town Hall) about **4 times per workday**. Production keeps going while a farmer is away delivering. Your food stockpile = all food in granaries + Town Hall. |
 | **Lumber Camp** (working name for the "wood farm") | Produces wood. | Placed on **forest** tiles. **Harvests existing trees; trees never run out.** Must **not look like farming**. |
 | **Commerce buildings** (for example **Market**) | Produce gold. | TBD which and how many in v1. |
 | **Barracks** | Recruits and trains squads. | Not in v1. See section 9. |
@@ -201,7 +202,7 @@ Three resources to start. More can come later.
 
 | Resource | How it works |
 |---|---|
-| **Food** | **(Decided, changed)** A **stockpile in pounds** with a **change per day** (production minus what the population eats). Food is stored in the **granary**, which has a capacity (starting value: 1.5 days of the population's food use) and is shown as **% full**. If the daily change is negative, the stock drains. When empty, the population suffers (exact effects TBD; for now births stop). Tributary colonies add a fixed amount per day. |
+| **Food** | **(Decided, changed)** A **stockpile in pounds** with a **change per day** (production minus what the population eats). Food is stored in **granary buildings** (500 lb each) plus a little in the Town Hall (150 lb); the total is shown as **% full**. Villagers eat straight from storage (no walking to eat, for now). If the daily change is negative, the stock drains. When empty, the population suffers (exact effects TBD; for now births stop). Tributary colonies add a fixed amount per day. |
 | **Wood** | A normal stockpile. Spent mostly on buildings. |
 | **Gold** | A normal stockpile. Spent on **buildings, technology, army upkeep, and purchases.** (Full list TBD.) |
 
@@ -246,6 +247,11 @@ This is a signature feature. It is also what makes the colony satisfying to watc
 
 ## 8. Game flow and time
 
+- **Hours of the day (Decided):** the day runs on a 24-hour clock (1 game hour ≈ 12.5 real seconds at 1x):
+  - **5 AM – 8 AM:** free time
+  - **8 AM – 5 PM:** work (workers leave home a little early so they arrive on time; work only counts 8 to 5)
+  - **5 PM – 8 PM:** free time (for now: some visit the town hall, others stroll; to be designed later)
+  - **8 PM – 5 AM:** sleep (the screen gets darker). Long nights are OK for now; the owner will see how it feels.
 - **Day length (Decided):** 1 game day = **5 minutes** of real time at 1x. The game's pace in real time stays the same as the first version, so per-day numbers are bigger (for example a full farm makes about 220 lb/day).
 - Rates in the UI are shown **per day** (for example lb/day, gold/day).
 - Possible later: **seasons** (planting, harvest, winter) to give long sessions a rhythm. **Not decided. Not in v1.**
@@ -311,12 +317,14 @@ These are only starting points for the first playable. The owner will tune them 
 | Villager food need | 12 lb/day each |
 | House capacity | 4 villagers (Hut 2, Cottage 6, Longhouse 8: placeholders) |
 | House costs (wood) | Hut 15, House 25, Cottage 45, Longhouse 70 |
-| Farm | capacity 8, full output about 220 lb/day, cost 40 wood, grassland bonus +25% |
+| Farm | capacity 8, full output 256 lb/day (320 on grassland), cost 40 wood, grassland bonus +25%, holds 200 lb before it must be delivered |
+| Granary | 1×1, cost 40 wood, holds 500 lb; farmers deliver 4× per workday, up to 25 lb per trip |
+| Town Hall food storage | 150 lb; colony starts with 100 lb |
+| **Food balance target (Decided)** | about **30% of the population farming** feeds everyone (soldiers eat but don't work). Planned split: ~30% farmers, 30–40% soldiers, ~30% everything else. Each farmer makes 40 lb/day on grassland; each villager eats 12. |
 | Lumber Camp | capacity 6, full output about 130 wood/day, cost 30 wood, forest tile only |
 | Market | capacity 4, about 50 gold/day at full staff, cost 60 wood |
 | Barracks | cost 80 wood (not in v1) |
 | Tax | about 1.5 gold/day per villager |
-| Granary | holds 1.5 days of food use (shown as % full); start with half a day of food |
 | Births | with food going up, food in store, and a free bed: about 1.2 births per day per house with a free bed |
 | Town Hall Lv 1 house cap | 4 houses (Lv 2: 8, Lv 3: 14: placeholders) |
 | Army cap | 30% of population |
@@ -398,6 +406,7 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - Defaults chosen (owner OK'd): v1 houses are Hut + House; Town Hall upgrade is a simple button (wood + gold); farms grassland only; empty granary = births stop + alert (nothing worse yet); roads are looks only (speed bonus setting exists, off); map 40×40, random each new game.
 
 - **Owner playtest 1 feedback (all built):** phone feel good. Food is now a stockpile in lb with a per-day change; granary shown as % full; Births/day row added to the status panel (Villagers tab explains when births are blocked); births faster; day length 5 min with the same real-time pace; villagers walk to the actual doorway (front side) and fade in/out there, walking along building edges to reach it; thin, connected gravel roads with diagonals and curves; dragged building sits under the finger. Old saves from the first version can't be loaded (start a new game).
+- **Granary + clock update (built):** Granary building (1×1, 500 lb); farm food waits at the farm until farmers carry it to the nearest granary 4× per workday (production continues while they're away); Town Hall stores 150 lb; food balanced so ~30% farmers feeds everyone; 24-hour day (5–8 free, 8–17 work, 17–20 free, 20–5 sleep); one combined time + speed panel with a clock dial; "Build a Granary" alert. Villagers no longer cut through buildings when they change plans mid-walk. Old saves can't be loaded (start a new game).
 - Next: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 
 ### How to go back to an earlier version

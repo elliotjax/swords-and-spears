@@ -9,6 +9,7 @@ export interface Building {
   x: number; y: number; w: number; h: number;
   workers: number[];    // villager ids assigned to work here
   residents: number[];  // villager ids living here
+  food: number;         // lb stored here (farm waiting to be delivered, granary, town hall)
 }
 
 export type Mode = 'inside' | 'walk' | 'work' | 'idle';
@@ -25,7 +26,11 @@ export interface Villager {
   inside: number | null;     // building id while inside (or entering)
   goalKey: string;           // what the villager is currently trying to do
   goalB: number | null;      // goal building id
-  goalKind: 'home' | 'job' | 'hall' | 'wander';
+  goalKind: 'home' | 'job' | 'hall' | 'wander' | 'deliver';
+  task: { to: number; lb: number } | null; // carrying food to a granary
+  deliveries: number;        // food deliveries made today
+  deliveryDay: number;
+  backToWork: boolean;       // walking back to work after a delivery (still counts as working)
   way: Pt[];                 // free-walk points (around a building, to/from its door)
   path: number[];            // tiles to walk along
   approach: boolean;         // after the path, walk along the building to its door
@@ -57,7 +62,7 @@ export interface GameState {
   tick: number;
   wood: number;
   gold: number;
-  food: number;              // lb of food stored in the granary
+  // (food is stored in buildings: see Building.food)
   hallLevel: number;         // 1-based
   hallId: number | null;
   births: number;

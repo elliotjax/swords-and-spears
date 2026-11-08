@@ -153,6 +153,7 @@ export function drawBuilding(c: C, kind: BuildingKind, x: number, y: number, w: 
       return;
     }
     case 'farm': return farm(c, x, y, w, h, o, seed);
+    case 'granary': return granary(c, x, y, o);
     case 'lumberCamp': return lumberCamp(c, x, y, w, h, o, seed);
     case 'market': return market(c, x, y, w, h);
     case 'barracks': {
@@ -277,6 +278,29 @@ function farm(c: C, x: number, y: number, w: number, h: number, o: DrawOpts, see
     c.beginPath(); c.moveTo(x + 0.31, y + h - 0.46); c.lineTo(x + 0.31, y + h - 0.22);
     c.moveTo(x + 0.43, y + h - 0.46); c.lineTo(x + 0.43, y + h - 0.22); stroke(c, '#b8963c', LW * 0.7);
   }
+}
+
+function granary(c: C, x: number, y: number, o: DrawOpts) {
+  // a round thatched store on short stilts, seen from above
+  const cx = x + 0.5, cy = y + 0.44, r = 0.34;
+  c.fillStyle = PAL.shadow; c.beginPath(); c.arc(cx + 0.08, cy + 0.1, r, 0, 7); c.fill();
+  for (const [dx, dy] of [[-0.24, 0.24], [0.24, 0.24]]) { // stilts peeking out at the front
+    c.fillStyle = PAL.woodDark; c.fillRect(cx + dx - 0.03, cy + dy, 0.06, 0.1);
+  }
+  circle(c, cx, cy, r, '#e2c27a', PAL.outline);
+  c.save(); c.beginPath(); c.arc(cx, cy, r, 0, 7); c.clip();
+  c.fillStyle = '#c9a45c'; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, r, -0.6, 2.2); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(120,80,30,.35)'; c.lineWidth = LW * 0.7; c.beginPath();
+  for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2; c.moveTo(cx, cy); c.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+  c.stroke();
+  c.beginPath(); c.arc(cx, cy, r * 0.62, 0, 7); stroke(c, 'rgba(120,80,30,.35)', LW * 0.7);
+  c.restore();
+  circle(c, cx, cy, 0.075, PAL.wood, PAL.outline, LW * 0.8);
+  // grain sack by the door
+  circle(c, x + 0.84, y + 0.8, 0.09, '#e6cf98', PAL.outline, LW * 0.7);
+  circle(c, x + 0.84, y + 0.74, 0.03, PAL.crop2);
+  doorway(c, x + DOORS.granary.x, y + DOORS.granary.y);
+  void o;
 }
 
 function lumberCamp(c: C, x: number, y: number, w: number, h: number, o: DrawOpts, seed: number) {

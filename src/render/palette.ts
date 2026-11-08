@@ -17,5 +17,5 @@ export const PAL = {
   hair: ['#3b2a20', '#6b4426', '#c99a52', '#2a2a2e', '#9a4b2a'],
   skin: ['#f2c79b', '#d9a27a', '#a8714c'],
   shadow: 'rgba(28,48,30,.28)',
-  badge: { green: '#2f9d58', blue: '#4f7fc4', gold: '#d9a21e' },
+  badge: { green: '#2f9d58', blue: '#4f7fc4', gold: '#d9a21e', storage: '#b5803a' },
 };
