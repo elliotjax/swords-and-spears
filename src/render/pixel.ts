@@ -334,8 +334,23 @@ export function buildingCanvas(kind: BuildingKind): HTMLCanvasElement {
 }
 
 // ---------- people ----------
+// Taller figures (owner's pick): 3 wide x 5 tall, seen from the front.
+// Letters: h hair, s skin, T tunic, l legs, g helmet, R red uniform, S shield, w sword,
+// p spear tip, | spear shaft, H green hood, b bow, q quiver, n/N horse, m horse head.
+const SPRITES: Record<string, string[]> = {
+  civ: ['.h.', '.s.', 'TTT', '.T.', 'l.l'],
+  swordsmen: ['.g.', '.s.', 'SRw', 'SRw', 'l.l'],
+  spearmen: ['..p', '.g|', '.s|', 'RR|', '.R|', 'l.l'],
+  archers: ['.H.', '.s.', 'bRq', 'bR.', 'l.l'],
+  cavalry: ['.g...', '.s...', 'RRR..', 'nnnnm', 'nnnn.', 'N..N.'],
+};
+const SP_COL: Record<string, string> = {
+  l: '#3e3028', g: '#b4bcc8', R: '#c0392b', S: '#8a6440', w: '#e6eaf0', p: '#d0d6de', '|': '#7a5434',
+  H: '#4f8a3a', b: '#8a5c36', q: '#6b4a30', n: '#8a5a3a', N: '#5a3824', m: '#3e2a1c',
+};
+
 /**
- * Draw one tiny villager in screen space. (ax, ay) = art-pixel position,
+ * Draw one tiny villager in screen space. (ax, ay) = art pixel of their feet,
  * p = screen pixels per art pixel, (ox, oy) = screen position of art pixel 0,0.
  */
 export function drawPawn(c: CanvasRenderingContext2D, v: Villager, ax: number, ay: number, p: number, ox: number, oy: number, walking: boolean) {
@@ -344,25 +359,25 @@ export function drawPawn(c: CanvasRenderingContext2D, v: Villager, ax: number, a
     const sx = Math.round(ox + (ax + x) * p), sy = Math.round(oy + (ay + y) * p);
     c.fillRect(sx, sy, Math.round(ox + (ax + x + 1) * p) - sx, Math.round(oy + (ay + y + 1) * p) - sy);
   };
-  const step = walking ? Math.floor(v.step / 2) % 2 : 0;
-  const skin = PX.skin[v.look.skin];
-  if (v.unit === 'cavalry') {
-    P(-2, 1, PX.horseDark); P(-1, 1, PX.horse); P(0, 1, PX.horse); P(1, 1, PX.horse); P(2, 0, PX.horseDark);
-    P(-1, 2 + step, PX.horseDark); P(1, 2 + (1 - step), PX.horseDark);
-    P(0, 0, PX.red); P(0, -1, PX.steel); P(1, -1, '#6b4a35'); P(2, -2, PX.steel);
-    return;
+  const sp = SPRITES[v.unit ?? 'civ'];
+  const h = sp.length, w = sp[0].length;
+  const flip = Math.cos(v.dir ?? 0) < -0.2;                 // face left when walking left
+  const frame = walking ? Math.floor(v.step / 2) % 2 : -1;  // legs alternate when walking
+  const x0 = -Math.floor(w / 2), y0 = -h + 1;
+  for (let i = 1; i < w; i++) P(x0 + i, 1, 'rgba(0,0,0,.22)'); // shadow
+  for (let r = 0; r < h; r++) {
+    let row = sp[r];
+    if (r === h - 1 && frame >= 0) row = v.unit === 'cavalry' ? (frame ? '.N.N.' : 'N..N.') : (frame ? 'l..' : '..l');
+    for (let i = 0; i < w; i++) {
+      const ch = row[flip ? w - 1 - i : i];
+      if (ch === '.') continue;
+      const col = ch === 'h' ? PX.hair[v.look.hair] : ch === 's' ? PX.skin[v.look.skin] : ch === 'T' ? PX.tunics[v.look.tunic] : SP_COL[ch];
+      P(x0 + i, y0 + r, col);
+    }
   }
-  const soldier = v.unit != null;
-  const body = soldier ? PX.red : PX.tunics[v.look.tunic];
-  P(1, 1, 'rgba(0,0,0,.25)');                    // shadow
-  P(-1 + step, 1, soldier ? PX.redDark : '#4a3a30'); // legs (alternate when walking)
-  P(-1, 0, body); P(0, 0, body);                  // shoulders
-  P(0, -1, soldier ? PX.steel : PX.hair[v.look.hair]); // head (hair or helmet from above)
-  P(-1, -1, soldier ? PX.steelDark : skin);
-  if (v.unit === 'spearmen') { P(1, -3, PX.steel); P(1, -2, '#6b4a35'); P(1, -1, '#6b4a35'); }
-  else if (v.unit === 'archers') { P(-2, -1, '#6b4a35'); P(-2, 0, '#6b4a35'); P(1, 0, '#8a5c36'); }
-  else if (v.unit === 'swordsmen') { P(1, 0, PX.steel); P(-2, 0, '#8a6440'); }
-  if (v.carry === 'basket') { P(1, 0, '#a07840'); P(1, -1, PX.crops[0]); }
-  else if (v.carry === 'logs') { P(1, -1, '#8a5c36'); P(1, 0, '#8a5c36'); }
-  else if (v.carry === 'coins') { P(1, 0, PX.gold); }
+  // carried goods, at the hand
+  const hx = flip ? x0 - 1 : x0 + w;
+  if (v.carry === 'basket') { P(hx, -2, '#a07840'); P(hx, -3, PX.crops[0]); }
+  else if (v.carry === 'logs') { P(hx, -3, '#8a5c36'); P(hx, -2, '#8a5c36'); }
+  else if (v.carry === 'coins') P(hx, -2, PX.gold);
 }

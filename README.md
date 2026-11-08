@@ -76,7 +76,7 @@ The owner does not care about the tech, only that it works well on a phone and i
 The owner picked **"B · Roofless Pixel"** from the art-style mockups (`public/art-styles.html`, live at `/art-styles.html`).
 - The map is **pixel art at 16 art-pixels per tile**, scaled up crisply (no blur). Earthy, muted colors.
 - **No roofs:** every building shows its walls, floor and furniture (beds, tables, sacks, pews, bar counter...). Doors are gaps in the front wall.
-- **Villagers are tiny pixel people** (about 2 × 3 art pixels: head, shoulders, legs that step when walking). Soldiers have red tunics, steel helmets and their weapon; cavalry ride horses.
+- **Villagers are tiny pixel people: "Taller figures" (Decided), 3 wide × 5 tall, seen from the front** (hair, face, tunic, legs that step when walking; they face left/right with their direction). Soldiers: red uniform + steel helmet; **swordsmen** shield + sword, **spearmen** a spear taller than them, **archers** green hood + bow + quiver, **cavalry** on a horse. Options page: `/pawn-styles.html`.
 - **People are visible inside buildings**, e.g. asleep in their own beds at night.
 - Roads are crisp pixel gravel; the granary shows sacks filling up as food is stored.
 - The **UI panels stay in the mockup E style** (6.3).

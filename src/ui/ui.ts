@@ -31,8 +31,8 @@ export function unitIcon(u: UnitKind): string {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 64;
   const c = cv.getContext('2d')!;
-  const v = { unit: u, step: 0, carry: null, look: { tunic: 0, hair: 0, skin: 0 } } as unknown as Villager;
-  drawPawn(c, v, 0, 0, 9, 30, 36, false);
+  const v = { unit: u, step: 0, dir: 0, carry: null, look: { tunic: 0, hair: 0, skin: 0 } } as unknown as Villager;
+  drawPawn(c, v, 0, 0, 8, u === 'cavalry' ? 34 : 30, 54, false);
   url = cv.toDataURL();
   unitCache.set(u, url);
   return url;
