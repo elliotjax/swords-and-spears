@@ -30,7 +30,7 @@ export interface BuildingDef {
 }
 
 export const CONFIG = {
-  version: '0.5.0',
+  version: '0.6.0',
 
   time: {
     dayLengthSeconds: 300,    // real seconds per game day at 1x (5 minutes)
@@ -51,8 +51,7 @@ export const CONFIG = {
     personalJitter: 0.2,      // hours each villager may be later going home in the evening
     nightSpeedMultiplier: 2,  // while everyone is asleep, time runs this many times faster
     daysPerYear: 24,          // "Day 1, Year 0" ... day 25 starts Year 1
-    hallVisitChance: 0.4,     // chance per evening (free time) to visit the town hall
-    hallVisitSeconds: 6,      // game seconds spent inside the hall
+    hallVisitSeconds: 6,      // (unused for now)
     nightTint: 0.24,          // how dark the night gets (0 = off)
   },
 
@@ -71,8 +70,18 @@ export const CONFIG = {
     food: 100,                // lb of food stored in the Town Hall at the start
   },
 
+  // Free time (workEnd to sleepStart): villagers make a route of short errands,
+  // milling around in front of each place for a few seconds, then go home.
+  errands: {
+    places: ['home', 'townHall', 'market', 'granary'] as string[], // more later
+    stayMinSeconds: 4,        // game seconds spent milling around at each stop...
+    stayMaxSeconds: 8,        // ...up to this long
+    millRange: 1,             // how far (tiles) they drift around in front of a place
+    nearbyPreference: 3,      // bigger = less preference for nearby places (weight 1/(distance+this))
+  },
+
   food: {
-    perVillagerPerDay: 12,    // lb eaten per villager per day
+    perVillagerPerDay: 12,    // lb eaten per villager per day (eaten slowly during free time only)
     deliveriesPerDay: 4,      // trips each carrier makes to a granary per workday
     carrierShare: 0.25,       // share of a farm's workers who carry food (rounded up, at least 1)
                               // carriers take everything waiting at the farm; while they are away

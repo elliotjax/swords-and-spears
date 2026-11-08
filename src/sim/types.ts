@@ -26,7 +26,10 @@ export interface Villager {
   inside: number | null;     // building id while inside (or entering)
   goalKey: string;           // what the villager is currently trying to do
   goalB: number | null;      // goal building id
-  goalKind: 'home' | 'job' | 'hall' | 'wander' | 'deliver';
+  goalKind: 'home' | 'job' | 'hall' | 'wander' | 'deliver' | 'errand';
+  errandB: number | null;    // free time: the place currently being visited
+  lastErrand: number | null; // the place just visited (don't go twice in a row)
+  errandDay: number;         // day the evening route was finished
   task: { to: number; lb: number } | null; // carrying food to a granary
   deliveries: number;        // food deliveries made today
   deliveryDay: number;

@@ -65,6 +65,7 @@ function makeVillager(s: GameState, x: number, y: number): Villager {
     task: null, deliveries: 0, deliveryDay: -1,
     way: [], path: [], approach: false, dest: null, timer: rand(s) * 2, vis: 1,
     lastTile: -1, hallDay: -1, carry: null,
+    errandB: null, lastErrand: null, errandDay: -1,
     look: { tunic: (rand(s) * 5) | 0, hair: (rand(s) * 5) | 0, skin: (rand(s) * 3) | 0 },
     jitter: rand(s) * CONFIG.schedule.personalJitter,
     ox: (rand(s) - 0.5) * 0.16, oy: (rand(s) - 0.5) * 0.16,
@@ -255,6 +256,8 @@ export function remove(s: GameState, id: number): boolean {
     if (v.job === id) v.job = null;
     if (v.home === id) v.home = null;
     if (v.task?.to === id) { v.task = null; v.carry = null; }
+    if (v.errandB === id) v.errandB = null;
+    if (v.lastErrand === id) v.lastErrand = null;
     if (v.inside === id) { v.inside = null; v.mode = 'idle'; v.way = []; v.path = []; }
     v.goalKey = '';
   }
@@ -446,12 +449,54 @@ function desired(s: GameState, v: Villager): { kind: Villager['goalKind']; b: nu
     // wake up just early enough to be at work when it starts
     if (h >= S.workStart - commuteHours(s, v) && h < S.workEnd) return { kind: 'job', b: v.job };
   } else if (h >= S.workStart && h < S.workEnd) return { kind: 'wander', b: null };
-  if (h >= S.workEnd && h < sleepAt) {
-    // free time. For now: some visit the town hall, others stroll.
-    if (v.hallDay !== day && hash(v.id, day, 99) < S.hallVisitChance) return { kind: 'hall', b: s.hallId };
-    return { kind: 'wander', b: null };
-  }
+  // free time: a route of short errands (picked in updateVillager), then home
+  if (h >= S.workEnd && h < sleepAt && v.errandB != null) return { kind: 'errand', b: v.errandB };
+  void day;
   return { kind: 'home', b: home };
+}
+
+const walkHours = (tiles: number) =>
+  (((tiles * 1.35 + 1) / CONFIG.villagers.walkTilesPerSecond) * 24) / CONFIG.time.dayLengthSeconds;
+const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
+
+/**
+ * Free time: pick the next place to visit. Random, but nearer places are more likely
+ * (so villagers chain short hops), never the same place twice in a row, and only
+ * if there's still time to get home before bed. No suitable place = route finished.
+ */
+function pickNextErrand(s: GameState, v: Villager) {
+  const E = CONFIG.errands, S = CONFIG.schedule;
+  const day = dayNumber(s), h = hourOf(s), sleepAt = S.sleepStart + v.jitter;
+  const home = getB(s, v.home ?? s.hallId);
+  const stayHours = ((E.stayMaxSeconds + 2) * 24) / CONFIG.time.dayLengthSeconds; // plan with the longest stay
+  const opts: { b: Building; w: number }[] = [];
+  for (const b of s.buildings) {
+    if (b.id === v.lastErrand || b.id === v.job || b.id === v.inside) continue; // not where they just were / work
+    const ok = (E.places.includes('home') && b.id === v.home) ||
+      (E.places.includes('townHall') && b.kind === 'townHall') ||
+      (E.places.includes('market') && b.kind === 'market') ||
+      (E.places.includes('granary') && b.kind === 'granary');
+    if (!ok) continue;
+    const d1 = dist(v, doorPt(b)), d2 = home ? dist(doorPt(b), doorPt(home)) : 0;
+    if (h + walkHours(d1) + stayHours + walkHours(d2) > sleepAt) continue; // no time to also get home
+    opts.push({ b, w: 1 / (d1 + E.nearbyPreference) });
+  }
+  if (!opts.length) { v.errandB = null; v.errandDay = day; return; }
+  let r = rand(s) * opts.reduce((a, o) => a + o.w, 0);
+  for (const o of opts) { r -= o.w; if (r <= 0) { v.errandB = o.b.id; return; } }
+  v.errandB = opts[opts.length - 1].b.id;
+}
+
+/** A spot to mill around in front of a place (on open ground). */
+function millSpot(s: GameState, b: Building): Pt | null {
+  const R = CONFIG.errands.millRange, D = doorPt(b);
+  for (let k = 0; k < 6; k++) {
+    const x = D.x + (rand(s) - 0.5) * 2 * R, y = b.y + b.h + 0.35 + rand(s) * R;
+    const xi = Math.floor(x), yi = Math.floor(y);
+    if (xi < 0 || yi < 0 || xi >= s.w || yi >= s.h || s.occ[yi * s.w + xi] !== -1) continue;
+    return { x, y };
+  }
+  return null;
 }
 
 /** Nearest building that can store food and still has room. */
@@ -507,15 +552,15 @@ function startGoal(s: GameState, v: Villager) {
     let p = en >= 0 ? findPathToTile(s, sx, sy, en) : null;
     if (!p) p = findPathToRect(s, sx, sy, target.x, target.y, target.w, target.h);
     v.path = p ?? [];
-    v.approach = true;
+    v.approach = v.goalKind !== 'errand'; // errands happen in front of the place, not inside
   } else {
-    // wander: stroll to a random free spot near the town hall
+    // wander: stroll to a random free spot in front of the town hall
     const hall = getB(s, s.hallId);
     if (!hall) { v.mode = 'idle'; v.timer = 2; return; }
     const R = CONFIG.villagers.wanderRadius;
     for (let k = 0; k < 10; k++) {
       const x = Math.floor(hall.x - R + rand(s) * (hall.w + 2 * R));
-      const y = Math.floor(hall.y - R + rand(s) * (hall.h + 2 * R));
+      const y = Math.floor(hall.y + hall.h + rand(s) * R);
       if (x < 0 || y < 0 || x >= s.w || y >= s.h || s.occ[y * s.w + x] !== -1) continue;
       const p = findPathToTile(s, sx, sy, y * s.w + x);
       if (p) { v.path = p; break; }
@@ -528,6 +573,12 @@ function arrive(s: GameState, v: Villager) {
   if (v.goalKind === 'wander' || !b) {
     v.mode = 'idle';
     v.timer = CONFIG.villagers.idlePauseMin + rand(s) * (CONFIG.villagers.idlePauseMax - CONFIG.villagers.idlePauseMin);
+    return;
+  }
+  if (v.goalKind === 'errand') { // mill around in front of the place for a few seconds
+    const E = CONFIG.errands;
+    v.mode = 'idle'; v.dest = null;
+    v.timer = E.stayMinSeconds + rand(s) * (E.stayMaxSeconds - E.stayMinSeconds);
     return;
   }
   v.inside = b.id;
@@ -611,6 +662,13 @@ export function allAsleep(s: GameState): boolean {
 
 function updateVillager(s: GameState, v: Villager) {
   v.px = v.x; v.py = v.y;
+  // free time: start (or continue) the evening route of errands
+  {
+    const S = CONFIG.schedule, h = hourOf(s);
+    if (h >= S.workEnd && h < S.sleepStart + v.jitter && !v.task) {
+      if (v.errandB == null && v.errandDay !== dayNumber(s)) pickNextErrand(s, v);
+    } else if (v.errandB != null) v.errandB = null; // free time is over
+  }
   const want = desired(s, v);
   const key = want.kind + ':' + want.b;
   if (key !== v.goalKey) {
@@ -673,6 +731,21 @@ function updateVillager(s: GameState, v: Villager) {
       break;
     }
     case 'idle': {
+      if (v.goalKind === 'errand') {
+        v.timer -= DT;
+        if (v.timer <= 0) { // done here: on to the next place (or home)
+          v.lastErrand = v.errandB; v.errandB = null; v.dest = null;
+          pickNextErrand(s, v);
+          break;
+        }
+        if (v.dest) {
+          if (moveToward(v, v.dest.x, v.dest.y, speed * 0.35)) v.dest = null;
+        } else if (rand(s) < 0.04) { // pause a moment, then drift somewhere else nearby
+          const b = getB(s, v.goalB);
+          if (b) v.dest = millSpot(s, b);
+        }
+        break;
+      }
       if (v.goalKind !== 'wander') { v.goalKey = ''; break; } // lost: re-plan
       if (v.timer > 0) { v.timer -= DT; break; }
       startGoal(s, v); // stroll somewhere else
@@ -744,9 +817,10 @@ export function tick(s: GameState) {
     s.wood += ((o.wood ?? 0) * e) / shift;
     s.gold += ((o.gold ?? 0) * e) / shift;
   }
-  // everyone eats from storage (fullest store first)
+  // everyone eats from storage (fullest store first), slowly, during free time only
   const pop = population(s);
-  let need = (pop * CONFIG.food.perVillagerPerDay) / TICKS_PER_DAY;
+  const freeTicks = ((S.sleepStart - S.workEnd) / 24) * TICKS_PER_DAY;
+  let need = hr >= S.workEnd && hr < S.sleepStart ? (pop * CONFIG.food.perVillagerPerDay) / freeTicks : 0;
   const stores = s.buildings.filter(b => def(b.kind).foodStorage && b.food > 0).sort((a, b) => b.food - a.food);
   for (const b of stores) {
     if (need <= 0) break;
