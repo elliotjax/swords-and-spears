@@ -337,14 +337,14 @@ export function buildingCanvas(kind: BuildingKind): HTMLCanvasElement {
 // Taller figures (owner's pick): 3 wide x 5 tall, seen from the front.
 // Letters: h hair, s skin, T tunic, l legs, g helmet, R red uniform, S shield, w sword,
 // p spear tip, | spear shaft, H green hood, b bow, q quiver, n/N horse, m horse head.
-const SPRITES: Record<string, string[]> = {
+export const SPRITES: Record<string, string[]> = {
   civ: ['.h.', '.s.', 'TTT', '.T.', 'l.l'],
   swordsmen: ['.g.', '.s.', 'SRw', 'SRw', 'l.l'],
   spearmen: ['..p', '.g|', '.s|', 'RR|', '.R|', 'l.l'],
   archers: ['.H.', '.s.', 'bRq', 'bR.', 'l.l'],
   cavalry: ['.g...', '.s...', 'RRR..', 'nnnnm', 'nnnn.', 'N..N.'],
 };
-const SP_COL: Record<string, string> = {
+export const SP_COL: Record<string, string> = {
   l: '#3e3028', g: '#b4bcc8', R: '#c0392b', S: '#8a6440', w: '#e6eaf0', p: '#d0d6de', '|': '#7a5434',
   H: '#4f8a3a', b: '#8a5c36', q: '#6b4a30', n: '#8a5a3a', N: '#5a3824', m: '#3e2a1c',
 };

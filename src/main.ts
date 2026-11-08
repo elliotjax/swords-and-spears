@@ -6,6 +6,7 @@ import type { GameState } from './sim/types';
 import { setupInput } from './ui/input';
 import { UI } from './ui/ui';
 import { checkForUpdate } from './update';
+import { BattleLab } from './battle/lab';
 
 // =====================================================================
 //  Game loop: runs the simulation at a fixed rate, draws every frame.
@@ -19,16 +20,22 @@ export class Game {
   view: ViewState = { ghost: null, selected: null };
   speed = 1;
   dragging = false;
+  lab: BattleLab;
+  private speedBeforeLab = 1;
   private speedBeforeHide = 1;
 
   constructor() {
     this.renderer = new Renderer(document.getElementById('map') as HTMLCanvasElement);
     this.s = loadGame() ?? newGame();
     this.ui = new UI(this);
+    this.lab = new BattleLab(() => { this.speed = this.speedBeforeLab; this.ui.update(true); });
     this.centerStart();
   }
 
   setSpeed(n: number) { this.speed = n; }
+
+  /** Open the Battle Lab (the colony pauses while it's open). */
+  openLab() { this.speedBeforeLab = this.speed; this.speed = 0; this.lab.open(); }
 
   centerStart() {
     const R = this.renderer;
@@ -87,6 +94,7 @@ export class Game {
     const frame = (now: number) => {
       const dt = Math.min(0.25, (now - last) / 1000);
       last = now;
+      if (this.lab.isOpen) { requestAnimationFrame(frame); return; } // the lab draws itself
       realTime += dt;
       // while everyone is asleep, night runs faster (2x speed becomes 4x, 3x becomes 6x...)
       const night = allAsleep(this.s) ? CONFIG.schedule.nightSpeedMultiplier : 1;

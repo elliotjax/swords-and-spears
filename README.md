@@ -307,7 +307,18 @@ The army is **squad-based**; the player never micromanages individual soldiers.
 
 ## 10. Battles, conquest, and enemies
 
-### Battles (Decided in outline; details TBD)
+### Battles: first version (Decided, built in the Battle Lab)
+- **Left (you, red) vs right (enemy, blue)** on a **flat** field. Same unit types on both sides.
+- **Every soldier has 100 HP**, tracked individually; an average hit kills in **3–5 hits**. Each squad shows **one HP bar = the average HP of its soldiers**.
+- **Squads move together; each soldier picks their own target** (prefers their squad's target and what they're good against), closes in and swings; archers shoot arrows that fly in an arc; cavalry get a **charge bonus** on their first hit after a run. Hit soldiers flash white; the fallen stay on the field.
+- **Breaking:** at **20% squad HP** a squad is broken; it fights on (same stats) for **20 seconds**, then **flees off its own side** of the field and is gone.
+- **No control yet:** armies start in the default formation (swordsmen front, spearmen behind, archers back, cavalry flanks) and you press play.
+- **Length:** a few minutes (a balanced 8-squads-a-side battle takes ~2 minutes at 1×).
+- **Battle Lab** (⚔️ on the testing sidebar): pick each side's squads and rank, presets, Fight with pause/1×/2×/3×/10×, an automatic battle camera (🎯; pan/pinch to take over), results per squad, and **Run 50 battles** for win rates.
+- Balance check (20 battles each): mirror matches ~50/50; spearmen beat cavalry, cavalry beat archers, archers beat spearmen, swordsmen beat spearmen; higher ranks beat recruits.
+- All numbers in `CONFIG.battle` (damage, cooldowns, reach, speed, defense, range, counter bonus, rank bonuses, break point, flee time).
+
+### Battles (original outline)
 - Battles are **field battles between armies**, not fought on the colony map.
 - If the attacker wins, **they conquer the colony.**
 - The owner wants to **watch the battle play out live.** How much control during the battle is **undecided** (none, a few orders, formation changes).
@@ -447,7 +458,8 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Food numbers (Decided):** villagers eat 4 lb/day; farms rescaled to 85 lb/day (106 on grassland) so ~30% farmers still feeds everyone; granary still 500 lb (now about 125 villager-days); farm holds 100 lb.
 - **Military + town update (built):** Swordsmen/Spearmen/Archers (10) and Cavalry (5) squads; recruiting from idle villagers; Barracks (2×2, 30) and Training Grounds (3×3, 50); ranks Recruit → Trained (7 days) → Veteran (+30) → Sergeant → Elite (+120); upkeep; disband; Military tab (Overview with formation preview, Recruit); soldier art sketch. Houses are now House 10 / Longhouse 25 / Manor 50. Tavern and Chapel (with radius) as free-time places; happiness shown (no effect yet). 5 Town Hall levels. Unlock cheat. Walking 3 tiles/s. Granary is the 1st or 2nd evening stop. Old saves can't be loaded.
 - **Pixel art (built):** whole map redrawn in the roofless pixel style; tiny pixel villagers and soldiers; people visible inside buildings (asleep in beds at night); pixel build-menu pictures. Much faster to draw (60 fps with 300 villagers in the stress test).
-- **Next (owner's priorities):** 1) military stats and how fighting works, 2) battles. Also still open: tech tree, happiness effects, where people eat.
+- **Battles v1 (built):** Battle Lab with individual soldiers (100 HP, 3–5 hits), squad HP bars, targeting, melee/arrows/cavalry charges, breaking at 20% → 20 s → flee, left-vs-right, auto camera, results, 50-battle balance runs. Taller 3×5 figures. Easier building taps.
+- **Next:** owner tests battles in the Battle Lab; then decide battle control, connect battles to the colony (real squads), grand map + enemy kingdoms + AI. Also still open: tech tree, happiness effects, where people eat.
 - Then: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 
 - **Testing sidebar (built):** a small vertical bar on the right edge with **10× speed**, **+10 villagers**, **+100 gold**, **+100 wood**. Also **Town** (one tap builds a free starter town: Town Hall if needed, 2 Manors, Longhouse, 2 Houses, 4 Farms, 2 stocked Granaries, 2 Lumber Camps, Market, Tavern, Chapel, Barracks, Training Grounds, ~85 villagers with every job filled and spare idle ones) and **Unlock** (no progression locks). Turn it off with `showTestTools: false` in `src/config.ts` (the fast speed is `testSpeed`).

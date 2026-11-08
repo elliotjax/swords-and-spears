@@ -169,6 +169,31 @@ export const CONFIG = {
     } as Record<UnitKind, { name: string; size: number; cost: number; upkeep: number; hp: number; attack: number; defense: number; goodVs: string; weakVs: string }>,
   },
 
+  // Battles (left = you, right = enemy). Every number here is a starting guess for tuning.
+  battle: {
+    fieldW: 26, fieldH: 15,     // battlefield size in tiles
+    soldierHp: 100,             // every soldier starts with this much HP
+    spacing: 0.62,              // gap between soldiers in a formation (tiles)
+    aggroRange: 2.2,            // soldiers start fighting enemies this close (tiles)
+    breakAt: 0.2,               // a squad breaks at this share of its total HP...
+    fightAfterBreakSeconds: 20, // ...fights on this long, then flees off its own side
+    fleeSpeed: 1.4,             // fleeing speed multiplier
+    maxSeconds: 900,            // a battle with no winner after this long is a draw
+    hitChance: 0.72,            // melee swings that land
+    arrowHitChance: 0.6,        // arrows that land
+    arrowSpeed: 9,              // tiles per second
+    counterBonus: 1.5,          // damage multiplier against a unit you're good against
+    rankDamage: 0.1,            // +10% damage per rank above Recruit
+    rankDefense: 0.03,          // +3% damage reduction per rank above Recruit
+    // damage per hit before defense; ~3-5 hits to kill a 100 HP soldier
+    units: {
+      swordsmen: { damage: 30, cooldown: 4.0, reach: 0.55, speed: 0.7, defense: 0.18, strongVs: ['spearmen'] },
+      spearmen: { damage: 27, cooldown: 3.7, reach: 0.85, speed: 0.65, defense: 0.15, strongVs: ['cavalry'] },
+      archers: { damage: 26, cooldown: 5.0, reach: 0.5, speed: 0.7, defense: 0.05, range: 7, meleeDamage: 12, strongVs: ['spearmen'] },
+      cavalry: { damage: 32, cooldown: 3.7, reach: 0.65, speed: 1.7, defense: 0.12, chargeBonus: 1.8, strongVs: ['archers'] },
+    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; range?: number; meleeDamage?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
+  },
+
   showTestTools: true,        // the testing sidebar on the right (10x, +villagers, +gold, +wood, unlock)
   testSpeed: 10,              // speed of the sidebar's fast button
 

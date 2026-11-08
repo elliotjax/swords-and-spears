@@ -1,0 +1,381 @@
+import { CONFIG, type UnitKind } from '../config';
+import { PX, R, SPRITES, SP_COL } from '../render/pixel';
+import { hash } from '../sim/rng';
+import { unitIcon } from '../ui/ui';
+import { IC } from '../ui/icons';
+import {
+  BATTLE_TPS, createBattle, runBattle, squadAlive, squadHp, stepBattle,
+  type BattleSetup, type BattleState, type BSoldier, type Side,
+} from './battle';
+
+// =====================================================================
+//  Battle Lab: a test screen to set up two armies, watch them fight,
+//  and run many battles in the background to check the balance.
+// =====================================================================
+
+const UNITS: UnitKind[] = ['swordsmen', 'spearmen', 'archers', 'cavalry'];
+const TEAM = ['#c0392b', '#3a62b8'], TEAM_DARK = ['#8e2a23', '#27457f'];
+const SIDE_NAME = ['You (red)', 'Enemy (blue)'];
+
+const PRESETS: { name: string; a: Partial<Record<UnitKind, number>>; b: Partial<Record<UnitKind, number>> }[] = [
+  { name: 'Balanced', a: { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, b: { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 } },
+  { name: 'Spears vs Cavalry', a: { spearmen: 2 }, b: { cavalry: 4 } },
+  { name: 'Cavalry vs Archers', a: { cavalry: 4 }, b: { archers: 2 } },
+  { name: 'Archers vs Spears', a: { archers: 2 }, b: { spearmen: 2 } },
+  { name: 'Swords vs Spears', a: { swordsmen: 2 }, b: { spearmen: 2 } },
+  { name: 'Big battle', a: { swordsmen: 3, spearmen: 3, archers: 3, cavalry: 4 }, b: { swordsmen: 3, spearmen: 3, archers: 3, cavalry: 4 } },
+];
+
+export class BattleLab {
+  isOpen = false;
+  private root: HTMLDivElement;
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private panel: HTMLDivElement;
+  private b: BattleState | null = null;
+  private counts: [Record<UnitKind, number>, Record<UnitKind, number>];
+  private ranks: [number, number] = [1, 1];
+  private speed = 1;
+  private seed = 1;
+  private ground: HTMLCanvasElement | null = null;
+  private cam = { x: 0, y: 0, zoom: 1 };
+  private autoCam = true; // follow the fighting until the player pans/zooms
+  private raf = 0;
+  private acc = 0;
+  private last = 0;
+  private batch: { done: number; total: number; wins: number[]; time: number } | null = null;
+  private view: 'setup' | 'fight' | 'result' = 'setup';
+
+  constructor(private onClose: () => void) {
+    this.counts = [{ swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }];
+    this.root = document.createElement('div');
+    this.root.id = 'lab';
+    this.root.className = 'hidden';
+    this.root.innerHTML = `
+      <canvas id="labMap"></canvas>
+      <div class="labtop panel">
+        <b>⚔️</b><span id="labTime">0:00</span>
+        <div class="labspd">
+          <button data-ls="0" aria-label="Pause">${IC.pause}</button><button data-ls="1">1×</button><button data-ls="2">2×</button><button data-ls="3">3×</button><button data-ls="10">10×</button>
+        </div>
+        <button class="x" data-lab="cam" aria-label="Auto camera" id="labCam">🎯</button>
+        <button class="x" data-lab="close" aria-label="Close">✕</button>
+      </div>
+      <div id="labPanel" class="panel sheetp"></div>`;
+    document.body.appendChild(this.root);
+    this.canvas = this.root.querySelector('#labMap')!;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.panel = this.root.querySelector('#labPanel')!;
+    this.root.addEventListener('click', e => this.onClick(e));
+    this.setupInput();
+    window.addEventListener('resize', () => { if (this.isOpen) this.fit(); });
+  }
+
+  open() {
+    this.isOpen = true;
+    this.root.classList.remove('hidden');
+    this.view = 'setup';
+    this.preview();
+    this.renderPanel();
+    this.last = performance.now();
+    const loop = (now: number) => {
+      if (!this.isOpen) return;
+      this.frame(now);
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  close() {
+    this.isOpen = false;
+    cancelAnimationFrame(this.raf);
+    this.root.classList.add('hidden');
+    this.onClose();
+  }
+
+  private setup(): BattleSetup {
+    const side = (i: 0 | 1) => UNITS.flatMap(u => Array.from({ length: this.counts[i][u] }, () => ({ unit: u, rank: this.ranks[i] })));
+    return { sides: [side(0), side(1)] };
+  }
+
+  /** Show the armies standing in formation (before pressing Fight). */
+  private preview() {
+    this.b = createBattle(this.setup(), this.seed);
+    this.ground = null;
+    this.fit();
+  }
+
+  private fit() {
+    const d = Math.min(3, window.devicePixelRatio || 1);
+    this.canvas.width = Math.round(window.innerWidth * d);
+    this.canvas.height = Math.round(window.innerHeight * d);
+    const W = CONFIG.battle.fieldW;
+    this.cam = { x: W / 2, y: CONFIG.battle.fieldH / 2 + 2.2, zoom: 1 };
+    this.autoCam = true;
+  }
+
+  // ---------------- clicks ----------------
+  private onClick(e: Event) {
+    const el = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
+    if (!el || el.disabled) return;
+    if (el.dataset.ls) { this.speed = Number(el.dataset.ls); this.renderTop(); return; }
+    const act = el.dataset.lab, side = Number(el.dataset.side) as 0 | 1, u = el.dataset.unit as UnitKind;
+    switch (act) {
+      case 'close': this.close(); return;
+      case 'cam': this.autoCam = true; this.renderTop(); return;
+      case 'add': this.counts[side][u] = Math.min(6, this.counts[side][u] + 1); this.preview(); break;
+      case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.preview(); break;
+      case 'rank': this.ranks[side] = (this.ranks[side] + 1) % CONFIG.military.ranks.length; this.preview(); break;
+      case 'preset': {
+        const p = PRESETS[Number(el.dataset.i)];
+        this.counts = [Object.fromEntries(UNITS.map(x => [x, p.a[x] ?? 0])) as Record<UnitKind, number>, Object.fromEntries(UNITS.map(x => [x, p.b[x] ?? 0])) as Record<UnitKind, number>];
+        this.preview(); break;
+      }
+      case 'fight':
+        if (!this.b || !this.b.squads.some(q => q.side === 0) || !this.b.squads.some(q => q.side === 1)) return;
+        this.view = 'fight'; if (!this.speed) this.speed = 1; break;
+      case 'stop': this.view = 'setup'; this.seed++; this.preview(); break;
+      case 'again': this.seed++; this.preview(); this.view = 'fight'; break;
+      case 'edit': this.view = 'setup'; this.seed++; this.preview(); break;
+      case 'batch': this.runBatch(50); break;
+    }
+    this.renderPanel();
+  }
+
+  private runBatch(total: number) {
+    const setup = this.setup();
+    if (!setup.sides[0].length || !setup.sides[1].length) return;
+    this.batch = { done: 0, total, wins: [0, 0, 0], time: 0 };
+    const chunk = () => {
+      if (!this.batch || !this.isOpen) return;
+      const t0 = performance.now();
+      while (this.batch.done < total && performance.now() - t0 < 30) {
+        const r = runBattle(setup, 1000 + this.batch.done * 7 + this.seed * 131);
+        this.batch.wins[r.winner === -1 ? 2 : r.winner]++;
+        this.batch.time += r.t;
+        this.batch.done++;
+      }
+      this.renderPanel();
+      if (this.batch.done < total) setTimeout(chunk, 0);
+    };
+    chunk();
+  }
+
+  // ---------------- panels ----------------
+  private renderTop() {
+    this.root.querySelectorAll<HTMLButtonElement>('[data-ls]').forEach(b => b.classList.toggle('on', Number(b.dataset.ls) === this.speed));
+    this.root.querySelector('#labCam')?.classList.toggle('on', this.autoCam);
+  }
+
+  private renderPanel() {
+    this.renderTop();
+    const rankName = (i: number) => CONFIG.military.ranks[i].name;
+    if (this.view === 'setup') {
+      const col = (side: 0 | 1) => `<div class="labcol"><div class="labside" style="color:${TEAM[side]}">${SIDE_NAME[side]}</div>
+        ${UNITS.map(u => `<div class="labrow"><img src="${unitIcon(u)}" alt=""><span>${CONFIG.military.units[u].name}</span>
+          <button data-lab="sub" data-side="${side}" data-unit="${u}">−</button><b>${this.counts[side][u]}</b><button data-lab="add" data-side="${side}" data-unit="${u}">+</button></div>`).join('')}
+        <button class="mini" data-lab="rank" data-side="${side}">Rank: ${rankName(this.ranks[side])}</button></div>`;
+      const bt = this.batch;
+      const batch = bt ? (bt.done < bt.total ? `<p>Running ${bt.done}/${bt.total} battles…</p>`
+        : `<p><b>${bt.total} battles:</b> <b style="color:${TEAM[0]}">You win ${Math.round(bt.wins[0] / bt.total * 100)}%</b> · <b style="color:${TEAM[1]}">Enemy ${Math.round(bt.wins[1] / bt.total * 100)}%</b> · Draw ${Math.round(bt.wins[2] / bt.total * 100)}% · avg ${fmtTime(bt.time / bt.total)}</p>`) : '';
+      this.panel.innerHTML = `<div class="labpresets">${PRESETS.map((p, i) => `<button class="chip panel" data-lab="preset" data-i="${i}">${p.name}</button>`).join('')}</div>
+        <div class="labcols">${col(0)}${col(1)}</div>${batch}
+        <div class="labbtns"><button class="btn" data-lab="fight">▶ Fight</button><button class="btn ghost" data-lab="batch">Run 50 battles</button></div>`;
+    } else if (this.view === 'fight') {
+      this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div><button class="btn ghost" data-lab="stop">Stop</button></div>`;
+    } else {
+      const b = this.b!;
+      const title = b.winner === 0 ? '🏆 You win!' : b.winner === 1 ? 'Defeat' : 'Draw';
+      const rows = (side: Side) => b.squads.filter(q => q.side === side).map(q => {
+        const n = squadAlive(b, q), size = q.members.length;
+        const status = n === 0 ? 'wiped out' : q.fleeing ? `fled with ${n}` : `${n} standing`;
+        return `<div class="labres"><img src="${unitIcon(q.unit)}" alt=""><span>${CONFIG.military.units[q.unit].name} #${q.num}</span><b>${n}/${size}</b><small>${status}</small></div>`;
+      }).join('');
+      this.panel.innerHTML = `<h3 style="color:${b.winner === 1 ? TEAM[1] : TEAM[0]}">${title} <small style="color:var(--muted);font-size:13px;margin-left:6px">${fmtTime(b.t)}</small></h3>
+        <div class="labcols"><div class="labcol"><div class="labside" style="color:${TEAM[0]}">${SIDE_NAME[0]}</div>${rows(0)}</div>
+        <div class="labcol"><div class="labside" style="color:${TEAM[1]}">${SIDE_NAME[1]}</div>${rows(1)}</div></div>
+        <div class="labbtns"><button class="btn" data-lab="again">Fight again</button><button class="btn ghost" data-lab="edit">Change armies</button></div>`;
+    }
+  }
+
+  private scoreHtml() {
+    const b = this.b!;
+    const side = (sd: Side) => {
+      const qs = b.squads.filter(q => q.side === sd);
+      const men = qs.reduce((a, q) => a + squadAlive(b, q), 0), total = qs.reduce((a, q) => a + q.members.length, 0);
+      return `<b style="color:${TEAM[sd]}">${men}/${total}</b>`;
+    };
+    return `${side(0)} soldiers vs ${side(1)}`;
+  }
+
+  // ---------------- frame ----------------
+  private frame(now: number) {
+    const dt = Math.min(0.25, (now - this.last) / 1000);
+    this.last = now;
+    const b = this.b;
+    if (b && this.view === 'fight' && !b.over) {
+      this.acc += dt * BATTLE_TPS * this.speed;
+      let n = 0;
+      while (this.acc >= 1 && n < 60) { stepBattle(b); this.acc -= 1; n++; }
+      if (n >= 60) this.acc = 0;
+      if (b.over) { this.view = 'result'; this.renderPanel(); }
+      else if (Math.floor(b.t * 2) !== Math.floor((b.t - n / BATTLE_TPS) * 2)) {
+        const sc = this.panel.querySelector('.labscore'); if (sc) sc.innerHTML = this.scoreHtml();
+      }
+    }
+    const t = this.root.querySelector('#labTime')!;
+    t.textContent = b ? fmtTime(b.t) : '0:00';
+    this.draw(this.view === 'fight' ? this.acc : 1);
+  }
+
+  private draw(alpha: number) {
+    const b = this.b; if (!b) return;
+    const c = this.ctx, d = Math.min(3, window.devicePixelRatio || 1);
+    const vw = window.innerWidth, vh = window.innerHeight;
+    if (this.autoCam) this.followAction(b, vw, vh);
+    const ppt = (vw / b.W) * this.cam.zoom;             // screen px per tile
+    const p = (ppt / R) * d;                            // device px per art pixel
+    const ox = (vw / 2 - this.cam.x * ppt) * d, oy = (vh / 2 - this.cam.y * ppt) * d;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.fillStyle = '#3f532c'; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    c.imageSmoothingEnabled = false;
+    if (!this.ground) this.ground = paintField(b);
+    c.drawImage(this.ground, ox, oy, b.W * R * p, b.H * R * p);
+
+    const px = (x: number) => Math.floor(x * R);
+    const drawP = (ax: number, ay: number, col: string) => {
+      const sx = Math.round(ox + ax * p), sy = Math.round(oy + ay * p);
+      c.fillStyle = col; c.fillRect(sx, sy, Math.round(ox + (ax + 1) * p) - sx, Math.round(oy + (ay + 1) * p) - sy);
+    };
+    // fallen soldiers
+    for (const s of b.soldiers) if (s.dead) {
+      const ax = px(s.x), ay = px(s.y);
+      drawP(ax - 1, ay, TEAM_DARK[s.side]); drawP(ax, ay, TEAM[s.side]); drawP(ax + 1, ay, PX.skin[0]); drawP(ax - 2, ay, '#3e3028');
+    }
+    // living soldiers, back to front
+    const live = b.soldiers.filter(s => !s.dead && !s.fled).sort((a, z) => a.y - z.y);
+    for (const s of live) {
+      let x = s.px + (s.x - s.px) * alpha, y = s.py + (s.y - s.py) * alpha;
+      if (s.lunge > 0) { x += Math.cos(s.lungeDir) * 0.12; y += Math.sin(s.lungeDir) * 0.12; }
+      drawSoldier(drawP, s, px(x), px(y), s.x !== s.px || s.y !== s.py);
+    }
+    // arrows
+    for (const a of b.arrows) {
+      const k = Math.min(1, a.t / a.dur), ax = px(a.x), ay = px(a.y);
+      const dx = Math.sign(a.tx - a.sx) || 1;
+      if (k < 1) { drawP(ax, ay, '#d0d6de'); drawP(ax - dx, ay, '#7a5434'); drawP(ax - 2 * dx, ay, '#efe6d2'); }
+      else { drawP(ax, ay, '#7a5434'); drawP(ax, ay - 1, '#efe6d2'); } // stuck in the ground
+    }
+    // squad HP bars (average HP of everyone in the squad)
+    c.textAlign = 'center'; c.textBaseline = 'bottom';
+    c.font = `800 ${10 * d}px Nunito, system-ui, sans-serif`;
+    for (const q of b.squads) {
+      if (q.gone) continue;
+      let sx = 0, sy = 1e9, n = 0;
+      for (const id of q.members) { const s = b.soldiers[id - 1]; if (!s.dead && !s.fled) { sx += s.x; sy = Math.min(sy, s.y); n++; } }
+      if (!n) continue;
+      const cx = ox + (sx / n) * R * p, cy = oy + sy * R * p - 9 * p;
+      const w = Math.min(26, 0.9 * ppt) * d, h = 3.5 * d, hp = squadHp(b, q);
+      c.fillStyle = 'rgba(20,20,30,.7)'; c.fillRect(cx - w / 2 - d, cy - h - d, w + 2 * d, h + 2 * d);
+      c.fillStyle = q.broken ? '#e8a03a' : TEAM[q.side];
+      c.fillRect(cx - w / 2, cy - h, w * Math.max(0, Math.min(1, hp)), h);
+      if (q.broken) {
+        const left = Math.max(0, Math.ceil(CONFIG.battle.fightAfterBreakSeconds - (b.t - q.brokenAt)));
+        c.fillStyle = '#fff'; c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 3 * d;
+        const txt = q.fleeing ? 'Fleeing!' : `Broken ${left}s`;
+        c.strokeText(txt, cx, cy - h - 2 * d); c.fillText(txt, cx, cy - h - 2 * d);
+      }
+    }
+  }
+
+  /** Battle camera: frame everyone still on the field, zoomed in as close as fits. */
+  private followAction(b: BattleState, vw: number, vh: number) {
+    // everyone still fighting (not fleeing); ignore the furthest 8% at each edge (stragglers)
+    const xs: number[] = [], ys: number[] = [];
+    for (const s of b.soldiers) {
+      if (s.dead || s.fled || b.squads[s.squad - 1].fleeing) continue;
+      xs.push(s.x); ys.push(s.y);
+    }
+    if (!xs.length) return;
+    xs.sort((a, z) => a - z); ys.sort((a, z) => a - z);
+    const cut = Math.floor(xs.length * 0.08);
+    const x0 = xs[cut], x1 = xs[xs.length - 1 - cut], y0 = ys[cut], y1 = ys[ys.length - 1 - cut];
+    const panelH = this.panel.getBoundingClientRect().height, top = 70;
+    const freeH = Math.max(120, vh - panelH - top - 20);
+    const pad = 2.2;
+    const zx = b.W / (x1 - x0 + pad * 2);                         // fit width
+    const zy = (freeH / (vw / b.W)) / (y1 - y0 + pad * 2);        // fit height
+    const zoom = Math.max(1, Math.min(3.2, Math.min(zx, zy)));
+    const ppt = (vw / b.W) * zoom;
+    const tx = (x0 + x1) / 2;
+    const ty = (y0 + y1) / 2 + (vh / 2 - (top + freeH / 2)) / ppt; // centre in the free area above the panel
+    const k = 0.08;
+    this.cam.zoom += (zoom - this.cam.zoom) * k;
+    this.cam.x += (tx - this.cam.x) * k;
+    this.cam.y += (ty - this.cam.y) * k;
+  }
+
+  // ---------------- pan & zoom ----------------
+  private setupInput() {
+    const pts = new Map<number, { x: number; y: number }>();
+    let pinch: { d: number; zoom: number } | null = null;
+    const cv = this.canvas;
+    cv.style.touchAction = 'none';
+    const ppt = () => (window.innerWidth / CONFIG.battle.fieldW) * this.cam.zoom;
+    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: this.cam.zoom }; } });
+    cv.addEventListener('pointermove', e => {
+      const q = pts.get(e.pointerId); if (!q) return;
+      const dx = e.clientX - q.x, dy = e.clientY - q.y; q.x = e.clientX; q.y = e.clientY;
+      if (Math.abs(dx) + Math.abs(dy) > 0.5 && this.autoCam) { this.autoCam = false; this.renderTop(); }
+      if (pts.size === 1) { this.cam.x -= dx / ppt(); this.cam.y -= dy / ppt(); }
+      else if (pinch) { const [a, b] = [...pts.values()]; this.cam.zoom = Math.max(0.8, Math.min(4, pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)); }
+      this.cam.x = Math.max(0, Math.min(CONFIG.battle.fieldW, this.cam.x)); this.cam.y = Math.max(-2, Math.min(CONFIG.battle.fieldH + 6, this.cam.y));
+    });
+    const end = (e: PointerEvent) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+    cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+    cv.addEventListener('wheel', e => { e.preventDefault(); this.cam.zoom = Math.max(0.8, Math.min(4, this.cam.zoom * Math.exp(-e.deltaY * 0.0015))); }, { passive: false });
+  }
+}
+
+function fmtTime(t: number) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
+
+/** Flat grassy battlefield in the pixel style. */
+function paintField(b: BattleState): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = b.W * R; cv.height = b.H * R;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = PX.grass[0]; g.fillRect(0, 0, cv.width, cv.height);
+  for (let i = 0; i < cv.width * cv.height * 0.09; i++) {
+    const x = Math.floor(hash(i, 1, 5) * cv.width), y = Math.floor(hash(i, 2, 5) * cv.height);
+    g.fillStyle = PX.grass[1 + (i % 4)]; g.fillRect(x, y, 1, 1);
+  }
+  for (let i = 0; i < 40; i++) {
+    const x = Math.floor(hash(i, 3, 5) * cv.width), y = Math.floor(hash(i, 4, 5) * cv.height);
+    g.fillStyle = PX.flowers[i % PX.flowers.length]; g.fillRect(x, y, 1, 1);
+  }
+  // faint edges show where each side flees
+  g.fillStyle = 'rgba(192,57,43,.18)'; g.fillRect(0, 0, 3, cv.height);
+  g.fillStyle = 'rgba(58,98,184,.18)'; g.fillRect(cv.width - 3, 0, 3, cv.height);
+  return cv;
+}
+
+/** One soldier in team colours (red = you, blue = enemy). Flashes white when hit. */
+function drawSoldier(P: (x: number, y: number, c: string) => void, s: BSoldier, ax: number, ay: number, walking: boolean) {
+  const sp = SPRITES[s.unit];
+  const h = sp.length, w = sp[0].length;
+  const flip = Math.cos(s.dir) < -0.2;
+  const frame = walking ? Math.floor(s.step / 2) % 2 : -1;
+  const x0 = -Math.floor(w / 2), y0 = -h + 1;
+  for (let i = 1; i < w; i++) P(ax + x0 + i, ay + 1, 'rgba(0,0,0,.22)');
+  for (let r = 0; r < h; r++) {
+    let row = sp[r];
+    if (r === h - 1 && frame >= 0) row = s.unit === 'cavalry' ? (frame ? '.N.N.' : 'N..N.') : (frame ? 'l..' : '..l');
+    for (let i = 0; i < w; i++) {
+      const ch = row[flip ? w - 1 - i : i];
+      if (ch === '.') continue;
+      let col = ch === 's' ? PX.skin[0] : ch === 'R' ? TEAM[s.side] : SP_COL[ch];
+      if (s.flash > 0) col = '#ffffff';
+      P(ax + x0 + i, ay + y0 + r, col);
+    }
+  }
+}

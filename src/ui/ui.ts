@@ -81,6 +81,7 @@ export class UI {
         <button data-act="testVillagers" aria-label="Add 10 villagers">${IC.addPeople}<span>+10</span></button>
         <button data-act="testGold" aria-label="Add 100 gold">${IC.gold}<span>+100</span></button>
         <button data-act="testWood" aria-label="Add 100 wood">${IC.wood}<span>+100</span></button>
+        <button data-act="testLab" aria-label="Battle Lab">${IC.swords}<span>Battle</span></button>
         <button data-act="testTown" aria-label="Build a starter town">${IC.town}<span>Town</span></button>
         <button data-act="testUnlock" id="unlockBtn" aria-label="Unlock everything">${IC.unlock}<span>Unlock</span></button>
       </div>` : ''}
@@ -159,6 +160,7 @@ export class UI {
       case 'testVillagers': this.toast(spawnVillagers(s, 10) ? '+10 villagers' : 'Place the Town Hall first'); break;
       case 'testGold': s.gold += 100; this.toast('+100 gold'); break;
       case 'testWood': s.wood += 100; this.toast('+100 wood'); break;
+      case 'testLab': g.openLab(); return;
       case 'testTown': { const n = quickTown(s); g.view.selected = null; if (s.hallId != null) g.centerOn(s.hallId); this.toast(`Starter town: ${n} buildings`); break; }
       case 'testUnlock': s.unlockAll = !s.unlockAll; this.toast(s.unlockAll ? 'Everything unlocked (testing)' : 'Normal progression'); break;
       case 'recruit': {
