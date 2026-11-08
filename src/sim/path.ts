@@ -51,8 +51,7 @@ export function walkable(s: GameState, i: number): boolean {
 export function tileCost(s: GameState, i: number): number {
   const P = CONFIG.paths;
   const base = s.tiles[i] === FOREST ? CONFIG.villagers.forestWalkCost : 1;
-  const worn = Math.min(1, s.traffic[i] / P.road);
-  return base * (1 - P.preferWorn * worn);
+  return base * (1 - P.preferWorn * s.wear[i]);
 }
 
 /** Path to one exact tile. */

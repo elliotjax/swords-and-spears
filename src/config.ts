@@ -30,7 +30,7 @@ export interface BuildingDef {
 }
 
 export const CONFIG = {
-  version: '0.6.0',
+  version: '0.7.0',
 
   time: {
     dayLengthSeconds: 300,    // real seconds per game day at 1x (5 minutes)
@@ -106,16 +106,22 @@ export const CONFIG = {
     dropOffSeconds: 1.5,      // time spent inside a granary dropping off food
   },
 
-  // Desire paths: foot traffic wears roads into the ground
+  // Desire paths: foot traffic wears roads into the ground.
+  // Every step between two tiles is counted during the day. Roads only change
+  // once per night (at updateHour), and slowly: at most one level every few days.
   paths: {
     trafficPerStep: 1,        // added each time a villager walks from one tile to the next
-    decayPerDay: 0.5,         // share of traffic that fades each day
-    faint: 3,                 // traffic needed to look faintly worn
-    trail: 10,                // ...to look like a thin gravel trail
-    road: 28,                 // ...to look like a wide gravel road
-    maxTraffic: 90,           // cap so roads fade in reasonable time
-    preferWorn: 0.35,         // 0..1, how much pathfinding prefers worn tiles
-    roadSpeedBonus: 0,        // e.g. 0.3 = 30% faster on roads (off for now)
+    updateHour: 2,            // roads update once a night at this hour (everyone's asleep)
+    dailyAverage: 0.35,       // how quickly the "usual traffic" follows recent days (0..1)
+    faint: 2,                 // usual crossings per day for a faint worn path
+    trail: 6,                 // ...for a thin gravel trail
+    road: 15,                 // ...for a wide gravel road
+    downFactor: 0.5,          // a road drops a level when traffic falls below this share of its level
+    upgradeDays: 2,           // a road can go up one level at most every this many days
+    downgradeDays: 3,         // ...and down one level at most every this many days
+    fadeInSeconds: 3,         // real seconds for overnight road changes to fade in
+    preferWorn: 0.35,         // 0..1, how much pathfinding prefers worn paths
+    roadSpeedBonus: 0,        // e.g. 0.3 = 30% faster on full roads (off for now)
   },
 
   townHall: {
@@ -130,6 +136,7 @@ export const CONFIG = {
   showTestTools: true,        // the testing sidebar on the right (10x, +villagers, +gold, +wood)
   testSpeed: 10,              // speed of the sidebar's fast button
 
+  autoFillWorkers: true,      // new buildings start with idle villagers assigned, up to capacity
   removeRefund: 0.5,          // share of cost refunded when removing a building
 
   buildings: {
@@ -164,7 +171,7 @@ export const CONFIG = {
     },
     granary: {
       name: 'Granary', category: 'food', w: 1, h: 2, cost: { wood: 40, gold: 0 },
-      allowedTiles: ['grass'], foodStorage: 500, badge: 'storage',
+      allowedTiles: ['grass'], foodStorage: 500, workers: 1, badge: 'storage',
     },
     lumberCamp: {
       name: 'Lumber Camp', category: 'wood', w: 2, h: 2, cost: { wood: 30, gold: 0 },

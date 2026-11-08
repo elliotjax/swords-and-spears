@@ -168,7 +168,7 @@ Phone portrait. The map is full-bleed. The UI floats over it.
 - Pan and zoom the map. *(Assumed.)*
 
 ### 7.2 Buildings (Decided unless marked TBD)
-Buildings are placed by dragging from the build menu onto grid tiles. **Building is instant** once placed and paid for.
+Buildings are placed by dragging from the build menu onto grid tiles. **Building is instant** once placed and paid for. **New buildings start full of workers** (idle villagers are assigned automatically, up to capacity; nobody is taken from another job).
 
 Every building has:
 - A **capacity** (max villagers).
@@ -183,7 +183,7 @@ Starting building types:
 | **Town Hall** | Center of the colony. Placed first. | Its **level gates progression** (7.5). Villagers walk here (7.6). Losing it ends the game. **Stores a little food (150 lb)** so the colony can start before a granary exists. |
 | **House** (and variants) | Houses villagers. | Fixed villager capacity. The **number of houses is capped by Town Hall level.** Variants in the mockup: **Hut, House, Cottage, Longhouse, Manor** (Manor locked until Hall Lv 3). TBD which exist in v1. |
 | **Farm** | Produces food. | Better output on grassland. Two kinds of "farm" exist: **food farm** and **wood farm** (below). **Food made at a farm is stored at the farm first** and doesn't count until a farmer carries it to a granary. |
-| **Granary** *(Decided)* | Stores food. | **1×2 tiles**, holds **500 lb**. Only **25% of a farm's workers (rounded up, at least 1) are carriers**. Carriers take **everything waiting at the farm** to the **nearest granary** (or Town Hall) **4 times per workday**. **While a carrier is away they don't farm**, so a far-away granary costs output (the farm panel shows the % lost). Your food stockpile = all food in granaries + Town Hall. |
+| **Granary** *(Decided)* | Stores food. | **1×2 tiles**, holds **500 lb**, **1 worker (keeper)**. A granary only accepts food while a keeper is **assigned** (they don't need to be standing there, so deliveries never get held up); with no keeper, carriers use the next open granary or the Town Hall. Only **25% of a farm's workers (rounded up, at least 1) are carriers**. Carriers take **everything waiting at the farm** to the **nearest granary** (or Town Hall) **4 times per workday**. **While a carrier is away they don't farm**, so a far-away granary costs output (the farm panel shows the % lost). Your food stockpile = all food in granaries + Town Hall. |
 | **Lumber Camp** (working name for the "wood farm") | Produces wood. | Placed on **forest** tiles. **Harvests existing trees; trees never run out.** Must **not look like farming**. |
 | **Commerce buildings** (for example **Market**) | Produce gold. | TBD which and how many in v1. |
 | **Barracks** | Recruits and trains squads. | Not in v1. See section 9. |
@@ -240,6 +240,8 @@ This is a signature feature. It is also what makes the colony satisfying to watc
 **Pathfinding:** tile-based (A* or flow fields), walking around buildings. Must stay fast with hundreds of villagers.
 
 **Doors (Decided):** every building has a **door on its front (bottom) side**. Villagers walk right up to the doorway and only disappear (fade out) once they reach it, and come back out of it when leaving. To get to a door they walk along the narrow gap around the building; buildings are drawn slightly smaller than their tiles so there is visual room to walk between them. **The game does not stop you from building in front of another building's door**; villagers then go around to it.
+
+**Road timing (Decided):** roads are steady, not a constant road-watching show. **Any foot traffic counts** (commutes, deliveries, errands, wandering, milling). Roads **only change once a night** (about 2 AM, while everyone sleeps) and the change fades in gently. They **build slowly**: a route in regular use becomes a faint path after about **2 days**, a gravel trail after about **4**, and a full road after about **6** (only the busiest routes become full roads). Unused roads **fade slowly**, about **one level every 3 days**. A road needs much more traffic to go up a level than to stay, so it doesn't flicker.
 
 **Road look (Decided):** roads are **thin paths through the middle of the tiles**, not full tile squares, with a **gravel** look (grey-beige with small stones). They **join up naturally**: straight, diagonal, curving where they bend or branch. Levels: faint worn line → thin gravel trail → wider gravel road. Villagers walk along the middle of them.
 
@@ -412,6 +414,7 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Granary + clock update (built):** Granary building (1×1, 500 lb); farm food waits at the farm until farmers carry it to the nearest granary 4× per workday (production continues while they're away); Town Hall stores 150 lb; food balanced so ~30% farmers feeds everyone; 24-hour day (5–8 free, 8–17 work, 17–20 free, 20–5 sleep); one combined time + speed panel with a clock dial; "Build a Granary" alert. Villagers no longer cut through buildings when they change plans mid-walk. Old saves can't be loaded (start a new game).
 - **Schedule + carriers update (built):** granary is 1×2; only 25% of farmers carry food (everything waiting, 4 trips/day); carriers don't farm while away (delivery penalty shown on the farm panel, and included in the food rate); work 5 AM–5 PM with personal wake-up times so everyone is at work by 5; free time 5–8 PM; sleep from 8 PM; night runs 2× faster while everyone is asleep; clock shows "Day N, Year Y" (24-day years). Tested: all workers at work at 5:00, shown food rate matches real output (302 vs 305 lb/day). Old saves can't be loaded (start a new game).
 - **Free-time errands (built):** evening routes (house / Town Hall / Market / Granary), milling around at each stop, nearer stops preferred, home by bedtime; food eaten only during free time. Tested: 2–4 stops per villager, everyone home by bedtime, food never drops outside free time.
+- **Roads + keeper update (built):** roads update once a night and fade in, build over ~2/4/6 days, fade ~1 level per 3 days, all traffic counts; new buildings start full of idle workers; granary needs 1 keeper assigned to accept food ("Granary has no keeper" alert). Old saves can't be loaded (start a new game).
 - Next: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 
 - **Testing sidebar (built):** a small vertical bar on the right edge with **10× speed**, **+10 villagers**, **+100 gold**, **+100 wood**. Turn it off with `showTestTools: false` in `src/config.ts` (the fast speed is `testSpeed`).

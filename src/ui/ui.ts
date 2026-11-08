@@ -172,6 +172,8 @@ export class UI {
     const has = (k: string) => s.buildings.some(b => b.kind === k);
     if (!has('farm')) return { title: 'Build a Farm', sub: 'Your people need food', level: r.food < 0 && foodStored(s) <= 0.01 ? 'bad' : 'warn', go: 'food' };
     if (!has('granary')) return { title: 'Build a Granary', sub: 'Farmers need somewhere to store food', level: 'warn', go: 'food' };
+    const noKeeper = s.buildings.find(b => b.kind === 'granary' && !b.workers.length);
+    if (noKeeper) return { title: 'Granary has no keeper', sub: 'It can\'t take food. Assign 1 worker', level: 'warn', go: 'villagers' };
     if (foodStored(s) <= 0.01 && r.food < 0) return { title: 'Starving!', sub: 'Granary empty. Assign farmers', level: 'bad', go: 'villagers' };
     if (r.food < 0) return { title: 'Food shortage', sub: `Food dropping ${fmt(-r.food)} lb/day`, level: 'warn', go: 'villagers' };
     if (homeless > 0 && houseCount(s) < houseCap(s)) return { title: 'Need houses', sub: `${homeless} villagers have no bed`, level: 'warn', go: 'housing' };
@@ -345,8 +347,10 @@ export class UI {
       } else body += `<p><b>Max level for now.</b></p>`;
     } else if (d.foodStorage) {
       const pct = Math.round((b.food / d.foodStorage) * 100);
-      body = `<p>Stored <b>${Math.floor(b.food)} / ${d.foodStorage} lb</b> (${pct}% full)</p>
+      body = `${d.workers ? this.stepperHtml(b) : ''}
+        <p>Stored <b>${Math.floor(b.food)} / ${d.foodStorage} lb</b> (${pct}% full)</p>
         <div class="bar"><i style="width:${pct}%;background:#b5803a"></i></div>
+        ${d.workers && !b.workers.length ? '<p><b style="color:var(--bad)">No keeper: this granary can\'t take food.</b> Assign 1 worker.</p>' : ''}
         <p>Farmers carry food here from the nearest farm. Your people eat from the Town Hall and granaries.</p>`;
     } else if (d.beds) {
       body = `<p>Residents <b>${b.residents.length} / ${d.beds}</b></p>
@@ -358,10 +362,7 @@ export class UI {
       const [res, unit] = out.food ? [out.food, 'lb food'] : out.wood ? [out.wood, 'wood'] : [out.gold!, 'gold'];
       const bonus = d.grassBonus ? ` (+${Math.round(d.grassBonus * 100)}% on grassland)` : '';
       const eff = Math.min(1, b.workers.length / d.workers);
-      body = `<div class="row"><span class="lb">Workers</span><div class="stepper">
-          <button data-act="sub" data-id="${b.id}" ${b.workers.length ? '' : 'disabled'}>−</button>
-          <span class="n">${b.workers.length} / ${d.workers}</span>
-          <button data-act="add" data-id="${b.id}" ${b.workers.length < d.workers && idleCount(s) ? '' : 'disabled'}>+</button></div></div>
+      body = `${this.stepperHtml(b)}
         <div class="bar"><i style="width:${eff * 100}%"></i></div>
         <p>At work right now: <b>${here}</b> · Idle villagers: <b>${idleCount(s)}</b></p>
         <p>Full staff makes <b>${res} ${unit}/day</b>${bonus}. Each worker adds an equal share.</p>`;
@@ -377,6 +378,14 @@ export class UI {
       body += `<button class="btn danger" data-act="remove" data-id="${b.id}">${confirm ? (d.foodStorage ? 'Tap again: food inside is lost' : 'Tap again to remove') : `Remove (refund ${Math.round(CONFIG.removeRefund * 100)}%)`}</button>`;
     }
     return `<div class="panel sheetp">${head}${body}</div>`;
+  }
+
+  private stepperHtml(b: Building): string {
+    const d = def(b.kind), s = this.s;
+    return `<div class="row"><span class="lb">Workers</span><div class="stepper">
+      <button data-act="sub" data-id="${b.id}" ${b.workers.length ? '' : 'disabled'}>−</button>
+      <span class="n">${b.workers.length} / ${d.workers}</span>
+      <button data-act="add" data-id="${b.id}" ${b.workers.length < d.workers! && idleCount(s) ? '' : 'disabled'}>+</button></div></div>`;
   }
 
   private villagersHtml(): string {

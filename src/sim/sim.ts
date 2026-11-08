@@ -9,7 +9,7 @@ import { FOREST, GRASS, type Building, type GameState, type Pt, type Villager } 
 //  One call to tick() = one fixed step of 1/ticksPerSecond game-seconds.
 // =====================================================================
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const DT = 1 / CONFIG.time.ticksPerSecond;
 export const TICKS_PER_DAY = CONFIG.time.dayLengthSeconds * CONFIG.time.ticksPerSecond;
 
@@ -46,8 +46,12 @@ export function newGame(seed = (Math.random() * 1e9) | 0): GameState {
     saveVersion: SAVE_VERSION,
     seed, rng: seed,
     w: W, h: H, tiles,
-    traffic: new Float32Array(W * H),
-    edges: new Float32Array(W * H * 4),
+    edgeToday: new Float32Array(W * H * 4),
+    edgeAvg: new Float32Array(W * H * 4),
+    edgeLevel: new Uint8Array(W * H * 4),
+    edgeAge: new Uint8Array(W * H * 4),
+    wear: new Float32Array(W * H),
+    roadDay: 0, roadVersion: 0,
     occ: new Int32Array(W * H).fill(-1),
     buildings: [], villagers: [],
     nextId: 1, tick: 0,
@@ -232,6 +236,8 @@ export function place(s: GameState, kind: BuildingKind, x: number, y: number): B
       s.villagers.push(v);
     }
   }
+  // new buildings start with idle villagers assigned (up to capacity)
+  if (CONFIG.autoFillWorkers && d.workers) for (let i = 0; i < d.workers; i++) if (!addWorker(s, b.id)) break;
   // anyone standing where the new building went steps out to its doorstep
   const ex = entryTile(s, b);
   for (const v of s.villagers) {
@@ -500,11 +506,17 @@ function millSpot(s: GameState, b: Building): Pt | null {
 }
 
 /** Nearest building that can store food and still has room. */
+/** Can this building take food right now? (Granaries need a keeper assigned.) */
+export const storageOpen = (b: Building) => {
+  const d = def(b.kind);
+  return !!d.foodStorage && (!d.workers || b.workers.length > 0);
+};
+
 function nearestStorage(s: GameState, from: Building, needRoom = true): Building | undefined {
   let best: Building | undefined, bd = Infinity;
   for (const b of s.buildings) {
     const cap = def(b.kind).foodStorage ?? 0;
-    if (!cap || (needRoom && cap - b.food < 1)) continue;
+    if (!cap || !storageOpen(b) || (needRoom && cap - b.food < 1)) continue;
     const d = Math.hypot(b.x + b.w / 2 - from.x - from.w / 2, b.y + b.h / 2 - from.y - from.h / 2);
     if (d < bd) { bd = d; best = b; }
   }
@@ -606,6 +618,9 @@ function pickWorkSpot(s: GameState, v: Villager, b: Building) {
       { x: b.x + b.w - 0.2, y: b.y + 0.25 + t * (b.h - 0.5) },
     ];
     v.dest = pts[side];
+  } else if (b.kind === 'granary') {
+    const D = doorPt(b);
+    v.dest = { x: D.x + (rand(s) - 0.5) * 0.5, y: D.y - 0.05 };
   } else if (b.kind === 'farm') {
     const row = (rand(s) * 6) | 0;
     v.dest = { x: b.x + 0.35 + rand(s) * (b.w - 0.7), y: b.y + 0.37 + row * ((b.h - 0.66) / 5) };
@@ -686,7 +701,11 @@ function updateVillager(s: GameState, v: Villager) {
         v.timer -= DT;
         if (v.timer <= 0) { // put the food in storage, then head back to work
           const g = getB(s, v.task.to), farm = getB(s, v.job);
-          const room = g ? (def(g.kind).foodStorage ?? 0) - g.food : 0;
+          if (g && !storageOpen(g)) { // keeper was unassigned meanwhile: take it to the next open store
+            const alt = nearestStorage(s, g);
+            if (alt) { v.task.to = alt.id; v.goalKey = ''; return; }
+          }
+          const room = g && storageOpen(g) ? (def(g.kind).foodStorage ?? 0) - g.food : 0;
           const put = Math.max(0, Math.min(room, v.task.lb));
           if (g) g.food += put;
           if (farm && v.task.lb > put) farm.food += v.task.lb - put; // didn't fit: back to the farm
@@ -702,7 +721,7 @@ function updateVillager(s: GameState, v: Villager) {
     }
     case 'walk': {
       const ti = tileOf(s, v);
-      if (P.roadSpeedBonus && s.traffic[ti] >= P.road) speed *= 1 + P.roadSpeedBonus;
+      if (P.roadSpeedBonus && s.wear[ti] >= 1) speed *= 1 + P.roadSpeedBonus;
       if (v.way.length) {
         if (moveToward(v, v.way[0].x, v.way[0].y, speed)) v.way.shift();
       } else if (v.path.length) {
@@ -753,17 +772,14 @@ function updateVillager(s: GameState, v: Villager) {
     }
   }
 
-  // foot traffic: wear the ground when stepping onto a new tile
+  // foot traffic: count every step from one open tile to the next (any kind of walking)
   const ti = tileOf(s, v);
   if (ti !== v.lastTile) {
     const prev = v.lastTile;
     v.lastTile = ti;
-    if (v.mode === 'walk' && s.occ[ti] === -1) {
-      s.traffic[ti] = Math.min(P.maxTraffic, s.traffic[ti] + P.trafficPerStep);
-      if (prev >= 0 && s.occ[prev] === -1) {
-        const e = edgeIndex(s, prev, ti);
-        if (e >= 0) s.edges[e] = Math.min(P.maxTraffic, s.edges[e] + P.trafficPerStep);
-      }
+    if (prev >= 0 && s.occ[ti] === -1 && s.occ[prev] === -1) {
+      const e = edgeIndex(s, prev, ti);
+      if (e >= 0) s.edgeToday[e] += P.trafficPerStep;
     }
   }
 }
@@ -791,7 +807,43 @@ export function birthRate(s: GameState): number {
 
 // ---------- the tick ----------
 
-const decayFactor = Math.pow(1 - CONFIG.paths.decayPerDay, 1 / TICKS_PER_DAY);
+/**
+ * Once a night: roads move slowly toward how busy each link has been lately.
+ * At most one level up every few days, one level down every few days, and a
+ * gap between the up and down thresholds so roads don't flicker.
+ */
+function updateRoads(s: GameState) {
+  const P = CONFIG.paths;
+  const up = [P.faint, P.trail, P.road];
+  let changed = false;
+  const n = s.edgeToday.length;
+  for (let e = 0; e < n; e++) {
+    const avg = (s.edgeAvg[e] = s.edgeAvg[e] * (1 - P.dailyAverage) + s.edgeToday[e] * P.dailyAverage);
+    s.edgeToday[e] = 0;
+    if (avg < 0.01) s.edgeAvg[e] = 0;
+    const L = s.edgeLevel[e];
+    if (s.edgeAge[e] < 250) s.edgeAge[e]++;
+    if (L < 3 && avg >= up[L] && s.edgeAge[e] >= P.upgradeDays) {
+      s.edgeLevel[e] = L + 1; s.edgeAge[e] = 0; changed = true;
+    } else if (L > 0 && avg < up[L - 1] * P.downFactor && s.edgeAge[e] >= P.downgradeDays) {
+      s.edgeLevel[e] = L - 1; s.edgeAge[e] = 0; changed = true;
+    }
+  }
+  if (!changed) return;
+  // tile wear (for pathfinding): the best road touching each tile
+  s.wear.fill(0);
+  const W = s.w, D = [[1, 0], [0, 1], [1, 1], [-1, 1]];
+  for (let e = 0; e < n; e++) {
+    const L = s.edgeLevel[e];
+    if (!L) continue;
+    const a = e >> 2, d = D[e & 3];
+    const b = a + d[1] * W + d[0];
+    const w = L / 3;
+    if (w > s.wear[a]) s.wear[a] = w;
+    if (b >= 0 && b < s.wear.length && w > s.wear[b]) s.wear[b] = w;
+  }
+  s.roadVersion++;
+}
 
 export function tick(s: GameState) {
   if (s.hallId == null) return; // nothing happens until the Town Hall is placed
@@ -847,10 +899,11 @@ export function tick(s: GameState) {
     }
   }
 
-  // foot traffic slowly fades
-  const t = s.traffic, e = s.edges;
-  for (let i = 0; i < t.length; i++) if (t[i] > 0) t[i] = t[i] < 0.05 ? 0 : t[i] * decayFactor;
-  for (let i = 0; i < e.length; i++) if (e[i] > 0) e[i] = e[i] < 0.05 ? 0 : e[i] * decayFactor;
+  // roads change once a night
+  if (dayNumber(s) !== s.roadDay && hr >= CONFIG.paths.updateHour && hr < S.workStart) {
+    s.roadDay = dayNumber(s);
+    updateRoads(s);
+  }
 
   if (s.tick % 20 === 0) assignHomes(s);
 }

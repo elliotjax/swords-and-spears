@@ -31,13 +31,17 @@ export class Renderer {
   private trees = new Map<string, HTMLCanvasElement>();
   private treeSig = '';
   private wear: HTMLCanvasElement;
+  private wearOld: HTMLCanvasElement;
   private wearAt = -1;
+  private wearFade = 1;
+  private lastTime = 0;
   private seed = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.wear = document.createElement('canvas');
+    this.wearOld = document.createElement('canvas');
     this.resize();
   }
 
@@ -178,23 +182,21 @@ export class Renderer {
   // as a thin path through tile centres, with smooth curves where paths bend
   // or branch, so roads join up naturally (diagonals included).
 
-  private paintWear(s: GameState) {
+  private paintWear(s: GameState, cv: HTMLCanvasElement) {
     const R = WEAR_RES;
-    const cv = this.wear;
     if (cv.width !== s.w * R) { cv.width = s.w * R; cv.height = s.h * R; }
     const c = cv.getContext('2d')!;
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.clearRect(0, 0, cv.width, cv.height);
     c.setTransform(R, 0, 0, R, 0, 0);
-    const P = CONFIG.paths;
     const W = s.w, N = s.w * s.h;
     const DIRS = [[1, 0], [0, 1], [1, 1], [-1, 1]];
     const adj: ({ x: number; y: number; t: number }[] | undefined)[] = new Array(N);
     const links: { ax: number; ay: number; bx: number; by: number; t: number }[] = [];
     for (let i = 0; i < N; i++) {
       for (let d = 0; d < 4; d++) {
-        const t = s.edges[i * 4 + d];
-        if (t < P.faint) continue;
+        const t = s.edgeLevel[i * 4 + d];
+        if (!t) continue;
         const ax = i % W, ay = Math.floor(i / W), bx = ax + DIRS[d][0], by = ay + DIRS[d][1];
         if (bx < 0 || by < 0 || bx >= W || by >= s.h) continue;
         const j = by * W + bx;
@@ -203,7 +205,7 @@ export class Renderer {
         links.push({ ax, ay, bx, by, t });
       }
     }
-    const level = (t: number) => (t >= P.road ? 3 : t >= P.trail ? 2 : 1);
+    const level = (t: number) => t; // 1 faint, 2 gravel trail, 3 gravel road
     const network = (minLevel: number, width: number, color: string, alpha = 1) => {
       c.globalAlpha = alpha;
       c.lineWidth = width; c.strokeStyle = color; c.lineCap = 'round'; c.lineJoin = 'round';
@@ -278,15 +280,31 @@ export class Renderer {
     const wt = () => c.setTransform(ppt * d, 0, 0, ppt * d, (this.vw / 2 - this.cam.x * ppt) * d, (this.vh / 2 - this.cam.y * ppt) * d);
     wt();
 
-    // worn paths
-    if (Math.floor(time * 2) !== this.wearAt) { this.wearAt = Math.floor(time * 2); this.paintWear(s); }
+    // roads: redrawn only when they change (once a night), new roads fade in
+    if (s.roadVersion !== this.wearAt) {
+      const first = this.wearAt === -1;
+      this.wearAt = s.roadVersion;
+      [this.wear, this.wearOld] = [this.wearOld, this.wear]; // keep the old picture to fade from
+      this.paintWear(s, this.wear);
+      this.wearFade = first ? 1 : 0;
+      if (first) this.wearOld.getContext('2d')!.clearRect(0, 0, this.wearOld.width, this.wearOld.height);
+    }
+    this.wearFade = Math.min(1, this.wearFade + (time - this.lastTime) / CONFIG.paths.fadeInSeconds);
+    this.lastTime = time;
     c.imageSmoothingQuality = 'medium';
     {
       // only copy the visible part of the road texture
       const R = WEAR_RES;
       const x0 = Math.max(0, Math.floor(tl.x) - 1), y0 = Math.max(0, Math.floor(tl.y) - 1);
       const x1 = Math.min(s.w, Math.ceil(br.x) + 1), y1 = Math.min(s.h, Math.ceil(br.y) + 1);
-      if (x1 > x0 && y1 > y0) c.drawImage(this.wear, x0 * R, y0 * R, (x1 - x0) * R, (y1 - y0) * R, x0, y0, x1 - x0, y1 - y0);
+      const blitW = (cv: HTMLCanvasElement, a: number) => {
+        if (a <= 0.001 || !cv.width) return;
+        c.globalAlpha = a;
+        if (x1 > x0 && y1 > y0) c.drawImage(cv, x0 * R, y0 * R, (x1 - x0) * R, (y1 - y0) * R, x0, y0, x1 - x0, y1 - y0);
+      };
+      blitW(this.wearOld, 1 - this.wearFade);
+      blitW(this.wear, this.wearFade);
+      c.globalAlpha = 1;
     }
 
     // trees

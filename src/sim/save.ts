@@ -8,8 +8,11 @@ export function saveGame(s: GameState) {
     const data = {
       ...s,
       tiles: Array.from(s.tiles).join(''),
-      traffic: Array.from(s.traffic, t => Math.round(t * 10) / 10),
-      edges: Array.from(s.edges, t => Math.round(t * 10) / 10),
+      edgeToday: Array.from(s.edgeToday, t => Math.round(t * 10) / 10),
+      edgeAvg: Array.from(s.edgeAvg, t => Math.round(t * 100) / 100),
+      edgeLevel: Array.from(s.edgeLevel).join(''),
+      edgeAge: Array.from(s.edgeAge),
+      wear: Array.from(s.wear, t => Math.round(t * 100) / 100),
       occ: undefined,
     };
     localStorage.setItem(KEY, JSON.stringify(data));
@@ -27,8 +30,11 @@ export function loadGame(): GameState | null {
     const s: GameState = {
       ...d,
       tiles: Uint8Array.from(String(d.tiles), (c: string) => Number(c)),
-      traffic: Float32Array.from(d.traffic),
-      edges: Float32Array.from(d.edges),
+      edgeToday: Float32Array.from(d.edgeToday),
+      edgeAvg: Float32Array.from(d.edgeAvg),
+      edgeLevel: Uint8Array.from(String(d.edgeLevel), (c: string) => Number(c)),
+      edgeAge: Uint8Array.from(d.edgeAge),
+      wear: Float32Array.from(d.wear),
       occ: new Int32Array(0),
     };
     rebuildDerived(s);

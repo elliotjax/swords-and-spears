@@ -55,8 +55,14 @@ export interface GameState {
   rng: number;
   w: number; h: number;
   tiles: Uint8Array;
-  traffic: Float32Array;     // foot traffic per tile (pathfinding prefers worn tiles)
-  edges: Float32Array;       // foot traffic between neighbouring tiles (drawn as roads), 4 per tile
+  // Roads. Links between neighbouring tiles: 4 per tile (east, south, south-east, south-west).
+  edgeToday: Float32Array;   // crossings so far today
+  edgeAvg: Float32Array;     // usual crossings per day (slow average)
+  edgeLevel: Uint8Array;     // 0 none, 1 faint, 2 gravel trail, 3 gravel road
+  edgeAge: Uint8Array;       // days since this link last changed level
+  wear: Float32Array;        // per tile 0..1 (how worn; pathfinding prefers worn tiles)
+  roadDay: number;           // last day the roads were updated
+  roadVersion: number;       // bumps when roads change (renderer redraws)
   occ: Int32Array;           // building id per tile, -1 = empty (rebuilt on load)
   buildings: Building[];
   villagers: Villager[];
