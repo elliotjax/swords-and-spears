@@ -37,6 +37,7 @@ export function loadGame(): GameState | null {
       wear: Float32Array.from(d.wear),
       occ: new Int32Array(0),
     };
+    s.techs ??= []; s.research ??= null; // saves from before the tech tree
     rebuildDerived(s);
     return s;
   } catch (e) {

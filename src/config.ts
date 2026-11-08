@@ -236,6 +236,33 @@ export const CONFIG = {
     } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; range?: number; meleeDamage?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
   },
 
+  // Tech tree: researched at the Town Hall with gold, one at a time, takes a few days.
+  // effect keys: farm/wood/market/tax/births = +share output; carry = less delivery time lost;
+  // roads = faster on full roads; train = faster training;
+  // battle: damage/armour/range/charge/morale (your squads in battle).
+  tech: {
+    list: [
+      { id: 'plough', group: 'Farming', name: 'Iron Plough', desc: 'Farms grow 15% more food.', cost: 150, days: 2, hall: 1, needs: [], effect: { farm: 0.15 } },
+      { id: 'wheelbarrows', group: 'Farming', name: 'Wheelbarrows', desc: 'Food carriers lose half as much work time on deliveries.', cost: 160, days: 2, hall: 1, needs: ['plough'], effect: { carry: 0.5 } },
+      { id: 'rotation', group: 'Farming', name: 'Crop Rotation', desc: 'Farms grow another 15% more food.', cost: 350, days: 3, hall: 2, needs: ['plough'], effect: { farm: 0.15 } },
+      { id: 'windmills', group: 'Farming', name: 'Windmills', desc: 'Farms grow another 20% more food.', cost: 650, days: 4, hall: 3, needs: ['rotation'], effect: { farm: 0.2 } },
+      { id: 'axes', group: 'Wood', name: 'Sharp Axes', desc: 'Lumber camps cut 20% more wood.', cost: 120, days: 2, hall: 1, needs: [], effect: { wood: 0.2 } },
+      { id: 'saws', group: 'Wood', name: 'Two-man Saws', desc: 'Lumber camps cut another 25% more wood.', cost: 320, days: 3, hall: 2, needs: ['axes'], effect: { wood: 0.25 } },
+      { id: 'coinage', group: 'Gold', name: 'Coinage', desc: 'Taxes bring in 25% more gold.', cost: 200, days: 2, hall: 1, needs: [], effect: { tax: 0.25 } },
+      { id: 'guilds', group: 'Gold', name: 'Guilds', desc: 'Markets make 30% more gold.', cost: 320, days: 3, hall: 2, needs: ['coinage'], effect: { market: 0.3 } },
+      { id: 'banking', group: 'Gold', name: 'Banking', desc: 'Taxes bring in another 25% more gold.', cost: 700, days: 4, hall: 3, needs: ['guilds'], effect: { tax: 0.25 } },
+      { id: 'midwives', group: 'People', name: 'Midwives', desc: 'Babies are born 30% more often.', cost: 180, days: 2, hall: 1, needs: [], effect: { births: 0.3 } },
+      { id: 'paved', group: 'People', name: 'Paved Roads', desc: 'Villagers walk 25% faster on full gravel roads.', cost: 300, days: 3, hall: 2, needs: [], effect: { roads: 0.25 } },
+      { id: 'herbs', group: 'People', name: 'Herbal Medicine', desc: 'Babies are born another 30% more often.', cost: 500, days: 3, hall: 3, needs: ['midwives'], effect: { births: 0.3 } },
+      { id: 'drill', group: 'Military', name: 'Drill Yards', desc: 'Squads train 30% faster (rank up sooner).', cost: 250, days: 2, hall: 2, needs: [], effect: { train: 0.3 } },
+      { id: 'banners', group: 'Military', name: 'War Banners', desc: 'Your squads lose courage 20% slower in battle.', cost: 300, days: 2, hall: 2, needs: [], effect: { morale: 0.2 } },
+      { id: 'longbows', group: 'Military', name: 'Longbows', desc: 'Your archers shoot 20% further.', cost: 350, days: 3, hall: 2, needs: [], effect: { range: 0.2 } },
+      { id: 'stirrups', group: 'Military', name: 'Stirrups', desc: 'Your cavalry charges hit 25% harder.', cost: 350, days: 3, hall: 2, needs: [], effect: { charge: 0.25 } },
+      { id: 'steel', group: 'Military', name: 'Steel Weapons', desc: 'Your soldiers hit 10% harder.', cost: 500, days: 3, hall: 3, needs: ['drill'], effect: { damage: 0.1 } },
+      { id: 'mail', group: 'Military', name: 'Chain Mail', desc: 'Your soldiers take 12% less damage.', cost: 650, days: 4, hall: 4, needs: ['steel'], effect: { armour: 0.12 } },
+    ] as TechDef[],
+  },
+
   showTestTools: true,        // the testing sidebar on the right (10x, +villagers, +gold, +wood, unlock)
   testSpeed: 10,              // speed of the sidebar's fast button
 
@@ -304,6 +331,9 @@ export const CONFIG = {
     maxZoom: 1.7,
   },
 };
+
+export type TechEffect = 'farm' | 'wood' | 'market' | 'tax' | 'births' | 'carry' | 'roads' | 'train' | 'damage' | 'armour' | 'range' | 'charge' | 'morale';
+export interface TechDef { id: string; group: string; name: string; desc: string; cost: number; days: number; hall: number; needs: string[]; effect: Partial<Record<TechEffect, number>> }
 
 export const BUILD_MENU: { cat: Category; label: string; kinds: BuildingKind[] }[] = [
   { cat: 'housing', label: 'Housing', kinds: ['house', 'longhouse', 'manor'] },

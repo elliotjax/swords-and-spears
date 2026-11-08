@@ -28,7 +28,7 @@ export class Game {
     this.renderer = new Renderer(document.getElementById('map') as HTMLCanvasElement);
     this.s = loadGame() ?? newGame();
     this.ui = new UI(this);
-    this.lab = new BattleLab(() => { this.speed = this.speedBeforeLab; this.ui.update(true); });
+    this.lab = new BattleLab(() => { this.speed = this.speedBeforeLab; this.ui.update(true); }, () => this.s);
     this.centerStart();
   }
 

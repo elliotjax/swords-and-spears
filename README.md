@@ -354,6 +354,16 @@ The army is **squad-based**; the player never micromanages individual soldiers.
 
 ---
 
+## 10b. Tech tree (first draft, built — change anything)
+- Opened from the **Tech** tab. Researched **at the Town Hall with gold**, paid up front, **one at a time**, each takes **2–4 game days**. **Stop** gives the gold back. Some need an earlier tech or a Town Hall level.
+- **Farming:** Iron Plough (+15% food) → Wheelbarrows (carriers lose half as much work time) · Crop Rotation (+15%, Hall 2) → Windmills (+20%, Hall 3).
+- **Wood:** Sharp Axes (+20% wood) → Two-man Saws (+25%, Hall 2).
+- **Gold:** Coinage (+25% taxes) → Guilds (+30% market gold, Hall 2) → Banking (+25% taxes, Hall 3).
+- **People:** Midwives (+30% births) → Herbal Medicine (+30%, Hall 3) · Paved Roads (+25% walking speed on full roads, Hall 2).
+- **Military:** Drill Yards (train 30% faster, Hall 2) → Steel Weapons (+10% damage, Hall 3) → Chain Mail (−12% damage taken, Hall 4) · War Banners (lose courage 20% slower) · Longbows (+20% archer range) · Stirrups (+25% cavalry charge).
+- Battle techs apply to **your squads in battle**; in the Battle Lab they help the red side.
+- All in `CONFIG.tech` (cost, days, hall level, needs, effect). Gold sink for open question 5.
+
 ## 11. Win and lose (Decided)
 
 - **Lose:** your **town hall in your capital** is destroyed.
@@ -474,6 +484,8 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Pixel art (built):** whole map redrawn in the roofless pixel style; tiny pixel villagers and soldiers; people visible inside buildings (asleep in beds at night); pixel build-menu pictures. Much faster to draw (60 fps with 300 villagers in the stress test).
 - **Battles v1 (built):** Battle Lab with individual soldiers (100 HP, 3–5 hits), squad HP bars, targeting, melee/arrows/cavalry charges, breaking at 20% → 20 s → flee, left-vs-right, auto camera, results, 50-battle balance runs. Taller 3×5 figures. Easier building taps.
 - **Battles v3 (built):** realistic battles modelled on Total War and real medieval fighting: fighting lines that hold and push instead of blobs, morale with wavering and spreading routs, hard-hitting charges with knockback, spearmen bracing, cavalry cycle-charges and pursuit, archer volleys with limited arrows and friendly fire, the army marching as one line, blood/bodies/dust/sparks. Battles ~2 minutes.
+- **Living town (built):** hearth fires flicker and smoke rises from homes when people are in or cooking; chickens peck by farms and granaries, sheep graze beside farms, flocks of birds fly over; warm firelight glows at night.
+- **Tech tree v1 (built):** 18 techs in the Tech tab (farming, wood, gold, people, military), bought with gold at the Town Hall, one at a time. Old saves keep working.
 - **Next:** owner tests battles in the Battle Lab; then decide battle control, connect battles to the colony (real squads), grand map + enemy kingdoms + AI. Also still open: tech tree, happiness effects, where people eat.
 - Then: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 

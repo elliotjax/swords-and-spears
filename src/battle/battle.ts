@@ -15,7 +15,9 @@ export const BATTLE_TPS = 20;
 const DT = 1 / BATTLE_TPS;
 
 export interface SquadSetup { unit: UnitKind; rank: number }
-export interface BattleSetup { sides: [SquadSetup[], SquadSetup[]] }
+/** Bonuses from techs for one side (0.1 = +10%). */
+export type SideBonus = Partial<Record<'damage' | 'armour' | 'range' | 'charge' | 'morale', number>>;
+export interface BattleSetup { sides: [SquadSetup[], SquadSetup[]]; bonus?: [SideBonus, SideBonus] }
 
 export interface BSoldier {
   id: number; side: Side; squad: number; unit: UnitKind; slot: number;
@@ -61,6 +63,7 @@ export interface BattleState {
   decidedAt: number;          // when one side ran out of fighting squads (-1 = not yet)
   firstContact: number;       // when the first blow of the battle landed (-1 = not yet)
   home: [number, number];     // x of each side's own edge (where they flee to)
+  bonus: [SideBonus, SideBonus];
 }
 
 function rand(b: BattleState) {
@@ -96,6 +99,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
   const b: BattleState = {
     t: 0, rng: seed, W: B.fieldW, H: B.fieldH, soldiers: [], squads: [], arrows: [], fx: [], marks: [],
     over: false, winner: -1, decidedAt: -1, firstContact: -1, home: [-3, B.fieldW + 3],
+    bonus: setup.bonus ?? [{}, {}],
   };
   if (swapSides) b.home = [B.fieldW + 3, -3];
   let sid = 1, qid = 1;
@@ -164,9 +168,10 @@ export const wavering = (q: BSquad) => !q.broken && q.morale < CONFIG.battle.mor
 const fromFlank = (defSq: BSquad, def: BSoldier, ax: number, ay: number) =>
   Math.cos(angDiff(defSq.ang, Math.atan2(ay - def.y, ax - def.x))) < -0.2;
 
-function damageOf(att: BSoldier, attSq: BSquad, def: BSoldier, defSq: BSquad, melee: boolean): number {
+function damageOf(b: BattleState, att: BSoldier, attSq: BSquad, def: BSoldier, defSq: BSquad, melee: boolean): number {
   const B = CONFIG.battle, A = stats(att.unit), D = stats(def.unit);
   let dmg = att.unit === 'archers' && melee ? A.meleeDamage ?? A.damage : A.damage;
+  dmg *= (1 + (b.bonus[att.side].damage ?? 0)) * (1 - (b.bonus[def.side].armour ?? 0));
   dmg *= 1 + B.rankDamage * attSq.rank;
   if (A.strongVs.includes(def.unit)) dmg *= B.counterBonus;
   dmg *= 1 - Math.min(0.6, D.defense + B.rankDefense * defSq.rank);
@@ -175,8 +180,9 @@ function damageOf(att: BSoldier, attSq: BSquad, def: BSoldier, defSq: BSquad, me
   return dmg;
 }
 
+let moraleResist: [number, number] = [0, 0];
 function loseMorale(q: BSquad, amount: number) {
-  q.morale -= amount * (1 - CONFIG.battle.morale.rankResist * q.rank);
+  q.morale -= amount * (1 - CONFIG.battle.morale.rankResist * q.rank) * (1 - moraleResist[q.side]);
 }
 
 // ---------- the tick ----------
@@ -184,6 +190,8 @@ function loseMorale(q: BSquad, amount: number) {
 export function stepBattle(b: BattleState) {
   if (b.over) return;
   const B = CONFIG.battle, M = B.morale, C = B.charge;
+  moraleResist = [b.bonus[0].morale ?? 0, b.bonus[1].morale ?? 0];
+  const rangeOf = (side: Side, u: UnitKind) => (stats(u).range ?? 7) * (1 + (b.bonus[side].range ?? 0));
   b.t += DT;
   const sq = (id: number) => b.squads[id - 1];
   const so = (id: number) => b.soldiers[id - 1];
@@ -293,7 +301,7 @@ export function stepBattle(b: BattleState) {
       // archers: walk up until the enemy is well within range, then stand and shoot volleys
       let nd = Infinity, nx = tq.mx, ny = tq.my;
       for (const e of b.squads) if (e.side !== q.side && active(e)) { const d = Math.hypot(e.mx - q.mx, e.my - q.my); if (d < nd) { nd = d; nx = e.mx; ny = e.my; } }
-      const want = (U.range ?? 7) * 0.6;
+      const want = rangeOf(q.side, q.unit) * 0.6;
       const a = Math.atan2(ny - q.my, nx - q.mx);
       if (nd > want) { gx = nx - Math.cos(a) * want; gy = ny - Math.sin(a) * want; }
       q.state = nd < 1.5 ? 'melee' : 'march';
@@ -437,7 +445,7 @@ export function stepBattle(b: BattleState) {
     let t = s.target > 0 ? so(s.target) : null;
     if (!t || !alive(t) || s.retarget <= 0) {
       s.retarget = 0.2 + rand(b) * 0.15;
-      const radius = shoots ? U.range ?? 7 : meleeReach + leash + 0.5;
+      const radius = shoots ? rangeOf(s.side, s.unit) : meleeReach + leash + 0.5;
       let best: BSoldier | null = null, bs = Infinity;
       nearby(s.x, s.y, radius, e => {
         if (e.side === s.side || !alive(e)) return;
@@ -461,19 +469,19 @@ export function stepBattle(b: BattleState) {
     if (t) {
       const d = Math.hypot(t.x - s.x, t.y - s.y);
       const meleeNow = !shoots || d < 1.1;
-      const reach = meleeNow ? meleeReach : U.range ?? 7;
+      const reach = meleeNow ? meleeReach : rangeOf(s.side, s.unit);
       if (meleeNow && s.cd > U.cooldown) s.cd = U.cooldown * 0.5; // an archer waiting for the volley draws a sword
       if (d <= reach) {
         s.dir = Math.atan2(t.y - s.y, t.x - s.x);
         // spearmen brace: a charging horse runs onto a set spear (a free strike, whatever the timing)
         const brace = meleeNow && s.unit === 'spearmen' && s.charge && t.unit === 'cavalry' && t.charge && t.moved > 1;
         if ((s.cd <= 0 || brace) && s.stagger <= 0) {
-          let dmg = damageOf(s, q, t, sq(t.squad), meleeNow);
+          let dmg = damageOf(b, s, q, t, sq(t.squad), meleeNow);
           let charged = false, kb = 0;
           if (brace) { dmg *= C.braceBonus; s.charge = false; }
           else if (meleeNow && s.charge && s.moved > 1.5) { // charge impact (spearmen brace against horses)
             charged = true;
-            if (isCav) { if (t.unit !== 'spearmen') { dmg *= U.chargeBonus ?? 1; kb = C.cavKnockback; } }
+            if (isCav) { if (t.unit !== 'spearmen') { dmg *= (U.chargeBonus ?? 1) * (1 + (b.bonus[s.side].charge ?? 0)); kb = C.cavKnockback; } }
             else { dmg *= C.infantryBonus; kb = C.knockback; }
             s.charge = false;
           }

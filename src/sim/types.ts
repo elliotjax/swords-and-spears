@@ -93,5 +93,7 @@ export interface GameState {
   squads: Squad[];
   nextSquadNum: Partial<Record<UnitKind, number>>;
   unlockAll: boolean;        // testing cheat: no progression locks or house limit
+  techs: string[];           // researched techs
+  research: { id: string; days: number } | null; // tech being researched and days of work done
   version: number;           // bumps whenever buildings change (for caches)
 }

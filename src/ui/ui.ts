@@ -5,6 +5,7 @@ import {
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
   removeWorker, spawnVillagers, upgradeHall, soldiers, soldierBeds, armyUpkeep, battleReady, rankOf,
   squadName, recruitBlock, recruit, disband, quickTown, avgHappiness, nearChapel, civilians,
+  techBlock, techDef, startResearch, cancelResearch, hasTech,
 } from '../sim/sim';
 import type { Building, GameState, Squad, Villager } from '../sim/types';
 import type { Game } from '../main';
@@ -47,6 +48,7 @@ export class UI {
   cat: Category = 'housing';
   private lastSheet = '';
   private toastT = 0;
+  private techsSeen = -1;
   private confirmRemove = 0;
   private confirmNew = false;
   menuOpen = false;
@@ -168,6 +170,12 @@ export class UI {
         if (q) this.toast(`${squadName(q)} recruited!`);
         break;
       }
+      case 'research': {
+        const t = techDef(el.dataset.tech ?? '');
+        if (t && startResearch(s, t.id)) this.toast(`Researching ${t.name}`);
+        break;
+      }
+      case 'cancelResearch': if (cancelResearch(s)) this.toast('Research stopped (gold refunded)'); break;
       case 'disband':
         if (this.confirmDisband === id) { disband(s, id); this.confirmDisband = 0; this.toast('Squad disbanded'); }
         else this.confirmDisband = id;
@@ -237,6 +245,9 @@ export class UI {
     const hc = document.getElementById('hallChip')!;
     hc.textContent = `Town Hall Lv ${s.hallLevel}`;
     hc.classList.toggle('hidden', s.hallId == null);
+
+    if (s.techs.length > this.techsSeen) { const t = techDef(s.techs[s.techs.length - 1]); if (t && this.techsSeen >= 0) this.toast(`Research done: ${t.name}!`); }
+    this.techsSeen = s.techs.length;
 
     const al = this.currentAlert();
     const ae = document.getElementById('alert')!;
@@ -333,7 +344,7 @@ export class UI {
       }
       case 'villagers': return this.villagersHtml();
       case 'military': return this.militaryHtml();
-      case 'tech': return this.soonHtml('Tech', 'The tech tree (bought with gold) arrives in Milestone 2.');
+      case 'tech': return this.techHtml();
       case 'map': return this.soonHtml('Grand Map', 'The grand map, parties and tributaries arrive in Milestone 3.');
     }
   }
@@ -510,6 +521,37 @@ export class UI {
     }).join('');
     return `${this.armyStats()}<h4>Recruit a squad</h4>${cards}
       <p style="font-size:12px">Recruits come from idle villagers and move into the barracks. New squads start as Recruits and need ${CONFIG.military.ranks[1].days} days at the Training Grounds to be battle-ready.</p>`;
+  }
+
+  // ---------------- tech tab ----------------
+
+  private techHtml(): string {
+    const s = this.s;
+    const cur = s.research ? techDef(s.research.id) : undefined;
+    const top = cur
+      ? `<div class="ucard techcur"><div class="uinfo"><b>Researching: ${cur.name}</b>
+          <span>${cur.desc}</span>
+          <div class="bar"><i style="width:${Math.min(100, (s.research!.days / cur.days) * 100)}%;background:var(--accent)"></i></div>
+          <span>${(s.research!.days).toFixed(1)} / ${cur.days} days</span></div>
+          <button class="mini" data-act="cancelResearch">Stop</button></div>`
+      : `<p>Pick something to research. The Town Hall works on one thing at a time; you pay gold up front.</p>`;
+    const groups = [...new Set(CONFIG.tech.list.map(t => t.group))];
+    const body = groups.map(gname => {
+      const rows = CONFIG.tech.list.filter(t => t.group === gname).map(t => {
+        const done = hasTech(s, t.id), busy = s.research?.id === t.id;
+        const why = techBlock(s, t.id);
+        const btn = done ? `<span class="tdone">✓ Done</span>`
+          : busy ? `<span class="tbusy">${Math.round((s.research!.days / t.days) * 100)}%</span>`
+          : `<button class="mini go" data-act="research" data-tech="${t.id}" ${why ? 'disabled' : ''}>Research</button>`;
+        const lock = !done && !busy && why && why !== 'Busy researching' ? `<span style="color:var(--bad);font-weight:800">${why}</span>` : '';
+        return `<div class="ucard tech ${done ? 'isdone' : ''}"><div class="uinfo"><b>${t.name}</b><span>${t.desc}</span>
+          ${done ? '' : `<span><b style="color:var(--gold)">${t.cost} gold</b> · ${t.days} days${t.hall > 1 ? ` · Hall Lv ${t.hall}` : ''}</span>`}${lock}</div>${btn}</div>`;
+      }).join('');
+      return `<h4>${gname}</h4>${rows}`;
+    }).join('');
+    return `<div class="panel sheetp"><h3>Tech<span class="tcount">${s.techs.length}/${CONFIG.tech.list.length}</span><button class="x" data-tab="build" aria-label="Close">✕</button></h3>
+      ${top}${body}
+      <p style="font-size:12px">Military techs make your squads stronger in battle (try them in the Battle Lab: they apply to the red side).</p></div>`;
   }
 
   private soonHtml(title: string, text: string) {

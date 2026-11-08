@@ -5,8 +5,9 @@ import { unitIcon } from '../ui/ui';
 import { IC } from '../ui/icons';
 import {
   BATTLE_TPS, createBattle, runBattle, squadAlive, squadHp, stepBattle, wavering,
-  type BattleSetup, type BattleState, type BSoldier, type Side,
+  type BattleSetup, type BattleState, type BSoldier, type Side, type SideBonus,
 } from './battle';
+import type { GameState } from '../sim/types';
 
 // =====================================================================
 //  Battle Lab: a test screen to set up two armies, watch them fight,
@@ -46,7 +47,7 @@ export class BattleLab {
   private batch: { done: number; total: number; wins: number[]; time: number } | null = null;
   private view: 'setup' | 'fight' | 'result' = 'setup';
 
-  constructor(private onClose: () => void) {
+  constructor(private onClose: () => void, private getState?: () => GameState) {
     this.counts = [{ swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }];
     this.root = document.createElement('div');
     this.root.id = 'lab';
@@ -95,7 +96,24 @@ export class BattleLab {
 
   private setup(): BattleSetup {
     const side = (i: 0 | 1) => UNITS.flatMap(u => Array.from({ length: this.counts[i][u] }, () => ({ unit: u, rank: this.ranks[i] })));
-    return { sides: [side(0), side(1)] };
+    return { sides: [side(0), side(1)], bonus: [this.colonyBonus(), {}] };
+  }
+
+  /** Your researched military techs (from the colony) help the red side. */
+  private colonyBonus(): SideBonus {
+    const s = this.getState?.();
+    const out: SideBonus = {};
+    if (!s) return out;
+    for (const id of s.techs) {
+      const e = CONFIG.tech.list.find(t => t.id === id)?.effect ?? {};
+      for (const k of ['damage', 'armour', 'range', 'charge', 'morale'] as const) if (e[k]) out[k] = (out[k] ?? 0) + e[k]!;
+    }
+    return out;
+  }
+  private techNames(): string[] {
+    const s = this.getState?.();
+    if (!s) return [];
+    return s.techs.map(id => CONFIG.tech.list.find(t => t.id === id)).filter(t => t && t.group === 'Military' && !t.effect.train).map(t => t!.name);
   }
 
   /** Show the armies standing in formation (before pressing Fight). */
@@ -179,7 +197,7 @@ export class BattleLab {
       const batch = bt ? (bt.done < bt.total ? `<p>Running ${bt.done}/${bt.total} battles…</p>`
         : `<p><b>${bt.total} battles:</b> <b style="color:${TEAM[0]}">You win ${Math.round(bt.wins[0] / bt.total * 100)}%</b> · <b style="color:${TEAM[1]}">Enemy ${Math.round(bt.wins[1] / bt.total * 100)}%</b> · Draw ${Math.round(bt.wins[2] / bt.total * 100)}% · avg ${fmtTime(bt.time / bt.total)}</p>`) : '';
       this.panel.innerHTML = `<div class="labpresets">${PRESETS.map((p, i) => `<button class="chip panel" data-lab="preset" data-i="${i}">${p.name}</button>`).join('')}</div>
-        <div class="labcols">${col(0)}${col(1)}</div>${batch}
+        <div class="labcols">${col(0)}${col(1)}</div>${this.techNames().length ? `<p style="font-size:12px">Your techs help red: <b>${this.techNames().join(', ')}</b></p>` : ''}${batch}
         <div class="labbtns"><button class="btn" data-lab="fight">▶ Fight</button><button class="btn ghost" data-lab="batch">Run 50 battles</button></div>`;
     } else if (this.view === 'fight') {
       this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div><button class="btn ghost" data-lab="stop">Stop</button></div>`;

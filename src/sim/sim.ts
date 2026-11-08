@@ -1,4 +1,4 @@
-import { CONFIG, type BuildingKind, type UnitKind } from '../config';
+import { CONFIG, type BuildingKind, type TechDef, type TechEffect, type UnitKind } from '../config';
 import { hash, noise2, rand } from './rng';
 import { DOORS } from './doors';
 import { findPathToRect, findPathToTile } from './path';
@@ -58,6 +58,7 @@ export function newGame(seed = (Math.random() * 1e9) | 0): GameState {
     wood: CONFIG.start.wood, gold: CONFIG.start.gold,
     hallLevel: 1, hallId: null, births: 0, version: 0,
     squads: [], nextSquadNum: {}, unlockAll: false,
+    techs: [], research: null,
   };
   return s;
 }
@@ -142,7 +143,7 @@ export function deliveryLoss(s: GameState, b: Building): number {
   const tripSecs = (2 * tiles) / V.walkTilesPerSecond + V.dropOffSeconds + V.doorFadeSeconds * 2;
   const shiftSecs = ((S.workEnd - S.workStart) / 24) * CONFIG.time.dayLengthSeconds;
   const away = Math.min(1, (CONFIG.food.deliveriesPerDay * tripSecs) / shiftSecs);
-  return (carrierCount(b) * away) / b.workers.length;
+  return (carrierCount(b) * away) / b.workers.length * (1 - techBonus(s, 'carry'));
 }
 export const presentWorkers = (s: GameState, b: Building) =>
   b.workers.reduce((a, id) => {
@@ -175,10 +176,10 @@ export function rates(s: GameState) {
     const o = def(b.kind).output;
     if (!o) continue;
     const e = efficiency(s, b, b.workers.length) * (1 - deliveryLoss(s, b));
-    food += (o.food ?? 0) * e; wood += (o.wood ?? 0) * e; gold += (o.gold ?? 0) * e;
+    food += (o.food ?? 0) * e * outMul(s, 'food'); wood += (o.wood ?? 0) * e * outMul(s, 'wood'); gold += (o.gold ?? 0) * e * outMul(s, 'gold');
   }
   const eat = population(s) * CONFIG.food.perVillagerPerDay;
-  const tax = civilians(s) * CONFIG.tax.goldPerVillagerPerDay; // soldiers don't pay tax
+  const tax = civilians(s) * CONFIG.tax.goldPerVillagerPerDay * (1 + techBonus(s, 'tax')); // soldiers don't pay tax
   const upkeep = armyUpkeep(s);
   return { foodProd: food, foodEat: eat, food: food - eat, wood, gold: gold + tax - upkeep, tax, upkeep };
 }
@@ -492,7 +493,7 @@ function updateTraining(s: GameState) {
   for (const q of s.squads) {
     const ms = s.villagers.filter(v => v.squad === q.id);
     if (!ms.length) continue;
-    q.trainDays += ms.filter(v => v.trained).length / ms.length;
+    q.trainDays += ms.filter(v => v.trained).length / ms.length * (1 + techBonus(s, 'train'));
   }
   for (const v of s.villagers) v.trained = false;
 }
@@ -896,7 +897,8 @@ function updateVillager(s: GameState, v: Villager) {
     }
     case 'walk': {
       const ti = tileOf(s, v);
-      if (P.roadSpeedBonus && s.wear[ti] >= 1) speed *= 1 + P.roadSpeedBonus;
+      const roadBonus = P.roadSpeedBonus + techBonus(s, 'roads');
+      if (roadBonus && s.wear[ti] >= 1) speed *= 1 + roadBonus;
       if (v.way.length) {
         if (moveToward(v, v.way[0].x, v.way[0].y, speed)) v.way.shift();
       } else if (v.path.length) {
@@ -979,7 +981,7 @@ export function birthRate(s: GameState): number {
   let r = 0;
   for (const b of s.buildings) {
     const cap = def(b.kind).beds ?? 0;
-    if (cap && b.residents.length < cap) r += CONFIG.births.chancePerHousePerDay;
+    if (cap && b.residents.length < cap) r += CONFIG.births.chancePerHousePerDay * (1 + techBonus(s, 'births'));
   }
   return r;
 }
@@ -1047,9 +1049,9 @@ export function tick(s: GameState) {
     const e = efficiency(s, b, present.get(b.id) ?? 0);
     if (!e) continue;
     // farm food waits at the farm until a farmer carries it to a granary
-    if (o.food) b.food = Math.min(d.farmStorage ?? Infinity, b.food + (o.food * e) / shift);
-    s.wood += ((o.wood ?? 0) * e) / shift;
-    s.gold += ((o.gold ?? 0) * e) / shift;
+    if (o.food) b.food = Math.min(d.farmStorage ?? Infinity, b.food + (o.food * e * outMul(s, 'food')) / shift);
+    s.wood += ((o.wood ?? 0) * e * outMul(s, 'wood')) / shift;
+    s.gold += ((o.gold ?? 0) * e * outMul(s, 'gold')) / shift;
   }
   // everyone eats from storage (fullest store first), slowly, during free time only
   const pop = population(s);
@@ -1061,12 +1063,12 @@ export function tick(s: GameState) {
     const take = Math.min(b.food, need);
     b.food -= take; need -= take;
   }
-  s.gold += (civilians(s) * CONFIG.tax.goldPerVillagerPerDay) / TICKS_PER_DAY; // taxes (soldiers don't pay)
+  s.gold += (civilians(s) * CONFIG.tax.goldPerVillagerPerDay * (1 + techBonus(s, 'tax'))) / TICKS_PER_DAY; // taxes (soldiers don't pay)
   s.gold = Math.max(0, s.gold - armyUpkeep(s) / TICKS_PER_DAY);              // army upkeep
 
   // births: need a food surplus, food in the granary, and a free bed
   if (!birthBlock(s)) {
-    const p = CONFIG.births.chancePerHousePerDay / TICKS_PER_DAY;
+    const p = CONFIG.births.chancePerHousePerDay * (1 + techBonus(s, 'births')) / TICKS_PER_DAY;
     for (const b of s.buildings) {
       const cap = def(b.kind).beds ?? 0;
       if (!cap || b.residents.length >= cap) continue;
@@ -1080,6 +1082,13 @@ export function tick(s: GameState) {
         s.births++;
       }
     }
+  }
+
+  // research at the Town Hall
+  if (s.research) {
+    s.research.days += 1 / TICKS_PER_DAY;
+    const t = techDef(s.research.id);
+    if (!t || s.research.days >= t.days) { if (t) s.techs.push(t.id); s.research = null; }
   }
 
   // roads change once a night
@@ -1096,4 +1105,50 @@ export function tick(s: GameState) {
 export function rebuildDerived(s: GameState) {
   s.occ = new Int32Array(s.w * s.h).fill(-1);
   for (const b of s.buildings) setOcc(s, b, b.id);
+}
+
+// ---------- tech tree ----------
+
+export const techDef = (id: string): TechDef | undefined => CONFIG.tech.list.find(t => t.id === id);
+export const hasTech = (s: GameState, id: string) => s.techs.includes(id);
+
+/** Sum of an effect over all researched techs (e.g. 0.3 = +30%). */
+export function techBonus(s: GameState, key: TechEffect): number {
+  let v = 0;
+  for (const id of s.techs) v += techDef(id)?.effect[key] ?? 0;
+  return v;
+}
+/** Output multiplier from techs for farms (food), lumber camps (wood) and markets (gold). */
+export function outMul(s: GameState, res: 'food' | 'wood' | 'gold'): number {
+  return 1 + techBonus(s, res === 'food' ? 'farm' : res === 'wood' ? 'wood' : 'market');
+}
+
+/** Why a tech can't be researched right now (null = it can). */
+export function techBlock(s: GameState, id: string): string | null {
+  const t = techDef(id);
+  if (!t) return 'Unknown';
+  if (hasTech(s, id)) return 'Done';
+  if (s.research?.id === id) return 'Researching';
+  if (s.hallId == null) return 'Needs a Town Hall';
+  const missing = t.needs.filter(n => !hasTech(s, n));
+  if (missing.length) return 'Needs ' + missing.map(n => techDef(n)?.name ?? n).join(', ');
+  if (!s.unlockAll && s.hallLevel < t.hall) return `Hall Lv ${t.hall}`;
+  if (s.research) return 'Busy researching';
+  if (s.gold < t.cost) return `Needs ${t.cost} gold`;
+  return null;
+}
+
+export function startResearch(s: GameState, id: string): boolean {
+  if (techBlock(s, id)) return false;
+  s.gold -= techDef(id)!.cost;
+  s.research = { id, days: 0 };
+  return true;
+}
+
+/** Stop the current research and get the gold back. */
+export function cancelResearch(s: GameState): boolean {
+  if (!s.research) return false;
+  s.gold += techDef(s.research.id)?.cost ?? 0;
+  s.research = null;
+  return true;
 }
