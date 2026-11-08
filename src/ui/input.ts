@@ -10,6 +10,8 @@ import { buildingIcon } from './ui';
 //  - drag a building card up onto the map: place it (ghost shows valid/invalid)
 //  - tap a card: placement mode with Place / Cancel buttons
 
+const TAP_REACH_PX = 22; // a tap this close to a building (in screen px) still selects it
+const TAP_SLOP_PX = 14;  // a finger can wobble this much and still count as a tap
 const DRAG_LIFT = 0; // px the ghost sits above the finger (0 = building centred under the finger)
 
 export function setupInput(game: Game) {
@@ -55,7 +57,7 @@ export function setupInput(game: Game) {
     const dx = e.clientX - p.x, dy = e.clientY - p.y;
     p.x = e.clientX; p.y = e.clientY;
     if (pts.size === 1) {
-      if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 8) moved = true;
+      if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > TAP_SLOP_PX) moved = true;
       if (!moved) return;
       if (movingGhost && game.view.ghost) {
         game.view.ghost = ghostAt(game.view.ghost.kind, e.clientX, e.clientY);
@@ -103,11 +105,17 @@ export function setupInput(game: Game) {
       game.view.ghost = ghostAt(game.view.ghost.kind, sx, sy);
       return;
     }
+    // pick the nearest building within a fingertip's reach (easy to hit when zoomed out)
     const w = R.screenToWorld(sx, sy);
-    const x = Math.floor(w.x), y = Math.floor(w.y);
-    const s = game.s;
-    const id = x >= 0 && y >= 0 && x < s.w && y < s.h ? s.occ[y * s.w + x] : -1;
-    game.ui.select(id >= 0 ? id : null);
+    const reach = TAP_REACH_PX / R.ppt; // in tiles
+    let best: number | null = null, bd = Infinity;
+    for (const b of game.s.buildings) {
+      const dx = Math.max(b.x - w.x, 0, w.x - (b.x + b.w));
+      const dy = Math.max(b.y - w.y, 0, w.y - (b.y + b.h));
+      const d = Math.hypot(dx, dy);
+      if (d <= reach && d < bd) { bd = d; best = b.id; }
+    }
+    game.ui.select(best);
   }
 
   // ---------------- dragging cards from the build menu ----------------
