@@ -62,7 +62,7 @@ function makeVillager(s: GameState, x: number, y: number): Villager {
     id: s.nextId++, x, y, px: x, py: y,
     home: null, job: null, mode: 'idle', inside: null,
     goalKey: '', goalB: null, goalKind: 'wander',
-    task: null, deliveries: 0, deliveryDay: -1, backToWork: false,
+    task: null, deliveries: 0, deliveryDay: -1,
     way: [], path: [], approach: false, dest: null, timer: rand(s) * 2, vis: 1,
     lastTile: -1, hallDay: -1, carry: null,
     look: { tunic: (rand(s) * 5) | 0, hair: (rand(s) * 5) | 0, skin: (rand(s) * 3) | 0 },
@@ -94,10 +94,42 @@ export const foodCap = (s: GameState) =>
 /** Food in storage (what the colony can eat), in lb. */
 export const foodStored = (s: GameState) =>
   s.buildings.reduce((a, b) => a + (def(b.kind).foodStorage ? b.food : 0), 0);
-/** On shift = at work, or out delivering food / walking back to work (production keeps going). */
-const onShift = (v: Villager) => v.job != null && (
-  (v.mode === 'work' && v.inside === v.job) || v.task != null ||
-  (v.backToWork && v.goalKind === 'job'));
+/** On shift = physically at work. Carriers out delivering food don't count (that's the delivery penalty). */
+const onShift = (v: Villager) => v.job != null && v.mode === 'work' && v.inside === v.job;
+
+/** Game hours a villager needs to walk from home to work (used to decide when they wake up). */
+export function commuteHours(s: GameState, v: Villager): number {
+  const home = getB(s, v.home ?? s.hallId), job = getB(s, v.job);
+  if (!home || !job) return 0;
+  const a = doorPt(home), b = doorPt(job);
+  const tiles = Math.hypot(a.x - b.x, a.y - b.y) * 1.35 + 1.5; // paths aren't straight
+  const secs = tiles / CONFIG.villagers.walkTilesPerSecond + CONFIG.villagers.doorFadeSeconds * 2;
+  return (secs * 24) / CONFIG.time.dayLengthSeconds + CONFIG.schedule.wakeBufferHours;
+}
+
+/** How many of a farm's workers carry food to the granary. */
+export function carrierCount(b: Building): number {
+  if (!b.workers.length) return 0;
+  return Math.max(1, Math.ceil(b.workers.length * CONFIG.food.carrierShare));
+}
+
+/**
+ * Estimated share of a farm's output lost to delivery trips
+ * (carriers don't farm while walking to the granary and back).
+ */
+export function deliveryLoss(s: GameState, b: Building): number {
+  const d = def(b.kind);
+  if (!d.farmStorage || !b.workers.length) return 0;
+  const g = nearestStorage(s, b, false);
+  if (!g) return 0;
+  const p = doorPt(b), q = doorPt(g);
+  const tiles = Math.hypot(p.x - q.x, p.y - q.y) * 1.35 + 2;
+  const V = CONFIG.villagers, S = CONFIG.schedule;
+  const tripSecs = (2 * tiles) / V.walkTilesPerSecond + V.dropOffSeconds + V.doorFadeSeconds * 2;
+  const shiftSecs = ((S.workEnd - S.workStart) / 24) * CONFIG.time.dayLengthSeconds;
+  const away = Math.min(1, (CONFIG.food.deliveriesPerDay * tripSecs) / shiftSecs);
+  return (carrierCount(b) * away) / b.workers.length;
+}
 export const presentWorkers = (s: GameState, b: Building) =>
   b.workers.reduce((a, id) => {
     const v = s.villagers.find(q => q.id === id);
@@ -128,7 +160,7 @@ export function rates(s: GameState) {
   for (const b of s.buildings) {
     const o = def(b.kind).output;
     if (!o) continue;
-    const e = efficiency(s, b, b.workers.length);
+    const e = efficiency(s, b, b.workers.length) * (1 - deliveryLoss(s, b));
     food += (o.food ?? 0) * e; wood += (o.wood ?? 0) * e; gold += (o.gold ?? 0) * e;
   }
   const eat = population(s) * CONFIG.food.perVillagerPerDay;
@@ -391,23 +423,28 @@ function nearestFreeAround(s: GameState, b: Building, p: Pt): number {
 function desired(s: GameState, v: Villager): { kind: Villager['goalKind']; b: number | null } {
   const S = CONFIG.schedule;
   if (v.task) return { kind: 'deliver', b: v.task.to };
-  const h = (hourOf(s) - v.jitter + 24) % 24;
+  const h = hourOf(s);
   const day = dayNumber(s);
   const home = v.home ?? s.hallId;
-  if (h < S.wakeHour || h >= S.sleepStart) return { kind: 'home', b: home };
-  if (h >= S.workStart - (v.job != null ? S.commuteLeadHours : 0) && h < S.workEnd)
-    return v.job != null ? { kind: 'job', b: v.job } : { kind: 'wander', b: null };
-  // free time (morning and evening). For now: some visit the town hall in the evening, others stroll.
-  if (h >= S.workEnd && v.hallDay !== day && hash(v.id, day, 99) < S.hallVisitChance) return { kind: 'hall', b: s.hallId };
-  return { kind: 'wander', b: null };
+  const sleepAt = S.sleepStart + v.jitter;
+  if (v.job != null) {
+    // wake up just early enough to be at work when it starts
+    if (h >= S.workStart - commuteHours(s, v) && h < S.workEnd) return { kind: 'job', b: v.job };
+  } else if (h >= S.workStart && h < S.workEnd) return { kind: 'wander', b: null };
+  if (h >= S.workEnd && h < sleepAt) {
+    // free time. For now: some visit the town hall, others stroll.
+    if (v.hallDay !== day && hash(v.id, day, 99) < S.hallVisitChance) return { kind: 'hall', b: s.hallId };
+    return { kind: 'wander', b: null };
+  }
+  return { kind: 'home', b: home };
 }
 
 /** Nearest building that can store food and still has room. */
-function nearestStorage(s: GameState, from: Building): Building | undefined {
+function nearestStorage(s: GameState, from: Building, needRoom = true): Building | undefined {
   let best: Building | undefined, bd = Infinity;
   for (const b of s.buildings) {
     const cap = def(b.kind).foodStorage ?? 0;
-    if (!cap || cap - b.food < 1) continue;
+    if (!cap || (needRoom && cap - b.food < 1)) continue;
     const d = Math.hypot(b.x + b.w / 2 - from.x - from.w / 2, b.y + b.h / 2 - from.y - from.h / 2);
     if (d < bd) { bd = d; best = b; }
   }
@@ -480,7 +517,7 @@ function arrive(s: GameState, v: Villager) {
   }
   v.inside = b.id;
   if (v.goalKind === 'job') {
-    v.mode = 'work'; v.carry = null; v.timer = 0; v.backToWork = false;
+    v.mode = 'work'; v.carry = null; v.timer = 0;
     pickWorkSpot(s, v, b);
     return;
   }
@@ -529,24 +566,32 @@ function edgeIndex(s: GameState, a: number, b: number): number {
   return dir < 0 ? -1 : (ay * s.w + ax) * 4 + dir;
 }
 
-/** Farmers take the farm's food to the nearest granary a few times per workday. */
+/** Carriers take everything waiting at the farm to the nearest granary a few times per workday. */
 function maybeDeliver(s: GameState, v: Villager): boolean {
   const b = getB(s, v.inside);
   if (!b || b.kind !== 'farm' || b.food < 1) return false;
+  if (b.workers.indexOf(v.id) >= carrierCount(b)) return false; // not a carrier
   const S = CONFIG.schedule, F = CONFIG.food;
   const day = dayNumber(s);
   if (v.deliveryDay !== day) { v.deliveryDay = day; v.deliveries = 0; }
-  const h = (hourOf(s) - v.jitter + 24) % 24;
-  const prog = (h - S.workStart) / (S.workEnd - S.workStart);
-  if (v.deliveries >= F.deliveriesPerDay || prog < (v.deliveries + 0.5) / F.deliveriesPerDay) return false;
+  const prog = (hourOf(s) - S.workStart) / (S.workEnd - S.workStart);
+  if (v.deliveries >= F.deliveriesPerDay || prog < (v.deliveries + 0.75) / F.deliveriesPerDay) return false;
   v.deliveries++;
   const g = nearestStorage(s, b);
   if (!g) return false;
-  const lb = Math.min(b.food, F.carryLb, (def(g.kind).foodStorage ?? 0) - g.food);
+  const lb = Math.min(b.food, (def(g.kind).foodStorage ?? 0) - g.food);
   b.food -= lb;
   v.task = { to: g.id, lb };
   v.goalKey = ''; // re-plan: go deliver
   return true;
+}
+
+/** Night fast-forward: true while it's night and every villager is indoors asleep. */
+export function allAsleep(s: GameState): boolean {
+  if (s.hallId == null) return false;
+  const h = hourOf(s), S = CONFIG.schedule;
+  if (!(h >= S.sleepStart || h < S.workStart)) return false;
+  return s.villagers.every(v => v.mode === 'inside' && v.goalKind === 'home');
 }
 
 function updateVillager(s: GameState, v: Villager) {
@@ -572,7 +617,7 @@ function updateVillager(s: GameState, v: Villager) {
           const put = Math.max(0, Math.min(room, v.task.lb));
           if (g) g.food += put;
           if (farm && v.task.lb > put) farm.food += v.task.lb - put; // didn't fit: back to the farm
-          v.task = null; v.carry = null; v.backToWork = true;
+          v.task = null; v.carry = null;
         }
         return;
       }

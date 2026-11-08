@@ -1,7 +1,7 @@
 import { BUILD_MENU, CONFIG, type BuildingKind, type Category } from '../config';
 import { drawBuilding } from '../render/draw';
 import {
-  addWorker, beds, birthBlock, birthRate, canPlace, canUpgradeHall, dayNumber, def, foodCap, foodStored, getB, hourOf,
+  addWorker, allAsleep, beds, carrierCount, deliveryLoss, birthBlock, birthRate, canPlace, canUpgradeHall, dayNumber, def, foodCap, foodStored, getB, hourOf,
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
   removeWorker, upgradeHall,
 } from '../sim/sim';
@@ -55,8 +55,7 @@ export class UI {
       <div id="topright">
         <div id="timepanel" class="panel">
           <div class="clockrow"><span id="dial"></span>
-            <div class="tt"><b id="dayTxt"></b><span id="timeTxt"></span></div>
-            <span id="phase" class="phase"></span></div>
+            <div class="tt"><b id="dayTxt"></b><div class="tline"><span id="timeTxt"></span><span id="phase" class="phase"></span></div></div></div>
           <div id="speeds">
             <button data-speed="0" aria-label="Pause">${IC.pause}</button>
             <button data-speed="1">1×</button><button data-speed="2">2×</button><button data-speed="3">3×</button>
@@ -229,11 +228,13 @@ export class UI {
     const mins = Math.floor((h * 60) / 15) * 15; // shown in 15-minute steps
     const hh = Math.floor(mins / 60), mm = mins % 60;
     const night = h < 5.5 || h >= 19.5;
-    const phase = h < S.wakeHour || h >= S.sleepStart ? ['Sleep', 'sleep'] : h >= S.workStart && h < S.workEnd ? ['Work', 'work'] : ['Free time', 'free'];
-    const key = `${started}|${dayNumber(s)}|${mins}`;
+    const fast = allAsleep(s);
+    const phase = h >= S.workStart && h < S.workEnd ? ['Work', 'work'] : h >= S.workEnd && h < S.sleepStart ? ['Free time', 'free'] : [fast ? 'Sleep ⏩' : 'Sleep', 'sleep'];
+    const key = `${started}|${dayNumber(s)}|${mins}|${fast}`;
     if (key === this.clockKey) return;
     this.clockKey = key;
-    document.getElementById('dayTxt')!.textContent = started ? `Day ${dayNumber(s)}` : 'Day 1';
+    const dn = dayNumber(s) - 1, Y = S.daysPerYear;
+    document.getElementById('dayTxt')!.textContent = `Day ${(dn % Y) + 1}, Year ${Math.floor(dn / Y)}`;
     document.getElementById('timeTxt')!.textContent = started
       ? `${((hh + 11) % 12) + 1}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'AM' : 'PM'}` : 'Not started';
     const ph = document.getElementById('phase')!;
@@ -357,7 +358,8 @@ export class UI {
       if (d.farmStorage) {
         const full = b.food >= d.farmStorage - 0.5;
         body += `<p>Waiting at the farm: <b style="color:${full ? 'var(--bad)' : 'inherit'}">${Math.floor(b.food)} / ${d.farmStorage} lb</b>${full ? ' · <b style="color:var(--bad)">Full! Build a granary</b>' : ''}</p>
-          <p>Farmers carry it to the nearest granary ${CONFIG.food.deliveriesPerDay}× per workday.</p>`;
+          <p><b>${carrierCount(b)}</b> of the farmers carry food to the nearest granary ${CONFIG.food.deliveriesPerDay}× per workday.
+          Trips cost about <b style="color:${deliveryLoss(s, b) > 0.08 ? 'var(--bad)' : 'inherit'}">${Math.round(deliveryLoss(s, b) * 100)}%</b> of this farm's output. A closer granary costs less.</p>`;
       }
     }
     if (b.kind !== 'townHall') {

@@ -30,7 +30,7 @@ export interface BuildingDef {
 }
 
 export const CONFIG = {
-  version: '0.4.0',
+  version: '0.5.0',
 
   time: {
     dayLengthSeconds: 300,    // real seconds per game day at 1x (5 minutes)
@@ -40,15 +40,17 @@ export const CONFIG = {
   },
 
   // Daily schedule in hours (24-hour clock). The day starts at midnight.
-  //  5-8 free time, 8-17 work, 17-20 free time, 20-5 sleep
+  //  work 5-17, free time 17-20, sleep 20 until each worker's wake-up time
+  //  (workers wake just early enough to walk to work by workStart)
   schedule: {
-    wakeHour: 5,              // villagers get up (free time until work)
-    workStart: 8,             // work begins
+    workStart: 5,             // work begins (workers are already there)
     workEnd: 17,              // work ends (free time until sleep)
-    commuteLeadHours: 0.75,   // workers leave home this early so they arrive by work start
     sleepStart: 20,           // everyone heads home to sleep
-    startHour: 7,             // time of day when a new colony is founded
-    personalJitter: 0.25,     // hours each villager may be early/late
+    wakeBufferHours: 0.3,     // extra margin added to each worker's walk to work
+    startHour: 6,             // time of day when a new colony is founded
+    personalJitter: 0.2,      // hours each villager may be later going home in the evening
+    nightSpeedMultiplier: 2,  // while everyone is asleep, time runs this many times faster
+    daysPerYear: 24,          // "Day 1, Year 0" ... day 25 starts Year 1
     hallVisitChance: 0.4,     // chance per evening (free time) to visit the town hall
     hallVisitSeconds: 6,      // game seconds spent inside the hall
     nightTint: 0.24,          // how dark the night gets (0 = off)
@@ -71,8 +73,10 @@ export const CONFIG = {
 
   food: {
     perVillagerPerDay: 12,    // lb eaten per villager per day
-    deliveriesPerDay: 4,      // trips each farmer makes to a granary per workday
-    carryLb: 25,              // most food a farmer carries per trip
+    deliveriesPerDay: 4,      // trips each carrier makes to a granary per workday
+    carrierShare: 0.25,       // share of a farm's workers who carry food (rounded up, at least 1)
+                              // carriers take everything waiting at the farm; while they are away
+                              // they don't farm, so far-away granaries cost output
   },
 
   tax: {
@@ -147,7 +151,7 @@ export const CONFIG = {
       farmStorage: 200, badge: 'green',
     },
     granary: {
-      name: 'Granary', category: 'food', w: 1, h: 1, cost: { wood: 40, gold: 0 },
+      name: 'Granary', category: 'food', w: 1, h: 2, cost: { wood: 40, gold: 0 },
       allowedTiles: ['grass'], foodStorage: 500, badge: 'storage',
     },
     lumberCamp: {

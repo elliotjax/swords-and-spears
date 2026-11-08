@@ -281,24 +281,23 @@ function farm(c: C, x: number, y: number, w: number, h: number, o: DrawOpts, see
 }
 
 function granary(c: C, x: number, y: number, o: DrawOpts) {
-  // a round thatched store on short stilts, seen from above
-  const cx = x + 0.5, cy = y + 0.44, r = 0.34;
-  c.fillStyle = PAL.shadow; c.beginPath(); c.arc(cx + 0.08, cy + 0.1, r, 0, 7); c.fill();
-  for (const [dx, dy] of [[-0.24, 0.24], [0.24, 0.24]]) { // stilts peeking out at the front
-    c.fillStyle = PAL.woodDark; c.fillRect(cx + dx - 0.03, cy + dy, 0.06, 0.1);
+  // a long thatched grain store (1 x 2 tiles) on short stilts, seen from above
+  const rx = x + 0.14, ry = y + 0.14, rw = 0.72, rh = 1.56;
+  for (const yy of [ry + 0.3, ry + rh - 0.1]) for (const xx of [rx - 0.04, rx + rw - 0.02]) { // stilts
+    c.fillStyle = PAL.woodDark; c.fillRect(xx, yy, 0.06, 0.12);
   }
-  circle(c, cx, cy, r, '#e2c27a', PAL.outline);
-  c.save(); c.beginPath(); c.arc(cx, cy, r, 0, 7); c.clip();
-  c.fillStyle = '#c9a45c'; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, r, -0.6, 2.2); c.closePath(); c.fill();
-  c.strokeStyle = 'rgba(120,80,30,.35)'; c.lineWidth = LW * 0.7; c.beginPath();
-  for (let i = 0; i < 14; i++) { const a = (i / 14) * Math.PI * 2; c.moveTo(cx, cy); c.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+  roof(c, rx, ry, rw, rh, true, '#e2c27a', '#c9a45c', '#f0d898');
+  // straw texture over the shingle lines
+  c.strokeStyle = 'rgba(120,80,30,.28)'; c.lineWidth = LW * 0.6; c.beginPath();
+  for (let i = 1; i < 9; i++) { c.moveTo(rx + 0.04, ry + i * (rh / 9)); c.lineTo(rx + rw - 0.04, ry + i * (rh / 9) + 0.03); }
   c.stroke();
-  c.beginPath(); c.arc(cx, cy, r * 0.62, 0, 7); stroke(c, 'rgba(120,80,30,.35)', LW * 0.7);
-  c.restore();
-  circle(c, cx, cy, 0.075, PAL.wood, PAL.outline, LW * 0.8);
-  // grain sack by the door
-  circle(c, x + 0.84, y + 0.8, 0.09, '#e6cf98', PAL.outline, LW * 0.7);
-  circle(c, x + 0.84, y + 0.74, 0.03, PAL.crop2);
+  // vent on the ridge
+  c.fillStyle = PAL.wood; c.fillRect(x + 0.42, y + 0.55, 0.16, 0.22);
+  c.beginPath(); c.rect(x + 0.42, y + 0.55, 0.16, 0.22); stroke(c, PAL.outline, LW * 0.8);
+  // grain sacks by the door
+  circle(c, x + 0.84, y + 1.8, 0.08, '#e6cf98', PAL.outline, LW * 0.7);
+  circle(c, x + 0.86, y + 1.62, 0.07, '#e6cf98', PAL.outline, LW * 0.7);
+  circle(c, x + 0.84, y + 1.75, 0.025, PAL.crop2);
   doorway(c, x + DOORS.granary.x, y + DOORS.granary.y);
   void o;
 }

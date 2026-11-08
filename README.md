@@ -183,7 +183,7 @@ Starting building types:
 | **Town Hall** | Center of the colony. Placed first. | Its **level gates progression** (7.5). Villagers walk here (7.6). Losing it ends the game. **Stores a little food (150 lb)** so the colony can start before a granary exists. |
 | **House** (and variants) | Houses villagers. | Fixed villager capacity. The **number of houses is capped by Town Hall level.** Variants in the mockup: **Hut, House, Cottage, Longhouse, Manor** (Manor locked until Hall Lv 3). TBD which exist in v1. |
 | **Farm** | Produces food. | Better output on grassland. Two kinds of "farm" exist: **food farm** and **wood farm** (below). **Food made at a farm is stored at the farm first** and doesn't count until a farmer carries it to a granary. |
-| **Granary** *(Decided)* | Stores food. | **1×1 tile**, holds **500 lb**. Farmers carry food from their farm to the **nearest granary** (or Town Hall) about **4 times per workday**. Production keeps going while a farmer is away delivering. Your food stockpile = all food in granaries + Town Hall. |
+| **Granary** *(Decided)* | Stores food. | **1×2 tiles**, holds **500 lb**. Only **25% of a farm's workers (rounded up, at least 1) are carriers**. Carriers take **everything waiting at the farm** to the **nearest granary** (or Town Hall) **4 times per workday**. **While a carrier is away they don't farm**, so a far-away granary costs output (the farm panel shows the % lost). Your food stockpile = all food in granaries + Town Hall. |
 | **Lumber Camp** (working name for the "wood farm") | Produces wood. | Placed on **forest** tiles. **Harvests existing trees; trees never run out.** Must **not look like farming**. |
 | **Commerce buildings** (for example **Market**) | Produce gold. | TBD which and how many in v1. |
 | **Barracks** | Recruits and trains squads. | Not in v1. See section 9. |
@@ -247,11 +247,12 @@ This is a signature feature. It is also what makes the colony satisfying to watc
 
 ## 8. Game flow and time
 
-- **Hours of the day (Decided):** the day runs on a 24-hour clock (1 game hour ≈ 12.5 real seconds at 1x):
-  - **5 AM – 8 AM:** free time
-  - **8 AM – 5 PM:** work (workers leave home a little early so they arrive on time; work only counts 8 to 5)
-  - **5 PM – 8 PM:** free time (for now: some visit the town hall, others stroll; to be designed later)
-  - **8 PM – 5 AM:** sleep (the screen gets darker). Long nights are OK for now; the owner will see how it feels.
+- **Hours of the day (Decided, updated):** 24-hour clock (1 game hour ≈ 12.5 real seconds at 1x):
+  - **5 AM – 5 PM: work.** Each worker **wakes up just early enough to walk to work by 5 AM** (worked out from the distance between their home and job). Work only counts from 5 to 5.
+  - **5 PM – 8 PM: free time** (for now: some visit the town hall, others stroll; to be designed later).
+  - **8 PM until each worker's wake-up time: sleep** (the screen gets darker). Villagers without a job get up at 5 AM.
+  - **Night fast-forward:** while everyone is indoors asleep, time runs **2× faster than the chosen speed** (1x → 2x, 2x → 4x, 3x → 6x). The clock shows "Sleep ⏩".
+- **Calendar (Decided):** shown as **"Day 1, Year 0"**. A year is **24 days** for now (config); day 25 is "Day 1, Year 1".
 - **Day length (Decided):** 1 game day = **5 minutes** of real time at 1x. The game's pace in real time stays the same as the first version, so per-day numbers are bigger (for example a full farm makes about 220 lb/day).
 - Rates in the UI are shown **per day** (for example lb/day, gold/day).
 - Possible later: **seasons** (planting, harvest, winter) to give long sessions a rhythm. **Not decided. Not in v1.**
@@ -318,7 +319,7 @@ These are only starting points for the first playable. The owner will tune them 
 | House capacity | 4 villagers (Hut 2, Cottage 6, Longhouse 8: placeholders) |
 | House costs (wood) | Hut 15, House 25, Cottage 45, Longhouse 70 |
 | Farm | capacity 8, full output 256 lb/day (320 on grassland), cost 40 wood, grassland bonus +25%, holds 200 lb before it must be delivered |
-| Granary | 1×1, cost 40 wood, holds 500 lb; farmers deliver 4× per workday, up to 25 lb per trip |
+| Granary | 1×2, cost 40 wood, holds 500 lb; 25% of farmers carry, 4 trips per workday each, carrying everything waiting |
 | Town Hall food storage | 150 lb; colony starts with 100 lb |
 | **Food balance target (Decided)** | about **30% of the population farming** feeds everyone (soldiers eat but don't work). Planned split: ~30% farmers, 30–40% soldiers, ~30% everything else. Each farmer makes 40 lb/day on grassland; each villager eats 12. |
 | Lumber Camp | capacity 6, full output about 130 wood/day, cost 30 wood, forest tile only |
@@ -407,6 +408,7 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 
 - **Owner playtest 1 feedback (all built):** phone feel good. Food is now a stockpile in lb with a per-day change; granary shown as % full; Births/day row added to the status panel (Villagers tab explains when births are blocked); births faster; day length 5 min with the same real-time pace; villagers walk to the actual doorway (front side) and fade in/out there, walking along building edges to reach it; thin, connected gravel roads with diagonals and curves; dragged building sits under the finger. Old saves from the first version can't be loaded (start a new game).
 - **Granary + clock update (built):** Granary building (1×1, 500 lb); farm food waits at the farm until farmers carry it to the nearest granary 4× per workday (production continues while they're away); Town Hall stores 150 lb; food balanced so ~30% farmers feeds everyone; 24-hour day (5–8 free, 8–17 work, 17–20 free, 20–5 sleep); one combined time + speed panel with a clock dial; "Build a Granary" alert. Villagers no longer cut through buildings when they change plans mid-walk. Old saves can't be loaded (start a new game).
+- **Schedule + carriers update (built):** granary is 1×2; only 25% of farmers carry food (everything waiting, 4 trips/day); carriers don't farm while away (delivery penalty shown on the farm panel, and included in the food rate); work 5 AM–5 PM with personal wake-up times so everyone is at work by 5; free time 5–8 PM; sleep from 8 PM; night runs 2× faster while everyone is asleep; clock shows "Day N, Year Y" (24-day years). Tested: all workers at work at 5:00, shown food rate matches real output (302 vs 305 lb/day). Old saves still load.
 - Next: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 
 ### How to go back to an earlier version

@@ -1,7 +1,7 @@
 import { CONFIG, type BuildingKind } from './config';
 import { Renderer, type ViewState } from './render/renderer';
 import { clearSave, loadGame, saveGame } from './sim/save';
-import { canPlace, getB, newGame, place, tick } from './sim/sim';
+import { allAsleep, canPlace, getB, newGame, place, tick } from './sim/sim';
 import type { GameState } from './sim/types';
 import { setupInput } from './ui/input';
 import { UI } from './ui/ui';
@@ -87,10 +87,12 @@ export class Game {
       const dt = Math.min(0.25, (now - last) / 1000);
       last = now;
       realTime += dt;
-      acc += dt * tps * this.speed;
+      // while everyone is asleep, night runs faster (2x speed becomes 4x, 3x becomes 6x...)
+      const night = allAsleep(this.s) ? CONFIG.schedule.nightSpeedMultiplier : 1;
+      acc += dt * tps * this.speed * night;
       let n = 0;
-      while (acc >= 1 && n < 12) { tick(this.s); acc -= 1; n++; }
-      if (n >= 12) acc = 0; // device too slow: drop the backlog rather than spiral
+      while (acc >= 1 && n < 24) { tick(this.s); acc -= 1; n++; }
+      if (n >= 24) acc = 0; // device too slow: drop the backlog rather than spiral
       input.frame(dt);
       this.renderer.render(this.s, this.view, this.speed ? acc : 1, realTime);
       uiTimer += dt; saveTimer += dt;

@@ -30,7 +30,6 @@ export interface Villager {
   task: { to: number; lb: number } | null; // carrying food to a granary
   deliveries: number;        // food deliveries made today
   deliveryDay: number;
-  backToWork: boolean;       // walking back to work after a delivery (still counts as working)
   way: Pt[];                 // free-walk points (around a building, to/from its door)
   path: number[];            // tiles to walk along
   approach: boolean;         // after the path, walk along the building to its door
