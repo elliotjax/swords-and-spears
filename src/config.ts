@@ -265,6 +265,8 @@ export const CONFIG = {
       reliefHp: 0.55,           // reserves wait behind a fighting friend until it's below this HP share or wavering
       archerFallBack: 3.2,      // archers fall back when enemy fighters come this close...
       archerCoverRange: 9,      // ...if friendly infantry is within this range to hide behind
+      guardJoinRange: 7,        // squads holding "on guard" (enemy plans) join in when a friend this close is fighting...
+      guardArrows: 8,           // ...or after taking this many arrow hits
     },
     tempo: 1,                   // multiplies every attack's wait (bigger = slower swings). Battles are long because most frontal blows get parried, not because people stand around
     pursuitSeconds: 6,          // after one side is beaten, the winners chase the fleeing for this long

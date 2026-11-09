@@ -19,7 +19,10 @@ export interface Pt { x: number; y: number }
  * One squad. x/y (optional) = where the player deployed it, and path = the arrow they drew,
  * both in "left side" field coordinates (mirrored automatically if the side starts on the right).
  */
-export interface SquadSetup { unit: UnitKind; rank: number; x?: number; y?: number; path?: Pt[]; order?: Order }
+export interface SquadSetup {
+  unit: UnitKind; rank: number; x?: number; y?: number; path?: Pt[]; order?: Order;
+  guard?: boolean; // with order 'hold': hold only until it makes sense to join in (a friend nearby is fighting, or it's being shot to pieces)
+}
 /** Bonuses from techs for one side (0.1 = +10%). */
 export type SideBonus = Partial<Record<'damage' | 'armour' | 'range' | 'charge' | 'morale', number>>;
 /** orders[side] = true: the player commanded this side (squads with no arrow hold their ground). */
@@ -72,6 +75,7 @@ export interface BSquad {
   path: Pt[]; pathI: number;  // the drawn arrow, and the next point on it
   commit: number;             // on a path but caught in a real fight: finish this enemy squad first (-1 = none)
   commitX: number; commitY: number; // where we left the path (don't chase too far from it)
+  guard: boolean; arrowsTaken: number; // 'hold' squads on guard join the fight when a friend nearby is fighting or after taking this many arrow hits
   waiting: boolean;           // in reserve right now: standing behind a friendly squad that's fighting, ready to step in
   inLine: boolean;            // still marching as part of the army's formation (free squads, until the enemy is close)
   lineDepth: number;          // how far behind the army's front this squad stands (keeps the formation's shape on the march)
@@ -185,7 +189,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
         withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
         order: q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
-        waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
+        guard: !!q.guard, arrowsTaken: 0, waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
         path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
       };
       for (let i = 0; i < unitSize(q.unit); i++) {
@@ -365,6 +369,12 @@ export function stepBattle(b: BattleState) {
     if (!active(q)) continue;
     const U = stats(q.unit), isCav = q.unit === 'cavalry';
     const fighting = b.t - q.lastFight < A.fightingLatch;
+    // on guard: stop holding once a friend nearby is in a fight, or we've been shot at long enough
+    if (q.order === 'hold' && q.guard) {
+      let join = q.arrowsTaken >= A.guardArrows;
+      if (!join) for (const o of b.squads) if (o !== q && o.side === q.side && active(o) && o.state === 'melee' && Math.hypot(o.mx - q.mx, o.my - q.my) < A.guardJoinRange) { join = true; break; }
+      if (join) q.order = 'free';
+    }
     // cavalry may run down routing enemies; everyone else ignores them
     const targetable = (e: BSquad) => !e.gone && (!e.fleeing || isCav);
 
@@ -766,6 +776,7 @@ export function stepBattle(b: BattleState) {
     t.hp -= h.dmg; t.flash = 0.12;
     tq.lastHit = b.t;
     if (h.by.side !== t.side) tq.hitBy[h.by.squad] = b.t;
+    if (arrow && h.by.side !== t.side) tq.arrowsTaken++;
     // courage lost per hit grows with how hard the hit was (a scratch is not a gash)
     if (h.by.side !== t.side) loseMorale(tq, (arrow ? M.arrowHitLoss : h.flank ? M.flankHitLoss : M.frontHitLoss) * h.dmg / M.hitRef);
     if (!arrow && h.by.id) { t.hurtBy = h.by.id; t.hurtAt = b.t; b.stats.hits[t.side]++; if (h.flank) b.stats.flankHits[t.side]++; }

@@ -70,6 +70,7 @@ export class BattleLab {
   } | null = null;
   private placedIdx: number[] = [];       // army index of each squad in the current battle setup
   private plan = 0;                        // the enemy's battle plan (index into PLANS)
+  private planAuto = true;                 // the enemy chose its plan from the two armies (false after 🎲)
   private enemy: SquadSetup[] = [];       // the enemy's squads: where they stand and their orders (left-side coordinates)
 
   constructor(private onClose: () => void, private getState?: () => GameState) {
@@ -131,6 +132,16 @@ export class BattleLab {
     return { sides: [mine, this.enemy], bonus: [this.colonyBonus(), {}], orders: [true, true], field: this.field };
   }
 
+  /** The enemy picks a plan from the two armies (it can't see your arrows). */
+  private pickPlan(): number {
+    const men = (i: 0 | 1) => this.men(i), c = this.counts, r = hashRand(this.seed * 13 + 5)();
+    const inf = (i: 0 | 1) => c[i].swordsmen + c[i].spearmen;
+    if (men(1) < men(0) * 0.75) return 3;                                   // outnumbered: Defensive
+    if (c[1].cavalry >= 2 && c[1].cavalry >= c[0].cavalry + 2) return r < 0.5 ? 4 : 2; // more cavalry: Cavalry hook or Crescent
+    if (inf(1) >= 3 && inf(1) > inf(0) * 1.25) return 1;                    // more infantry: Wide line (overlap)
+    if (men(1) > men(0) * 1.3) return 2;                                    // much bigger army: Crescent (envelop)
+    return r < 0.7 ? 0 : 5;                                                 // even: Line, sometimes Oblique
+  }
   private enemyAuto: SquadSetup[] = [];
   /** Lay out the enemy according to its plan (see PLANS). */
   private makeEnemy() {
@@ -147,6 +158,7 @@ export class BattleLab {
     // the enemy's automatic spots (in its own left-side coordinates), then its plan
     this.enemyAuto = this.side(1).map(q => ({ ...q, x: 0, y: 0 }));
     for (const q of auto.squads) if (q.side === 1) { const e = this.enemyAuto[q.src]; e.x = auto.W - q.cx; e.y = q.cy; }
+    this.plan = this.pickPlan(); this.planAuto = true;
     this.makeEnemy();
     this.sel = [];
     this.ground = null;
@@ -236,7 +248,7 @@ export class BattleLab {
       // deployment
       case 'auto': for (const a of this.army) { a.x = a.ax; a.y = a.ay; a.placed = true; a.path = undefined; } this.sel = []; this.preview(); break;
       case 'clear': for (const a of this.army) { a.placed = false; a.path = undefined; } this.sel = []; this.preview(); break;
-      case 'plan': this.plan = (this.plan + 1 + Math.floor(Math.random() * (PLANS.length - 1))) % PLANS.length; this.makeEnemy(); this.preview(); break;
+      case 'plan': this.planAuto = false; this.plan = (this.plan + 1 + Math.floor(Math.random() * (PLANS.length - 1))) % PLANS.length; this.makeEnemy(); this.preview(); break;
       case 'selall': this.sel = this.army.map((a, i) => a.placed ? i : -1).filter(i => i >= 0); break;
       case 'desel': this.sel = []; break;
       case 'forward': // every squad without an arrow gets a straight one toward the enemy
@@ -299,7 +311,7 @@ export class BattleLab {
       this.panel.innerHTML = `${selRow || `<div class="labsel"><p class="labhint">Tap squads to select them (as many as you like), then drag the <b>➜</b> to draw their path. Drag a selected squad to move the group. <b>No arrow = hold ground.</b></p><button class="mini" data-lab="selall">Select all</button></div>`}
         ${tray ? `<div class="labtray">${tray}</div>` : ''}
         <div class="labtools"><button class="mini" data-lab="page">⚙ Armies</button><button class="mini" data-lab="auto">Auto</button><button class="mini" data-lab="clear">Clear</button><button class="mini" data-lab="forward">All ➜</button></div>
-        <div class="labplan"><span>Enemy plan: <b style="color:${TEAM[1]}">${PLANS[this.plan].name}</b> <small>${PLANS[this.plan].desc}</small></span><button class="mini" data-lab="plan">🎲 New plan</button></div>
+        <div class="labplan"><span>Enemy plan: <b style="color:${TEAM[1]}">${PLANS[this.plan].name}</b> <small>${PLANS[this.plan].desc}${this.planAuto ? ' (its pick for these armies)' : ''}</small></span><button class="mini" data-lab="plan">🎲 New plan</button></div>
         <div class="labbtns"><button class="btn" data-lab="fight" ${placed ? '' : 'disabled'}>▶ Fight</button><button class="btn ghost" data-lab="batch">Run 50 battles</button></div>
         ${this.batchHtml()}`;
     } else if (this.view === 'setup') {
@@ -899,7 +911,7 @@ const PLANS: Plan[] = [
     }),
   },
   {
-    name: 'Defensive', desc: 'infantry and archers hold, cavalry counter-attack', make: qs => qs.map(q => ({ ...q, order: q.unit === 'cavalry' ? 'free' : 'hold' })),
+    name: 'Defensive', desc: 'holds its ground until the fight starts, cavalry counter-attack', make: qs => qs.map(q => q.unit === 'cavalry' ? { ...q, order: 'free' } : { ...q, order: 'hold', guard: true }),
   },
   {
     name: 'Cavalry hook', desc: 'all cavalry ride round one flank, infantry advance', make: (qs, W, H, rnd) => {
@@ -910,7 +922,7 @@ const PLANS: Plan[] = [
   {
     name: 'Oblique', desc: 'one wing attacks, the other holds back', make: (qs, W, H, rnd) => {
       const top = rnd() < 0.5;
-      return qs.map(q => ({ ...q, order: (q.y! < H / 2) === top || q.unit === 'archers' ? 'free' : 'hold' }));
+      return qs.map(q => (q.y! < H / 2) === top || q.unit === 'archers' ? { ...q, order: 'free' } : { ...q, order: 'hold', guard: true });
     },
   },
 ];
