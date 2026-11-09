@@ -54,7 +54,8 @@ export interface BSquad {
   firstFight: number;         // when the squad first fought (-1 = not yet)
   meleeSince: number;         // when the current melee started (-1 = not in melee)
   withdrawUntil: number; wx: number; wy: number;
-  ammo: number; volley: number; // archers: volleys left, time to next volley
+  ammo: number; volley: number; // archers: arrows left (whole squad); volley unused
+  hold: boolean;              // archers: standing still and shooting (only move again if the enemy gets well out of range)
   hitBy: Record<number, number>; // enemy squad id -> last time they hit us
 }
 export interface Arrow { x: number; y: number; sx: number; sy: number; tx: number; ty: number; t: number; dur: number; target: number; dmg: number; hit: boolean; side: Side; squad: number }
@@ -158,7 +159,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         cx: fx, cy: y, ang: face, mx: fx, my: y, homeY: y, state: 'march', target: -1, retarget: 0, flankSide: 0,
         broken: false, brokenAt: 0, fleeing: false, gone: false, brokeBy: '',
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
-        withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo : 0, volley: rand(b) * 1.5, hitBy: {},
+        withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
       };
       for (let i = 0; i < unitSize(q.unit); i++) {
         const p = slotWorld(sq, i);
@@ -203,6 +204,7 @@ const fromFlank = (defSq: BSquad, def: BSoldier, ax: number, ay: number) =>
 function damageOf(b: BattleState, att: BSoldier, attSq: BSquad, def: BSoldier, defSq: BSquad, melee: boolean): number {
   const B = CONFIG.battle, A = stats(att.unit), D = stats(def.unit);
   let dmg = att.unit === 'archers' && melee ? A.meleeDamage ?? A.damage : A.damage;
+  dmg *= B.deadliness;
   dmg *= (1 + (b.bonus[att.side].damage ?? 0)) * (1 - (b.bonus[def.side].armour ?? 0));
   dmg *= 1 + B.rankDamage * attSq.rank;
   if (A.strongVs.includes(def.unit)) dmg *= B.counterBonus;
@@ -337,9 +339,12 @@ export function stepBattle(b: BattleState) {
       // archers: walk up until the enemy is well within range, then stand and shoot volleys
       let nd = Infinity, nx = tq.mx, ny = tq.my;
       for (const e of b.squads) if (e.side !== q.side && active(e)) { const d = Math.hypot(e.mx - q.mx, e.my - q.my); if (d < nd) { nd = d; nx = e.mx; ny = e.my; } }
-      const want = rangeOf(q.side, q.unit) * 0.6;
+      // standing and shooting until the enemy is well out of range, then walk up to a comfortable distance
+      const range = rangeOf(q.side, q.unit), want = range * 0.6;
       const a = Math.atan2(ny - q.my, nx - q.mx);
-      if (nd > want) { gx = nx - Math.cos(a) * want; gy = ny - Math.sin(a) * want; }
+      if (q.hold && nd > range * 0.9) q.hold = false;
+      if (!q.hold && nd <= want + 0.2) q.hold = true;
+      if (!q.hold) { gx = nx - Math.cos(a) * want; gy = ny - Math.sin(a) * want; }
       q.state = nd < 1.5 ? 'melee' : 'march';
       faceTo = a; turnRate = 1.5;
     } else if (q.state === 'withdraw') {
@@ -437,16 +442,6 @@ export function stepBattle(b: BattleState) {
     }
     q.cx = Math.max(0.4, Math.min(b.W - 0.4, q.cx)); q.cy = Math.max(0.4, Math.min(b.H - 0.4, q.cy));
 
-    // archers loose a volley together
-    if (shooter(q)) {
-      q.volley -= DT;
-      if (q.volley <= 0) {
-        q.volley = U.cooldown * B.tempo * (0.9 + rand(b) * 0.2);
-        let any = false;
-        for (const id of q.members) { const s = so(id); if (alive(s) && s.target > 0) { s.cd = rand(b) * 0.45; any = true; } }
-        if (any) q.ammo--;
-      }
-    }
   }
 
   // still-fighting members' order in each squad (front rank fills first, so the back steps up into gaps)
@@ -544,7 +539,6 @@ export function stepBattle(b: BattleState) {
       const meleeNow = !shoots || d < 1.1;
       const reach = meleeNow ? meleeReach : rangeOf(s.side, s.unit);
       const room = locked || hunt > leash ? hunt : leash; // how far from our place we may be while fighting this one
-      if (meleeNow && s.cd > U.cooldown * B.tempo) s.cd = U.cooldown * B.tempo * 0.5; // an archer waiting for the volley draws a sword
       if (d <= reach) {
         s.dir = Math.atan2(t.y - s.y, t.x - s.x);
         if (meleeNow) foesNow[t.id]++;
@@ -572,16 +566,19 @@ export function stepBattle(b: BattleState) {
             const hitP = B.hitChance * s.skill * (1 + SO.gangedHit * Math.max(0, t.foes - 1));
             // the defender may block a blow coming from in front of them (harder with several attackers)
             const facing = Math.cos(angDiff(t.dir, Math.atan2(s.y - t.y, s.x - t.x))) > 0.3;
-            const blockP = facing && t.stagger <= 0 && !brace && !charged ? stats(t.unit).block * t.skill / (1 + SO.ganged * Math.max(0, t.foes - 1)) : 0;
+            // parrying: only blows from the front, not while off balance or mid-swing; much harder if they're busy fighting someone else
+            const busy = t.target !== s.id ? SO.busyParry : 1;
+            const blockP = facing && t.stagger <= 0 && t.lunge <= 0 && !brace && !charged ? stats(t.unit).block * t.skill * busy / (1 + SO.ganged * Math.max(0, t.foes - 1)) : 0;
             if (rand(b) < hitP && rand(b) >= blockP) hits.push({ t, dmg, by: s, charge: charged, flank: fromFlank(sq(t.squad), t, s.x, s.y), kb, heavy });
             else if (rand(b) < 0.35) b.fx.push({ x: (s.x + t.x) / 2, y: (s.y + t.y) / 2 - 0.2, t: 0, kind: 'clash' }); // missed or blocked: sparks
-            s.cd = U.cooldown * B.tempo * (0.8 + rand(b) * 0.4) / (0.9 + s.skill * 0.1);
+            s.cd = (U.meleeCooldown ?? U.cooldown) * B.tempo * (0.8 + rand(b) * 0.4) / (0.9 + s.skill * 0.1);
           } else {
             const dur = d / B.arrowSpeed, spread = 0.15 + d * 0.04;
             const hit = rand(b) < B.arrowHitChance * (0.85 + s.skill * 0.15);
             const tx = hit ? t.x : t.x + (rand(b) - 0.5) * spread * 4, ty = hit ? t.y : t.y + (rand(b) - 0.5) * spread * 4;
             b.arrows.push({ x: s.x, y: s.y, sx: s.x, sy: s.y - 0.2, tx, ty, t: 0, dur, target: t.id, dmg, hit, side: s.side, squad: q.id });
-            s.cd = 99; // wait for the next volley
+            s.cd = U.cooldown * B.tempo * (0.85 + rand(b) * 0.3); // nock the next arrow (each archer at their own pace)
+            q.ammo--;
           }
           q.lastFight = b.t;
           if (q.firstFight < 0) q.firstFight = b.t;
@@ -590,13 +587,10 @@ export function stepBattle(b: BattleState) {
         s.moved = 0;
         if (!meleeNow) goTo(slot.x, slot.y, U.speed * 0.6); // archers keep their place while shooting
         else {
-          // fighting: close to a comfortable distance, but don't drift too far from our place
-          const want = reach * 0.8;
-          let tx = s.x, ty = s.y;
-          if (d > want + 0.08) { const a = Math.atan2(t.y - s.y, t.x - s.x); tx = t.x - Math.cos(a) * want; ty = t.y - Math.sin(a) * want; }
-          const ox = tx - slot.x, oy = ty - slot.y, off = Math.hypot(ox, oy);
-          if (off > room) { tx = slot.x + ox / off * room; ty = slot.y + oy / off * room; }
-          goTo(tx, ty, U.speed * 0.5);
+          // fighting: plant your feet. Only step if you're far too close, or have drifted well away from your place
+          const ox = s.x - slot.x, oy = s.y - slot.y, off = Math.hypot(ox, oy);
+          if (off > room + 0.2) goTo(slot.x + ox / off * room, slot.y + oy / off * room, U.speed * 0.5);
+          else if (d < 0.28) { const a = Math.atan2(s.y - t.y, s.x - t.x); goTo(s.x + Math.cos(a) * 0.1, s.y + Math.sin(a) * 0.1, U.speed * 0.3, 0.01); }
         }
       } else if (meleeNow) {
         // step toward the enemy, but only as far as our place in the line allows
@@ -625,7 +619,8 @@ export function stepBattle(b: BattleState) {
     t.hp -= h.dmg; t.flash = 0.12;
     tq.lastHit = b.t;
     if (h.by.side !== t.side) tq.hitBy[h.by.squad] = b.t;
-    if (h.by.side !== t.side) loseMorale(tq, arrow ? M.arrowHitLoss : h.flank ? M.flankHitLoss : M.frontHitLoss);
+    // courage lost per hit grows with how hard the hit was (a scratch is not a gash)
+    if (h.by.side !== t.side) loseMorale(tq, (arrow ? M.arrowHitLoss : h.flank ? M.flankHitLoss : M.frontHitLoss) * h.dmg / M.hitRef);
     if (!arrow && h.by.id) { t.hurtBy = h.by.id; t.hurtAt = b.t; }
     if (h.heavy) t.stagger = Math.max(t.stagger, SO.heavyStagger); // a heavy blow knocks them off balance
     if (h.charge) {
@@ -654,7 +649,7 @@ export function stepBattle(b: BattleState) {
       const foe = e.side !== s.side;
       if (foe && d < 0.75) close = true;
       const min = (e.unit === 'cavalry' || s.unit === 'cavalry' ? 0.4 : 0.26) + (foe ? 0.12 : 0);
-      if (d > 0.001 && d < min) { const k = (min - d) * (foe ? 0.45 : 0.3); px += (dx / d) * k; py += (dy / d) * k; }
+      if (d > 0.001 && d < min - 0.02) { const k = (min - 0.02 - d) * (foe ? 0.4 : 0.2); px += (dx / d) * k; py += (dy / d) * k; } // (a little give, so nobody jitters)
     });
     s.inMelee = close;
     if (px || py) push.push([s, px, py]);

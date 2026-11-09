@@ -240,12 +240,14 @@ export const CONFIG = {
     arrowSpeed: 9,              // tiles per second
     counterBonus: 1.5,
     flankBonus: 1.4,            // melee damage multiplier when hitting a squad from the side or behind
-    tempo: 2.2,                 // slows every attack (bigger = longer battles); 1 = the old pace
+    deadliness: 0.8,            // multiplies all damage (smaller = longer battles, same amount of fighting)
+    tempo: 1,                   // multiplies every attack's wait (bigger = slower swings). Battles are long because most frontal blows get parried, not because people stand around
     pursuitSeconds: 6,          // after one side is beaten, the winners chase the fleeing for this long
     // Morale (courage, 0-100). A squad breaks when its HP drops to breakAt OR its morale hits 0.
     morale: {
       start: 100,
       deathLoss: 70,            // losing the whole squad costs this much (shared per soldier)
+      hitRef: 25,               // hit losses below are for a hit of this much damage (smaller hits cost less courage)
       frontHitLoss: 1.2,        // each hit taken from the front
       flankHitLoss: 4,          // each hit taken from the side or behind (being flanked is terrifying)
       arrowHitLoss: 1,          // each arrow that hits
@@ -284,32 +286,34 @@ export const CONFIG = {
       ganged: 0.3,              // each extra enemy on a soldier: they hit this much softer and block worse
       gangedHit: 0.1,           // ...and are this much easier to hit
       react: 0.5,               // chance a soldier turns on someone hitting them from the side
-      panicPerSec: 0.05,        // a badly hurt soldier in a shaken squad may run on their own (chance per second, less for brave ones)
+      busyParry: 0.35,          // parrying a blow from someone you're NOT fighting (they're busy with someone else) is this much harder
+      panicPerSec: 0.03,        // a badly hurt soldier in a shaken squad may run on their own (chance per second, less for brave ones)
       panicHp: 0.35,            // "badly hurt" = below this share of HP
     },
     charge: {
       distance: 5,              // squads charge when this close to their target
-      infantryBonus: 1.25,      // first hit of an infantry charge
+      infantryBonus: 3,         // first hit of an infantry charge
       knockback: 0.3,           // tiles an infantry charge shoves the enemy
       cavKnockback: 0.6,
       stagger: 0.6,             // seconds a charged soldier is knocked off balance
-      braceBonus: 1.5,          // spearmen get a free strike at this bonus on a charging horse
+      braceBonus: 5,            // spearmen get a free strike at this bonus on a charging horse
       cycleAfter: 5,            // cavalry stuck in melee this long pull out and charge again...
       cycleMinHp: 0.4,          // ...if they still have this much HP
       withdrawDist: 5,
     },
-    archerAmmo: 15,             // volleys per archer squad, then they draw swords and fight
+    archerAmmo: 30,             // arrows per archer, then they draw swords and fight
     friendlyFire: 0.5,          // chance a missed arrow hits whoever is standing where it lands
     rankDamage: 0.1,            // +10% damage per rank above Recruit
     rankDefense: 0.03,          // +3% damage reduction per rank above Recruit
     // damage per hit before defense; ~3-5 hits to kill a 100 HP soldier
     units: {
-    // block = chance to block a blow from the front (shields help)
-      swordsmen: { damage: 30, cooldown: 7.5, reach: 0.55, speed: 0.7, defense: 0.18, block: 0.22, strongVs: ['spearmen'] },
-      spearmen: { damage: 27, cooldown: 7.0, reach: 0.85, speed: 0.65, defense: 0.15, block: 0.12, strongVs: ['cavalry'] },
-      archers: { damage: 26, cooldown: 7.0, reach: 0.5, speed: 0.7, defense: 0.05, block: 0.04, range: 7, meleeDamage: 12, strongVs: ['spearmen'] },
-      cavalry: { damage: 32, cooldown: 7.0, reach: 0.65, speed: 1.7, defense: 0.12, block: 0.1, chargeBonus: 1.8, strongVs: ['archers'] },
-    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; block: number; range?: number; meleeDamage?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
+    // cooldown = seconds between swings (archers: between arrows). block = chance to parry/block a blow from the front.
+    // Soldiers swing often but most frontal blows are parried: kills come from flanks, ganging up and catching people off balance.
+      swordsmen: { damage: 7.5, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, block: 0.55, strongVs: ['spearmen'] },
+      spearmen: { damage: 6.5, cooldown: 2.8, reach: 0.85, speed: 0.65, defense: 0.15, block: 0.42, strongVs: ['cavalry'] },
+      archers: { damage: 14, cooldown: 4.0, meleeCooldown: 2.8, reach: 0.5, speed: 0.7, defense: 0.05, block: 0.15, range: 7, meleeDamage: 4, strongVs: ['spearmen'] },
+      cavalry: { damage: 8, cooldown: 2.8, reach: 0.65, speed: 1.7, defense: 0.12, block: 0.3, chargeBonus: 4.5, strongVs: ['archers'] },
+    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; block: number; range?: number; meleeDamage?: number; meleeCooldown?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
   },
 
   // Tech tree: researched at the Town Hall with gold, one at a time, takes a few days.
