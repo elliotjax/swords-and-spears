@@ -98,6 +98,7 @@ export class BattleLab {
   open() {
     this.isOpen = true;
     this.root.classList.remove('hidden');
+    document.body.classList.add('labopen');
     this.view = 'setup'; this.page = 'deploy';
     if (!this.army.length) this.rebuildArmy(); else this.preview();
     this.renderPanel();
@@ -115,6 +116,7 @@ export class BattleLab {
     this.isOpen = false;
     cancelAnimationFrame(this.raf);
     this.root.classList.add('hidden');
+    document.body.classList.remove('labopen');
     this.onClose();
   }
 

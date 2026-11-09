@@ -23,6 +23,6 @@ export async function checkForUpdate(onBeforeReload: () => void) {
       // a fresh address so the phone can't reuse its saved copy of the page
       location.replace(location.pathname + '?v=' + build);
     };
-    document.getElementById('ui')!.appendChild(btn);
+    document.body.appendChild(btn); // on top of everything, so it also shows in the Battle Lab
   } catch { /* offline: try again later */ }
 }

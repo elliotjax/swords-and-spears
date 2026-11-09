@@ -556,7 +556,7 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Testing sidebar (built):** a small vertical bar on the right edge with **10× speed**, **+10 villagers**, **+100 gold**, **+Goods** (100 wood, 50 stone, 10 furniture into the stockpiles). Also **Town** (one tap builds a free starter town: Town Hall if needed, 2 Manors, Longhouse, 2 Houses, 4 Farms, 2 stocked Granaries, 2 Lumber Camps, Market, Tavern, Chapel, Barracks, Training Grounds, ~85 villagers with every job filled and spare idle ones) and **Unlock** (no progression locks). Turn it off with `showTestTools: false` in `src/config.ts` (the fast speed is `testSpeed`).
 
 ### Getting the newest version on the phone
-The game checks for a newer version whenever it's opened (and every 2 minutes). If there is one, a green **"New version: tap to update"** button appears; tapping it saves the game and loads the new version. The Menu (☰) shows the build number.
+The game checks for a newer version whenever it's opened (and every 2 minutes). If there is one, a green **"New version: tap to update"** button appears; tapping it saves the game and loads the new version. The Menu (☰) shows the build number. The button also shows inside the Battle Lab (just under its top bar), so you don't have to leave it.
 
 ### How to go back to an earlier version
 Every step is saved as a commit. Ask Claude: "go back to before <step>" and it will undo it. You can also see all checkpoints on GitHub under **Commits**.

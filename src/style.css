@@ -130,9 +130,10 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 #toast.show { opacity: 1; }
 .hidden { display: none !important; }
 #dragcard { position: fixed; pointer-events: none; width: 64px; height: 50px; opacity: .9; transform: translate(-50%, -50%); z-index: 5; }
-#updateBtn { position: absolute; left: 50%; transform: translateX(-50%); top: 58%;
+#updateBtn { position: fixed; left: 50%; transform: translateX(-50%); top: 58%;
   padding: 12px 18px; font-weight: 800; font-size: 15px; color: #fff; background: var(--good);
-  border: 0; white-space: nowrap; z-index: 4; }
+  border: 0; white-space: nowrap; z-index: 30; }
+body.labopen #updateBtn { top: 84px; } /* in the Battle Lab: just under its top bar */
 
 /* testing sidebar (right edge) */
 #testbar { position: absolute; right: calc(8px + var(--sr)); top: 50%; transform: translateY(-50%);
