@@ -249,3 +249,6 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 .labsel span { color: var(--muted); font-weight: 700; flex: 1; min-width: 90px; }
 #lab #labPanel { transition: opacity .15s; }
 #lab.dragging #labPanel { opacity: .2; pointer-events: none; }
+.labsel img + img { margin-left: -8px; }
+.labsel .mini.desel { min-width: 40px; color: var(--bad); font-size: 15px; }
+.labsel .labhint { flex: 1; margin: 0; }
