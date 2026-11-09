@@ -253,3 +253,6 @@ body.labopen #updateBtn { top: 84px; } /* in the Battle Lab: just under its top 
 .labsel img + img { margin-left: -8px; }
 .labsel .mini.desel { min-width: 40px; color: var(--bad); font-size: 15px; }
 .labsel .labhint { flex: 1; margin: 0; }
+.labplan { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12.5px; }
+.labplan span { flex: 1; min-width: 0; }
+.labplan small { color: var(--muted); font-weight: 700; display: block; font-size: 11px; }

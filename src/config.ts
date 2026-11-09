@@ -246,6 +246,9 @@ export const CONFIG = {
       commitAfter: 4,           // a squad on an arrow that's been in melee this long stays to finish that enemy squad...
       maxChase: 4,              // ...but won't chase it further than this from where it left the arrow
       pointReach: 0.8,          // how close counts as reaching a point on the arrow
+      engageDist: 6.5,          // free squads march with the army (keeping its formation) until an enemy squad is this close...
+      cavEngage: 9,             // ...cavalry escort the wings until an enemy is this close, or the infantry are fighting
+      formUp: 2.5,              // in the last stretch before charging (this many tiles before charge distance) infantry square up and close ranks
     },
     tempo: 1,                   // multiplies every attack's wait (bigger = slower swings). Battles are long because most frontal blows get parried, not because people stand around
     pursuitSeconds: 6,          // after one side is beaten, the winners chase the fleeing for this long

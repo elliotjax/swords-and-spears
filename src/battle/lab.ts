@@ -69,6 +69,8 @@ export class BattleLab {
     moved: boolean;
   } | null = null;
   private placedIdx: number[] = [];       // army index of each squad in the current battle setup
+  private plan = 0;                        // the enemy's battle plan (index into PLANS)
+  private enemy: SquadSetup[] = [];       // the enemy's squads: where they stand and their orders (left-side coordinates)
 
   constructor(private onClose: () => void, private getState?: () => GameState) {
     this.counts = [{ swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }];
@@ -126,7 +128,14 @@ export class BattleLab {
     this.placedIdx = [];
     const mine: SquadSetup[] = [];
     this.army.forEach((a, i) => { if (a.placed) { this.placedIdx.push(i); mine.push({ unit: a.unit, rank: a.rank, x: a.x, y: a.y, path: a.path }); } });
-    return { sides: [mine, this.side(1)], bonus: [this.colonyBonus(), {}], orders: [true, false], field: this.field };
+    return { sides: [mine, this.enemy], bonus: [this.colonyBonus(), {}], orders: [true, true], field: this.field };
+  }
+
+  private enemyAuto: SquadSetup[] = [];
+  /** Lay out the enemy according to its plan (see PLANS). */
+  private makeEnemy() {
+    const F = this.field;
+    this.enemy = PLANS[this.plan].make(this.enemyAuto.map(q => ({ ...q })), F.W, F.H, hashRand(this.seed * 7 + this.plan));
   }
 
   /** New armies: everyone starts in the automatic formation, with no arrows (holding). */
@@ -135,6 +144,10 @@ export class BattleLab {
     this.field = { W: auto.W, H: auto.H };
     this.army = this.side(0).map(q => ({ ...q, ax: 0, ay: 0, placed: true }));
     for (const q of auto.squads) if (q.side === 0) { const a = this.army[q.src]; a.ax = a.x = q.cx; a.ay = a.y = q.cy; }
+    // the enemy's automatic spots (in its own left-side coordinates), then its plan
+    this.enemyAuto = this.side(1).map(q => ({ ...q, x: 0, y: 0 }));
+    for (const q of auto.squads) if (q.side === 1) { const e = this.enemyAuto[q.src]; e.x = auto.W - q.cx; e.y = q.cy; }
+    this.makeEnemy();
     this.sel = [];
     this.ground = null;
     this.preview();
@@ -223,6 +236,7 @@ export class BattleLab {
       // deployment
       case 'auto': for (const a of this.army) { a.x = a.ax; a.y = a.ay; a.placed = true; a.path = undefined; } this.sel = []; this.preview(); break;
       case 'clear': for (const a of this.army) { a.placed = false; a.path = undefined; } this.sel = []; this.preview(); break;
+      case 'plan': this.plan = (this.plan + 1 + Math.floor(Math.random() * (PLANS.length - 1))) % PLANS.length; this.makeEnemy(); this.preview(); break;
       case 'selall': this.sel = this.army.map((a, i) => a.placed ? i : -1).filter(i => i >= 0); break;
       case 'desel': this.sel = []; break;
       case 'forward': // every squad without an arrow gets a straight one toward the enemy
@@ -285,6 +299,7 @@ export class BattleLab {
       this.panel.innerHTML = `${selRow || `<div class="labsel"><p class="labhint">Tap squads to select them (as many as you like), then drag the <b>➜</b> to draw their path. Drag a selected squad to move the group. <b>No arrow = hold ground.</b></p><button class="mini" data-lab="selall">Select all</button></div>`}
         ${tray ? `<div class="labtray">${tray}</div>` : ''}
         <div class="labtools"><button class="mini" data-lab="page">⚙ Armies</button><button class="mini" data-lab="auto">Auto</button><button class="mini" data-lab="clear">Clear</button><button class="mini" data-lab="forward">All ➜</button></div>
+        <div class="labplan"><span>Enemy plan: <b style="color:${TEAM[1]}">${PLANS[this.plan].name}</b> <small>${PLANS[this.plan].desc}</small></span><button class="mini" data-lab="plan">🎲 New plan</button></div>
         <div class="labbtns"><button class="btn" data-lab="fight" ${placed ? '' : 'disabled'}>▶ Fight</button><button class="btn ghost" data-lab="batch">Run 50 battles</button></div>
         ${this.batchHtml()}`;
     } else if (this.view === 'setup') {
@@ -400,7 +415,8 @@ export class BattleLab {
     }).sort((a, z) => a.ay - z.ay);
     for (const { s, ax, ay } of live) {
       const flip = (this.rot ? Math.sin(s.dir) : Math.cos(s.dir)) < -0.2; // face the way they're going, as shown
-      drawSoldier(drawP, s, ax, ay, s.x !== s.px || s.y !== s.py, flip);
+      const st = b.squads[s.squad - 1].state;
+      drawSoldier(drawP, s, ax, ay, s.x !== s.px || s.y !== s.py, flip, s.unit !== 'cavalry' && s.unit !== 'archers' && (st === 'formup' || st === 'charge'));
     }
     // arrows in flight (drawn along their main direction as shown)
     for (const a of b.arrows) {
@@ -456,7 +472,7 @@ export class BattleLab {
       c.fillStyle = q.broken ? '#f2c48a' : TEAM_LIGHT[q.side];
       c.fillRect(bx, by + size - fh, size, fh);                                     // HP fill
       c.strokeStyle = edge; c.lineWidth = 2 * d; c.strokeRect(bx + d, by + d, size - 2 * d, size - 2 * d);
-      drawGlyph(c, q.unit, bx + size / 2, by + size / 2, Math.max(1, Math.floor(size / 9)));
+      drawGlyph(c, q.unit, bx + size / 2, by + size / 2, Math.max(1, Math.floor(size / 9)), TEAM_DARK[q.side]); // the weapon symbol in team colour: always tells friend from foe
       if (shaky && words) {
         c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = '#ffe680';
         c.strokeText('Wavering', bx + size / 2, by + size + 2 * d); c.fillText('Wavering', bx + size / 2, by + size + 2 * d);
@@ -842,12 +858,62 @@ const GLYPHS: Record<UnitKind, string[]> = {
   archers: ['xx.....', 'x.x....', 'x..x.x.', 'xxxxxxx', 'x..x.x.', 'x.x....', 'xx.....'],
   cavalry: ['.....x.', '....xxx', 'xxxxxx.', 'xxxxx..', 'x...x..', 'x...x..', '.......'],
 };
-function drawGlyph(c: CanvasRenderingContext2D, u: UnitKind, cx: number, cy: number, k: number) {
+function drawGlyph(c: CanvasRenderingContext2D, u: UnitKind, cx: number, cy: number, k: number, col = '#262b38') {
   const g = GLYPHS[u];
-  c.fillStyle = '#262b38';
+  c.fillStyle = col;
   const x0 = Math.round(cx - 3.5 * k), y0 = Math.round(cy - 3.5 * k);
   for (let r = 0; r < 7; r++) for (let i = 0; i < 7; i++) if (g[r][i] === 'x') c.fillRect(x0 + i * k, y0 + r * k, k, k);
 }
+
+/** A little repeatable random number source (same plan + seed = same layout). */
+function hashRand(seed: number) { let t = seed | 0; return () => { t = (t + 0x6d2b79f5) | 0; let r = Math.imul(t ^ (t >>> 15), t | 1); r ^= r + Math.imul(r ^ (r >>> 7), r | 61); return ((r ^ (r >>> 14)) >>> 0) / 4294967296; }; }
+
+/**
+ * Enemy battle plans. Each gets the enemy's squads in their automatic spots (x, y, in the enemy's own
+ * left-side coordinates: its edge at x = 0, you at x = W) and sets spots and orders:
+ * free = march with the army and pick their own targets near the enemy; hold = stand; path = follow an arrow, then free.
+ */
+type Plan = { name: string; desc: string; make: (qs: SquadSetup[], W: number, H: number, rnd: () => number) => SquadSetup[] };
+const isInf = (q: SquadSetup) => q.unit === 'swordsmen' || q.unit === 'spearmen';
+const hook = (W: number, H: number, top: boolean): Pt[] => {
+  const y = top ? 1.2 : H - 1.2;
+  return [{ x: W * 0.42, y }, { x: W * 0.72, y }, { x: W * 0.86, y: top ? H * 0.32 : H * 0.68 }];
+};
+const PLANS: Plan[] = [
+  { name: 'Line', desc: 'marches forward as one line', make: qs => qs.map(q => ({ ...q, order: 'free' })) },
+  {
+    name: 'Wide line', desc: 'one long front line to overlap yours', make: (qs, W, H) => {
+      const inf = qs.filter(isInf), gap = 0.34 * 2.2 * 2 + 0.6, per = Math.max(1, Math.floor((H - 3) / gap));
+      const front = Math.max(...qs.map(q => q.x!));
+      inf.forEach((q, i) => { const row = Math.floor(i / per), n = Math.min(per, inf.length - row * per), k = i % per; q.x = front - row * 1.4; q.y = H / 2 + (k - (n - 1) / 2) * gap; });
+      const rows = Math.ceil(inf.length / per);
+      qs.filter(q => q.unit === 'archers').forEach((q, i, a) => { const k = i % per, n = Math.min(per, a.length - Math.floor(i / per) * per); q.x = Math.max(0.9, front - (rows + Math.floor(i / per)) * 1.4); q.y = H / 2 + (k - (n - 1) / 2) * gap; });
+      return qs.map(q => ({ ...q, order: 'free' }));
+    },
+  },
+  {
+    name: 'Crescent', desc: 'wings forward, cavalry wrap round both flanks', make: (qs, W, H) => qs.map((q, i) => {
+      if (q.unit === 'cavalry') return { ...q, order: 'path', path: hook(W, H, q.y! < H / 2) };
+      const wing = Math.abs(q.y! - H / 2) / (H / 2);
+      return { ...q, x: Math.min(W / 2 - 0.5, q.x! + wing * 2.2), order: 'free' };
+    }),
+  },
+  {
+    name: 'Defensive', desc: 'infantry and archers hold, cavalry counter-attack', make: qs => qs.map(q => ({ ...q, order: q.unit === 'cavalry' ? 'free' : 'hold' })),
+  },
+  {
+    name: 'Cavalry hook', desc: 'all cavalry ride round one flank, infantry advance', make: (qs, W, H, rnd) => {
+      const top = rnd() < 0.5;
+      return qs.map(q => q.unit === 'cavalry' ? { ...q, order: 'path', path: hook(W, H, top) } : { ...q, order: 'free' });
+    },
+  },
+  {
+    name: 'Oblique', desc: 'one wing attacks, the other holds back', make: (qs, W, H, rnd) => {
+      const top = rnd() < 0.5;
+      return qs.map(q => ({ ...q, order: (q.y! < H / 2) === top || q.unit === 'archers' ? 'free' : 'hold' }));
+    },
+  },
+];
 
 const SHORT: Record<UnitKind, string> = { swordsmen: 'Swords', spearmen: 'Spears', archers: 'Archers', cavalry: 'Horse' };
 const MAX_SQUADS = 50; // per unit type, per side
@@ -895,7 +961,8 @@ function drawCorpse(P: (x: number, y: number, c: string) => void, s: BSoldier, a
 }
 
 /** One soldier in team colours (red = you, blue = enemy). Flashes white when hit. */
-function drawSoldier(P: (x: number, y: number, c: string) => void, s: BSoldier, ax: number, ay: number, walking: boolean, flip: boolean) {
+/** braced: forming up / charging, weapons raised. */
+function drawSoldier(P: (x: number, y: number, c: string) => void, s: BSoldier, ax: number, ay: number, walking: boolean, flip: boolean, braced = false) {
   const sp = SPRITES[s.unit];
   const h = sp.length, w = sp[0].length;
   const frame = walking ? Math.floor(s.step / 2) % 2 : -1;
@@ -909,7 +976,8 @@ function drawSoldier(P: (x: number, y: number, c: string) => void, s: BSoldier, 
       if (ch === '.') continue;
       let col = ch === 's' ? PX.skin[0] : ch === 'R' ? TEAM[s.side] : SP_COL[ch];
       if (s.flash > 0) col = '#ffffff';
-      P(ax + x0 + i, ay + y0 + r, col);
+      const up = braced && (ch === 'w' || ch === 'p' || ch === '|') ? 1 : 0; // weapon raised
+      P(ax + x0 + i, ay + y0 + r - up, col);
     }
   }
 }

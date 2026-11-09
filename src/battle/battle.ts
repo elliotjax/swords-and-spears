@@ -19,7 +19,7 @@ export interface Pt { x: number; y: number }
  * One squad. x/y (optional) = where the player deployed it, and path = the arrow they drew,
  * both in "left side" field coordinates (mirrored automatically if the side starts on the right).
  */
-export interface SquadSetup { unit: UnitKind; rank: number; x?: number; y?: number; path?: Pt[] }
+export interface SquadSetup { unit: UnitKind; rank: number; x?: number; y?: number; path?: Pt[]; order?: Order }
 /** Bonuses from techs for one side (0.1 = +10%). */
 export type SideBonus = Partial<Record<'damage' | 'armour' | 'range' | 'charge' | 'morale', number>>;
 /** orders[side] = true: the player commanded this side (squads with no arrow hold their ground). */
@@ -47,7 +47,7 @@ export interface BSoldier {
   routing: boolean;           // lost their nerve and running on their own
   inMelee: boolean;           // an enemy is right next to them (last step)
 }
-export type SquadState = 'march' | 'charge' | 'melee' | 'withdraw';
+export type SquadState = 'march' | 'formup' | 'charge' | 'melee' | 'withdraw'; // formup = squaring up to the enemy just before the charge
 export interface BSquad {
   id: number; side: Side; unit: UnitKind; rank: number; num: number;
   src: number;                // index of this squad in setup.sides[side]
@@ -72,6 +72,9 @@ export interface BSquad {
   path: Pt[]; pathI: number;  // the drawn arrow, and the next point on it
   commit: number;             // on a path but caught in a real fight: finish this enemy squad first (-1 = none)
   commitX: number; commitY: number; // where we left the path (don't chase too far from it)
+  inLine: boolean;            // still marching as part of the army's formation (free squads, until the enemy is close)
+  lineDepth: number;          // how far behind the army's front this squad stands (keeps the formation's shape on the march)
+  fwd: 1 | -1;                // which way is "forward" for this side (+x or -x)
   hitBy: Record<number, number>; // enemy squad id -> last time they hit us
 }
 export interface Arrow { x: number; y: number; sx: number; sy: number; tx: number; ty: number; t: number; dur: number; target: number; dmg: number; hit: boolean; side: Side; squad: number }
@@ -178,7 +181,8 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         broken: false, brokenAt: 0, fleeing: false, gone: false, brokeBy: '',
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
         withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
-        order: !ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold',
+        order: q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
+        inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
         path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
       };
       for (let i = 0; i < unitSize(q.unit); i++) {
@@ -197,6 +201,10 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
       b.squads.push(sq);
     };
     for (const p of layouts[side].spots) place(p.q, p.i, p.q.x ?? frontX - p.depth, p.q.y ?? b.H / 2 + p.off);
+    // free squads march as one army: remember each one's place behind the army's front
+    const mine = b.squads.filter(q => q.side === side);
+    const front = Math.max(...mine.map(q => q.cx * q.fwd));
+    for (const q of mine) { q.lineDepth = front - q.cx * q.fwd; q.inLine = q.order === 'free'; }
   }
   return b;
 }
@@ -327,6 +335,14 @@ export function stepBattle(b: BattleState) {
   const marchPace = [Infinity, Infinity];
   for (const q of b.squads) if (active(q) && q.unit !== 'cavalry') marchPace[q.side] = Math.min(marchPace[q.side], stats(q.unit).speed);
 
+  // the army's line: free squads still marching in formation keep pace with the slowest of them (nobody runs ahead)
+  const armyF = [Infinity, Infinity], engaged = [false, false];
+  for (const q of b.squads) {
+    if (!active(q)) continue;
+    if (q.inLine && !shooter(q)) armyF[q.side] = Math.min(armyF[q.side], q.cx * q.fwd + q.lineDepth);
+    if (!q.inLine && q.unit !== 'cavalry' && (q.state === 'melee' || q.state === 'formup' || q.state === 'charge')) engaged[q.side] = true;
+  }
+
   // ---- squads: choose a target and move the formation (order flips each step: fair to both sides) ----
   const order = Math.round(b.t * BATTLE_TPS) % 2 ? b.squads : [...b.squads].reverse();
   for (const q of order) {
@@ -343,7 +359,12 @@ export function stepBattle(b: BattleState) {
       let best: BSquad | null = null, bd = Infinity;
       for (const e of b.squads) {
         if (e.side === q.side || !targetable(e)) continue;
-        let d = Math.hypot(e.mx - q.mx, e.my - q.my);
+        const ex = e.mx - q.mx, ey = e.my - q.my;
+        let d = Math.hypot(ex, ey);
+        if (!isCav && !shooter(q)) { // infantry go for the enemy squad opposite them (keeps the line together)
+          const fx = Math.cos(q.ang), fy = Math.sin(q.ang);
+          d = Math.abs(ex * fx + ey * fy) * 0.45 + Math.abs(-ex * fy + ey * fx) * 1.1;
+        }
         if (U.strongVs.includes(e.unit)) d -= 4;             // go for what we beat
         if (stats(e.unit).strongVs.includes(q.unit)) d += 3; // avoid what beats us
         if (isCav && e.unit === 'archers') d -= 3;
@@ -357,7 +378,10 @@ export function stepBattle(b: BattleState) {
         // if another of our squads is already on them, swing round to whichever flank is closer
         const others = (attackersOf.get(tq.id) ?? 0) - (q.target === tq.id ? 1 : 0);
         q.flankSide = 0;
-        if (others > 0 && !shooter(q)) {
+        // outside the enemy's frontage (our line is longer): wrap round its end
+        const lat = -(q.mx - tq.mx) * Math.sin(tq.ang) + (q.my - tq.my) * Math.cos(tq.ang);
+        const outside = !isCav && Math.abs(lat) > halfFront(tq.unit) + halfFront(q.unit) * 0.6;
+        if ((others > 0 || outside) && !shooter(q)) {
           // the closer of its two flanks (a tie goes to the one nearer the middle of the field)
           const T = tq, off = halfFront(T.unit) + 0.8, pt = (f: number) => ({ x: T.mx + Math.cos(T.ang + f * Math.PI / 2) * off, y: T.my + Math.sin(T.ang + f * Math.PI / 2) * off });
           const p1 = pt(1), p2 = pt(-1);
@@ -410,7 +434,13 @@ export function stepBattle(b: BattleState) {
       let ax = tq.mx, ay = tq.my;
       if (q.flankSide) {
         const side = tq.ang + q.flankSide * Math.PI / 2;
-        ax += Math.cos(side) * (halfFront(tq.unit) + 0.8); ay += Math.sin(side) * (halfFront(tq.unit) + 0.8);
+        const fl = { x: tq.mx + Math.cos(side) * (halfFront(tq.unit) + 0.8), y: tq.my + Math.sin(side) * (halfFront(tq.unit) + 0.8) };
+        ax = fl.x; ay = fl.y;
+        if (isCav && tq.state === 'melee') {
+          // cavalry hit a busy enemy from behind: ride round its flank first if we're still in front of it
+          const inFront = (q.mx - tq.mx) * Math.cos(tq.ang) + (q.my - tq.my) * Math.sin(tq.ang) > 0;
+          if (!inFront || Math.hypot(fl.x - q.mx, fl.y - q.my) < 1.2) { ax = tq.mx - Math.cos(tq.ang) * 1.6; ay = tq.my - Math.sin(tq.ang) * 1.6; }
+        }
       }
       if (isCav && tq.unit === 'archers' && dE > 4) ay += (tq.my > b.H / 2 ? 1 : -1) * 2; // ride round the outer edge
       gx = ax; gy = ay;
@@ -478,14 +508,28 @@ export function stepBattle(b: BattleState) {
         faceTo = Math.atan2(gy - q.cy, gx - q.cx); turnRate = 2.5;
       } else {
         q.meleeSince = -1;
-        const charging = dE < C.distance && !support;
-        q.state = charging ? 'charge' : 'march';
-        speed = support ? U.speed * 0.6 : q.state === 'march' && !isCav ? marchPace[q.side] : U.speed * (charging ? 1.2 : 1);
-        if (!charging && !isCav && !support && dE > 8) {
-          // marching: keep our place in the battle line, drifting only slowly sideways
-          gy = q.cy + (gy - q.cy) * 0.3 + (q.homeY - q.cy) * 0.15;
+        // still marching with the army: keep our place in its formation, face straight ahead, walk at the army's pace
+        if (q.inLine) {
+          let nd = Infinity;
+          for (const e of b.squads) if (e.side !== q.side && active(e)) nd = Math.min(nd, Math.hypot(e.mx - q.mx, e.my - q.my));
+          const release = isCav ? nd < O.cavEngage || engaged[q.side] : nd < O.engageDist;
+          if (release || !isFinite(armyF[q.side])) q.inLine = false;
         }
-        faceTo = Math.hypot(gx - q.cx, gy - q.cy) > 0.6 ? Math.atan2(gy - q.cy, gx - q.cx) : toE;
+        if (q.inLine) {
+          q.state = 'march';
+          gx = (armyF[q.side] + 0.6 - q.lineDepth) * q.fwd; gy = q.homeY;
+          speed = isFinite(marchPace[q.side]) ? marchPace[q.side] : U.speed * 0.7;
+          faceTo = q.fwd > 0 ? 0 : Math.PI; turnRate = 2;
+        } else {
+          // close to the enemy: square up to them (ranks closing, weapons ready), then charge
+          const charging = dE < C.distance && !support;
+          const forming = !charging && !support && !isCav && dE < C.distance + O.formUp;
+          q.state = charging ? 'charge' : forming ? 'formup' : 'march';
+          speed = support ? U.speed * 0.6 : forming ? marchPace[q.side] * 0.7 : q.state === 'march' && !isCav ? marchPace[q.side] : U.speed * (charging ? 1.2 : 1);
+          if (!isFinite(speed)) speed = U.speed;
+          faceTo = forming ? toE : Math.hypot(gx - q.cx, gy - q.cy) > 0.6 ? Math.atan2(gy - q.cy, gx - q.cx) : toE;
+          if (forming) turnRate = 2.6;
+        }
       }
     }
     q.ang += Math.max(-turnRate * DT, Math.min(turnRate * DT, angDiff(q.ang, faceTo)));
@@ -668,7 +712,7 @@ export function stepBattle(b: BattleState) {
       // back ranks with nobody to fight lean forward, ready to fill a gap
       goTo(slot.x + Math.cos(q.ang) * ML.pressForward, slot.y + Math.sin(q.ang) * ML.pressForward, U.speed);
     } else {
-      goTo(slot.x, slot.y, U.speed * (q.state === 'charge' ? 1.35 : 1.25));
+      goTo(slot.x, slot.y, U.speed * (q.state === 'charge' ? 1.35 : q.state === 'formup' ? 1.6 : 1.25)); // forming up: dress the ranks quickly
       if (!isCav && q.state === 'march') s.step = (q.cx * Math.cos(q.ang) + q.cy * Math.sin(q.ang)) * 30; // in step
     }
     if (b.t - q.lastFight > 3) s.charge = true; // a breather restores the charge
