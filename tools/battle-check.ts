@@ -6,7 +6,7 @@
 import { createBattle, stepBattle, squadAlive, type BattleState, type SquadSetup, type Order } from '../src/battle/battle';
 
 type Army = Record<string, number>;
-const mk = (o: Army, order?: Order): SquadSetup[] => Object.entries(o).flatMap(([u, n]) => Array.from({ length: n }, () => ({ unit: u as SquadSetup['unit'], rank: 1, ...(order ? { order } : {}) })));
+const mk = (o: Army, order?: Order, rank = 1): SquadSetup[] => Object.entries(o).flatMap(([u, n]) => Array.from({ length: n }, () => ({ unit: u as SquadSetup['unit'], rank, ...(order ? { order } : {}) })));
 const args = process.argv.slice(2), quick = args.includes('quick');
 
 /** ASCII picture: S/P/A/C = red swords/spears/archers/cavalry, lower case = blue; * fighting, ~ broken, w waiting in reserve. */
@@ -54,7 +54,8 @@ if (args.includes('map')) {
 }
 
 const N = quick ? 6 : 20;
-const tests: [string, Army, Army, number, string][] = [
+const tests: [string, Army, Army, number, string, number?, number?][] = [
+  ['sergeants v recruits', { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, N / 2, 'red', 3, 0],
   ['mirror mixed 2/2/2/2', { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, N * 2, 'even'],
   ['mirror 6 swords', { swordsmen: 6 }, { swordsmen: 6 }, N, 'even'],
   ['spears v cavalry', { spearmen: 2 }, { cavalry: 4 }, N / 2, 'red'],
@@ -68,10 +69,10 @@ const tests: [string, Army, Army, number, string][] = [
 ];
 const pct = (x: number) => (x * 100).toFixed(0).padStart(3) + '%';
 console.log('matchup'.padEnd(26) + 'red blue | left | minutes | idle wait never-fought flank-hits | ms/step | expect');
-for (const [name, a, bb, n, expect] of tests) {
+for (const [name, a, bb, n, expect, ra = 1, rb = 1] of tests) {
   let red = 0, blue = 0, left = 0, time = 0, idle = 0, wait = 0, never = 0, flank = 0, ms = 0;
   for (let i = 0; i < n; i++) {
-    const swap = i % 2 === 1, r = run(mk(a), mk(bb), 100 + i * 17, swap);
+    const swap = i % 2 === 1, r = run(mk(a, undefined, ra), mk(bb, undefined, rb), 100 + i * 17, swap);
     if (r.b.winner === 0) red++; else if (r.b.winner === 1) blue++;
     if (r.b.winner !== -1 && (r.b.winner === 0) !== swap) left++;
     time += r.b.t; idle += r.idle; wait += r.wait; never += r.never; flank += r.flank; ms += r.ms;

@@ -238,7 +238,11 @@ export class BattleLab {
       case 'add': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 1); this.rebuildArmy(); break;
       case 'add5': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 5); this.rebuildArmy(); break;
       case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.rebuildArmy(); break;
-      case 'rank': this.ranks[side] = (this.ranks[side] + 1) % CONFIG.military.ranks.length; for (const a of this.army) a.rank = this.ranks[0]; this.preview(); break;
+      case 'rank': // (the enemy's squads were built earlier: give them the new rank too)
+        this.ranks[side] = (this.ranks[side] + 1) % CONFIG.military.ranks.length;
+        for (const a of this.army) a.rank = this.ranks[0];
+        for (const q of [...this.enemyAuto, ...this.enemy]) q.rank = this.ranks[1];
+        this.preview(); break;
       case 'preset': {
         const p = PRESETS[Number(el.dataset.i)];
         this.counts = [Object.fromEntries(UNITS.map(x => [x, p.a[x] ?? 0])) as Record<UnitKind, number>, Object.fromEntries(UNITS.map(x => [x, p.b[x] ?? 0])) as Record<UnitKind, number>];
