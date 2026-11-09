@@ -223,9 +223,12 @@ export const CONFIG = {
 
   // Battles (left = you, right = enemy). Every number here is a starting guess for tuning.
   battle: {
-    fieldW: 26, fieldH: 15,     // battlefield size in tiles
+    fieldW: 26, fieldH: 15,     // smallest battlefield (tiles); it grows to fit big armies
+    maxRow: 10,                 // squads side by side in one row before another row starts behind it
+    rowGap: 1.4,                // tiles between rows of squads at the start
+    armyGap: 16,                // tiles between the two armies' front lines at the start
     soldierHp: 100,             // every soldier starts with this much HP
-    spacing: 0.4,               // gap between soldiers in a formation (tiles) — tight, like a real army
+    spacing: 0.34,              // gap between soldiers in a formation (tiles): tight, like a real army
     squadGap: 2.3,              // gap between squad centres standing in the same line (tiles)
     aggroRange: 2.2,            // soldiers start fighting enemies this close (tiles)
     breakAt: 0.2,               // a squad breaks at this share of its total HP...
@@ -237,6 +240,7 @@ export const CONFIG = {
     arrowSpeed: 9,              // tiles per second
     counterBonus: 1.5,
     flankBonus: 1.4,            // melee damage multiplier when hitting a squad from the side or behind
+    tempo: 2.2,                 // slows every attack (bigger = longer battles); 1 = the old pace
     pursuitSeconds: 6,          // after one side is beaten, the winners chase the fleeing for this long
     // Morale (courage, 0-100). A squad breaks when its HP drops to breakAt OR its morale hits 0.
     morale: {
@@ -246,7 +250,7 @@ export const CONFIG = {
       flankHitLoss: 4,          // each hit taken from the side or behind (being flanked is terrifying)
       arrowHitLoss: 1,          // each arrow that hits
       chargedLoss: 4,           // each hit from a charge
-      friendBrokeLoss: 15,      // a friendly squad nearby breaks
+      friendBrokeLoss: 15,      // a friendly squad nearby breaks (less when lots of other friends are close: big armies hold steadier)
       enemyBrokeGain: 8,        // an enemy squad nearby breaks
       nearbyRange: 6,           // tiles
       outnumberedPerSec: 2,     // per extra enemy squad fighting us at once
@@ -263,6 +267,25 @@ export const CONFIG = {
       cavLeash: 1.2,
       brokenLeash: 1.0,         // broken squads get ragged
       pressGap: 0.25,           // the stronger squad leans in and pushes the weaker one back
+      frayRate: 0.05,           // formations fray: soldiers may drift this much further from their place per second of melee...
+      frayMax: 0.6,             // ...up to this much
+      huntLeash: 1.3,           // soldiers not in the front rank may go this far from their place to find someone to fight (flanking, wrapping round)
+      pressForward: 0.2,        // back ranks with nobody to fight lean forward to fill gaps
+    },
+    // Every soldier is a little different, and fights a little differently each time.
+    soldier: {
+      skill: [0.8, 1.2] as [number, number], // how good they are: hit chance and blocking
+      pace: [0.92, 1.08] as [number, number], // how quick on their feet
+      glanceChance: 0.2,        // a hit that only glances off...
+      glance: 0.45,             // ...does this share of the damage
+      heavyChance: 0.08,        // a heavy blow...
+      heavy: 1.6,               // ...does this much more, and knocks them off balance:
+      heavyStagger: 0.35,       // seconds
+      ganged: 0.3,              // each extra enemy on a soldier: they hit this much softer and block worse
+      gangedHit: 0.1,           // ...and are this much easier to hit
+      react: 0.5,               // chance a soldier turns on someone hitting them from the side
+      panicPerSec: 0.05,        // a badly hurt soldier in a shaken squad may run on their own (chance per second, less for brave ones)
+      panicHp: 0.35,            // "badly hurt" = below this share of HP
     },
     charge: {
       distance: 5,              // squads charge when this close to their target
@@ -281,11 +304,12 @@ export const CONFIG = {
     rankDefense: 0.03,          // +3% damage reduction per rank above Recruit
     // damage per hit before defense; ~3-5 hits to kill a 100 HP soldier
     units: {
-      swordsmen: { damage: 30, cooldown: 7.5, reach: 0.55, speed: 0.7, defense: 0.18, strongVs: ['spearmen'] },
-      spearmen: { damage: 27, cooldown: 7.0, reach: 0.85, speed: 0.65, defense: 0.15, strongVs: ['cavalry'] },
-      archers: { damage: 26, cooldown: 7.0, reach: 0.5, speed: 0.7, defense: 0.05, range: 7, meleeDamage: 12, strongVs: ['spearmen'] },
-      cavalry: { damage: 32, cooldown: 7.0, reach: 0.65, speed: 1.7, defense: 0.12, chargeBonus: 1.8, strongVs: ['archers'] },
-    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; range?: number; meleeDamage?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
+    // block = chance to block a blow from the front (shields help)
+      swordsmen: { damage: 30, cooldown: 7.5, reach: 0.55, speed: 0.7, defense: 0.18, block: 0.22, strongVs: ['spearmen'] },
+      spearmen: { damage: 27, cooldown: 7.0, reach: 0.85, speed: 0.65, defense: 0.15, block: 0.12, strongVs: ['cavalry'] },
+      archers: { damage: 26, cooldown: 7.0, reach: 0.5, speed: 0.7, defense: 0.05, block: 0.04, range: 7, meleeDamage: 12, strongVs: ['spearmen'] },
+      cavalry: { damage: 32, cooldown: 7.0, reach: 0.65, speed: 1.7, defense: 0.12, block: 0.1, chargeBonus: 1.8, strongVs: ['archers'] },
+    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; block: number; range?: number; meleeDamage?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
   },
 
   // Tech tree: researched at the Town Hall with gold, one at a time, takes a few days.

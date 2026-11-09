@@ -25,6 +25,8 @@ const PRESETS: { name: string; a: Partial<Record<UnitKind, number>>; b: Partial<
   { name: 'Archers vs Spears', a: { archers: 2 }, b: { spearmen: 2 } },
   { name: 'Swords vs Spears', a: { swordsmen: 2 }, b: { spearmen: 2 } },
   { name: 'Big battle', a: { swordsmen: 3, spearmen: 3, archers: 3, cavalry: 4 }, b: { swordsmen: 3, spearmen: 3, archers: 3, cavalry: 4 } },
+  { name: 'Huge (400)', a: { swordsmen: 6, spearmen: 6, archers: 4, cavalry: 8 }, b: { swordsmen: 6, spearmen: 6, archers: 4, cavalry: 8 } },
+  { name: 'Epic (1000)', a: { swordsmen: 15, spearmen: 15, archers: 10, cavalry: 20 }, b: { swordsmen: 15, spearmen: 15, archers: 10, cavalry: 20 } },
 ];
 
 export class BattleLab {
@@ -110,6 +112,7 @@ export class BattleLab {
     }
     return out;
   }
+  private men(side: 0 | 1) { return UNITS.reduce((a, u) => a + this.counts[side][u] * CONFIG.military.units[u].size, 0); }
   private techNames(): string[] {
     const s = this.getState?.();
     if (!s) return [];
@@ -127,8 +130,8 @@ export class BattleLab {
     const d = Math.min(3, window.devicePixelRatio || 1);
     this.canvas.width = Math.round(window.innerWidth * d);
     this.canvas.height = Math.round(window.innerHeight * d);
-    const W = CONFIG.battle.fieldW;
-    this.cam = { x: W / 2, y: CONFIG.battle.fieldH / 2 + 2.2, zoom: 1 };
+    const W = this.b?.W ?? CONFIG.battle.fieldW, H = this.b?.H ?? CONFIG.battle.fieldH;
+    this.cam = { x: W / 2, y: H / 2 + 2.2, zoom: 1 };
     this.autoCam = true;
   }
 
@@ -141,7 +144,8 @@ export class BattleLab {
     switch (act) {
       case 'close': this.close(); return;
       case 'cam': this.autoCam = true; this.renderTop(); return;
-      case 'add': this.counts[side][u] = Math.min(6, this.counts[side][u] + 1); this.preview(); break;
+      case 'add': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 1); this.preview(); break;
+      case 'add5': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 5); this.preview(); break;
       case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.preview(); break;
       case 'rank': this.ranks[side] = (this.ranks[side] + 1) % CONFIG.military.ranks.length; this.preview(); break;
       case 'preset': {
@@ -191,7 +195,8 @@ export class BattleLab {
     if (this.view === 'setup') {
       const col = (side: 0 | 1) => `<div class="labcol"><div class="labside" style="color:${TEAM[side]}">${SIDE_NAME[side]}</div>
         ${UNITS.map(u => `<div class="labrow"><img src="${unitIcon(u)}" alt=""><span>${CONFIG.military.units[u].name}</span>
-          <button data-lab="sub" data-side="${side}" data-unit="${u}">−</button><b>${this.counts[side][u]}</b><button data-lab="add" data-side="${side}" data-unit="${u}">+</button></div>`).join('')}
+          <button data-lab="sub" data-side="${side}" data-unit="${u}">−</button><b>${this.counts[side][u]}</b><button data-lab="add" data-side="${side}" data-unit="${u}">+</button><button class="p5" data-lab="add5" data-side="${side}" data-unit="${u}">+5</button></div>`).join('')}
+        <div class="labmen">${this.men(side)} soldiers</div>
         <button class="mini" data-lab="rank" data-side="${side}">Rank: ${rankName(this.ranks[side])}</button></div>`;
       const bt = this.batch;
       const batch = bt ? (bt.done < bt.total ? `<p>Running ${bt.done}/${bt.total} battles…</p>`
@@ -261,20 +266,24 @@ export class BattleLab {
     c.drawImage(this.ground, ox, oy, b.W * R * p, b.H * R * p);
 
     const px = (x: number) => Math.floor(x * R);
+    // only draw what's on screen (big battles)
+    const vx0 = this.cam.x - vw / 2 / ppt - 1, vx1 = this.cam.x + vw / 2 / ppt + 1, vy0 = this.cam.y - vh / 2 / ppt - 1, vy1 = this.cam.y + vh / 2 / ppt + 1;
+    const onScreen = (x: number, y: number) => x > vx0 && x < vx1 && y > vy0 && y < vy1;
     const drawP = (ax: number, ay: number, col: string) => {
       const sx = Math.round(ox + ax * p), sy = Math.round(oy + ay * p);
       c.fillStyle = col; c.fillRect(sx, sy, Math.round(ox + (ax + 1) * p) - sx, Math.round(oy + (ay + 1) * p) - sy);
     };
     // blood on the ground
     for (const m of b.marks) {
+      if (!onScreen(m.x, m.y)) continue;
       const ax = px(m.x), ay = px(m.y);
       drawP(ax, ay, m.k < 0.5 ? '#6e1f1a' : '#55201b');
       if (m.k > 0.35) drawP(ax + (m.k > 0.7 ? 1 : -1), ay, '#7d2620');
     }
     // fallen soldiers (each lies a little differently, weapon dropped beside them)
-    for (const s of b.soldiers) if (s.dead) drawCorpse(drawP, s, px(s.x), px(s.y));
+    for (const s of b.soldiers) if (s.dead && onScreen(s.x, s.y)) drawCorpse(drawP, s, px(s.x), px(s.y));
     // living soldiers, back to front
-    const live = b.soldiers.filter(s => !s.dead && !s.fled).sort((a, z) => a.y - z.y);
+    const live = b.soldiers.filter(s => !s.dead && !s.fled && onScreen(s.x, s.y)).sort((a, z) => a.y - z.y);
     for (const s of live) {
       let x = s.px + (s.x - s.px) * alpha, y = s.py + (s.y - s.py) * alpha;
       if (s.lunge > 0) { x += Math.cos(s.lungeDir) * 0.12; y += Math.sin(s.lungeDir) * 0.12; }
@@ -303,6 +312,7 @@ export class BattleLab {
     // squad badges: unit symbol, filled from the bottom by the squad's average HP
     c.textAlign = 'center'; c.textBaseline = 'top';
     c.font = `800 ${9.5 * d}px Nunito, system-ui, sans-serif`;
+    const words = ppt >= 24; // zoomed far out (big battles): just the badges, no words
     for (const q of b.squads) {
       if (q.gone) continue;
       let sx = 0, sy = 0, n = 0, top = 1e9;
@@ -328,11 +338,11 @@ export class BattleLab {
       c.fillRect(bx, by + size - fh, size, fh);                                     // HP fill
       c.strokeStyle = edge; c.lineWidth = 2 * d; c.strokeRect(bx + d, by + d, size - 2 * d, size - 2 * d);
       drawGlyph(c, q.unit, bx + size / 2, by + size / 2, Math.max(1, Math.floor(size / 9)));
-      if (shaky) {
+      if (shaky && words) {
         c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = '#ffe680';
         c.strokeText('Wavering', bx + size / 2, by + size + 2 * d); c.fillText('Wavering', bx + size / 2, by + size + 2 * d);
       }
-      if (q.broken) {
+      if (q.broken && words) {
         const left = Math.max(0, Math.ceil(CONFIG.battle.fightAfterBreakSeconds - (b.t - q.brokenAt)));
         const txt = q.fleeing ? 'Fleeing!' : `${left}s`;
         c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = '#fff';
@@ -358,7 +368,7 @@ export class BattleLab {
     const pad = 2.2;
     const zx = b.W / (x1 - x0 + pad * 2);                         // fit width
     const zy = (freeH / (vw / b.W)) / (y1 - y0 + pad * 2);        // fit height
-    const zoom = Math.max(1, Math.min(3.2, Math.min(zx, zy)));
+    const zoom = Math.max(1, Math.min(maxZoom(b) * 0.8, Math.min(zx, zy)));
     const ppt = (vw / b.W) * zoom;
     const tx = (x0 + x1) / 2;
     const ty = (y0 + y1) / 2 + (vh / 2 - (top + freeH / 2)) / ppt; // centre in the free area above the panel
@@ -374,19 +384,21 @@ export class BattleLab {
     let pinch: { d: number; zoom: number } | null = null;
     const cv = this.canvas;
     cv.style.touchAction = 'none';
-    const ppt = () => (window.innerWidth / CONFIG.battle.fieldW) * this.cam.zoom;
+    const fw = () => this.b?.W ?? CONFIG.battle.fieldW, fh = () => this.b?.H ?? CONFIG.battle.fieldH;
+    const zmax = () => this.b ? maxZoom(this.b) : 4;
+    const ppt = () => (window.innerWidth / fw()) * this.cam.zoom;
     cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: this.cam.zoom }; } });
     cv.addEventListener('pointermove', e => {
       const q = pts.get(e.pointerId); if (!q) return;
       const dx = e.clientX - q.x, dy = e.clientY - q.y; q.x = e.clientX; q.y = e.clientY;
       if (Math.abs(dx) + Math.abs(dy) > 0.5 && this.autoCam) { this.autoCam = false; this.renderTop(); }
       if (pts.size === 1) { this.cam.x -= dx / ppt(); this.cam.y -= dy / ppt(); }
-      else if (pinch) { const [a, b] = [...pts.values()]; this.cam.zoom = Math.max(0.8, Math.min(4, pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)); }
-      this.cam.x = Math.max(0, Math.min(CONFIG.battle.fieldW, this.cam.x)); this.cam.y = Math.max(-2, Math.min(CONFIG.battle.fieldH + 6, this.cam.y));
+      else if (pinch) { const [a, b] = [...pts.values()]; this.cam.zoom = Math.max(0.8, Math.min(zmax(), pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)); }
+      this.cam.x = Math.max(0, Math.min(fw(), this.cam.x)); this.cam.y = Math.max(-2, Math.min(fh() + 6, this.cam.y));
     });
     const end = (e: PointerEvent) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
     cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
-    cv.addEventListener('wheel', e => { e.preventDefault(); this.cam.zoom = Math.max(0.8, Math.min(4, this.cam.zoom * Math.exp(-e.deltaY * 0.0015))); }, { passive: false });
+    cv.addEventListener('wheel', e => { e.preventDefault(); this.cam.zoom = Math.max(0.8, Math.min(zmax(), this.cam.zoom * Math.exp(-e.deltaY * 0.0015))); }, { passive: false });
   }
 }
 
@@ -403,6 +415,10 @@ function drawGlyph(c: CanvasRenderingContext2D, u: UnitKind, cx: number, cy: num
   const x0 = Math.round(cx - 3.5 * k), y0 = Math.round(cy - 3.5 * k);
   for (let r = 0; r < 7; r++) for (let i = 0; i < 7; i++) if (g[r][i] === 'x') c.fillRect(x0 + i * k, y0 + r * k, k, k);
 }
+
+const MAX_SQUADS = 50; // per unit type, per side
+/** Closest zoom: about 7 tiles across the screen. */
+const maxZoom = (b: BattleState) => Math.max(4, b.W / 7);
 
 function fmtTime(t: number) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
 

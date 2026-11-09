@@ -234,3 +234,6 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 .mrow .vl { font-weight: 800; white-space: nowrap; }
 .mrow .vl small { font-weight: 700; color: var(--muted); font-size: 11px; margin-left: 4px; }
 .bar.thin { height: 4px; margin: 0 0 4px 25px; }
+.labrow button.p5 { width: 32px; font-size: 12px; }
+.labrow b { min-width: 18px; }
+.labmen { font-size: 11.5px; color: var(--muted); font-weight: 800; text-align: right; margin: 2px 2px 4px; }
