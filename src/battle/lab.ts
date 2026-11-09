@@ -567,10 +567,17 @@ export class BattleLab {
     const b = this.b!;
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     for (const id of q.members) { const s = b.soldiers[id - 1]; x0 = Math.min(x0, s.x); y0 = Math.min(y0, s.y); x1 = Math.max(x1, s.x); y1 = Math.max(y1, s.y); }
-    return { x0: x0 - 0.2, y0: y0 - 0.45, x1: x1 + 0.2, y1: y1 + 0.15 };
+    return { x0, y0, x1, y1, i };
   }
-  /** A field box on screen (CSS px). */
-  private screenBox(b: { x0: number; y0: number; x1: number; y1: number }) {
+  /** A squad's box on screen (CSS px): around its soldiers' pictures (works whether the field is turned or not). */
+  private screenBox(b: { x0: number; y0: number; x1: number; y1: number; i?: number }) {
+    const q = b.i != null ? this.bsquad(b.i) : null;
+    if (q) {
+      const k = this.ppt();
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (const id of q.members) { const s = this.b!.soldiers[id - 1], v = this.toScreen(s.x, s.y); x0 = Math.min(x0, v.x); y0 = Math.min(y0, v.y); x1 = Math.max(x1, v.x); y1 = Math.max(y1, v.y); }
+      return { x0: x0 - 0.12 * k, y0: y0 - 0.32 * k, x1: x1 + 0.12 * k, y1: y1 + 0.06 * k };
+    }
     const a = this.toScreen(b.x0, b.y0), z = this.toScreen(b.x1, b.y1);
     return { x0: Math.min(a.x, z.x), y0: Math.min(a.y, z.y), x1: Math.max(a.x, z.x), y1: Math.max(a.y, z.y) };
   }
@@ -586,18 +593,15 @@ export class BattleLab {
    */
   private squadAtScreen(sx: number, sy: number): number {
     let best = -1, bd = Infinity;
-    const dist = (r: { x0: number; y0: number; x1: number; y1: number }) => Math.hypot(Math.max(r.x0 - sx, 0, sx - r.x1), Math.max(r.y0 - sy, 0, sy - r.y1));
-    const toMid = (r: { x0: number; y0: number; x1: number; y1: number }) => Math.hypot((r.x0 + r.x1) / 2 - sx, (r.y0 + r.y1) / 2 - sy);
     this.army.forEach((a, i) => {
       if (!a.placed) return;
-      const box = this.squadBox(i); if (!box) return;
-      const body = this.screenBox(box);
+      const q = this.bsquad(i); if (!q) return;
+      // closest of: any of its soldiers, or the middle of its badge (whichever your fingertip is nearest)
+      let d = Infinity;
+      const up = 0.15 * this.ppt(); // the middle of a soldier's picture is a little above their feet (on screen)
+      for (const id of q.members) { const s = this.b!.soldiers[id - 1], v = this.toScreen(s.x, s.y); d = Math.min(d, Math.hypot(v.x - sx, v.y - up - sy)); }
       const k = this.placedIdx.indexOf(i), badge = k >= 0 ? this.badges.get(k) : undefined;
-      // a badge is drawn on top, so a finger on a badge means that squad; then a finger on its soldiers; then the nearest
-      let d: number;
-      if (badge && dist(badge) === 0) d = -1000 + toMid(badge);
-      else if (dist(body) === 0) d = -500 + toMid(body);
-      else d = Math.min(dist(body), badge ? dist(badge) : Infinity);
+      if (badge) d = Math.min(d, Math.hypot((badge.x0 + badge.x1) / 2 - sx, (badge.y0 + badge.y1) / 2 - sy) - 4);
       if (d < 30 && d < bd) { bd = d; best = i; }
     });
     return best;
