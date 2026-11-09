@@ -827,6 +827,7 @@ export class BattleLab {
         if (len < 1.2) { const old = this.extendBase.get(i)!; a.path = old.length ? old : undefined; } // a tiny scribble: put the arrow back as it was
         else if (a.path?.length) a.path = this.smoothPath({ x: a.x!, y: a.y! }, a.path);
       }
+      if (len >= 1.2) this.sel = []; // arrow given: done with these squads (unselect them)
     }
     this.preview(); this.renderPanel();
   }
