@@ -250,6 +250,22 @@ export const CONFIG = {
       cavEngage: 9,             // ...cavalry escort the wings until an enemy is this close, or the infantry are fighting
       formUp: 2.5,              // in the last stretch before charging (this many tiles before charge distance) infantry square up and close ranks
     },
+    // Squad decisions (the battle AI every free squad uses, yours and the enemy's). Bonuses are in tiles: "counts as this much closer".
+    ai: {
+      fightingLatch: 3.5,       // a squad counts as "in a fight" this long after its last blow
+      threatMemory: 2.5,        // hit by a squad we're not fighting within this many seconds: turn on it...
+      engagedDist: 2.5,         // ...unless our own target is already this close
+      protectRange: 5,          // an enemy coming at a friend's flank or rear within this range...
+      protectBonus: 3,          // ...is a priority target
+      waverBonus: 1.5,          // wavering enemies are worth finishing off
+      cavWaverBonus: 3,         // ...especially for cavalry
+      unattendedBonus: 1.5,     // an enemy fighting our friends that nobody is answering yet
+      cavBusyBonus: 3,          // cavalry prefer enemies already busy fighting (rear charges)
+      cavSpearFear: 3,          // cavalry avoid fresh spearmen (on top of the normal "avoid what beats us")
+      reliefHp: 0.55,           // reserves wait behind a fighting friend until it's below this HP share or wavering
+      archerFallBack: 3.2,      // archers fall back when enemy fighters come this close...
+      archerCoverRange: 9,      // ...if friendly infantry is within this range to hide behind
+    },
     tempo: 1,                   // multiplies every attack's wait (bigger = slower swings). Battles are long because most frontal blows get parried, not because people stand around
     pursuitSeconds: 6,          // after one side is beaten, the winners chase the fleeing for this long
     // Morale (courage, 0-100). A squad breaks when its HP drops to breakAt OR its morale hits 0.

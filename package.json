@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "battle:check": "esbuild tools/battle-check.ts --bundle --platform=node --outfile=node_modules/.cache/battle-check.cjs --log-level=warning && node node_modules/.cache/battle-check.cjs"
   },
   "devDependencies": {
     "typescript": "5.6.3",
