@@ -14,10 +14,21 @@ export type Side = 0 | 1;
 export const BATTLE_TPS = 20;
 const DT = 1 / BATTLE_TPS;
 
-export interface SquadSetup { unit: UnitKind; rank: number }
+export interface Pt { x: number; y: number }
+/**
+ * One squad. x/y (optional) = where the player deployed it, and path = the arrow they drew,
+ * both in "left side" field coordinates (mirrored automatically if the side starts on the right).
+ */
+export interface SquadSetup { unit: UnitKind; rank: number; x?: number; y?: number; path?: Pt[] }
 /** Bonuses from techs for one side (0.1 = +10%). */
 export type SideBonus = Partial<Record<'damage' | 'armour' | 'range' | 'charge' | 'morale', number>>;
-export interface BattleSetup { sides: [SquadSetup[], SquadSetup[]]; bonus?: [SideBonus, SideBonus] }
+/** orders[side] = true: the player commanded this side (squads with no arrow hold their ground). */
+export interface BattleSetup {
+  sides: [SquadSetup[], SquadSetup[]]; bonus?: [SideBonus, SideBonus]; orders?: [boolean, boolean];
+  field?: { W: number; H: number }; // fixed field size (deployment screen), instead of fitting the armies
+}
+/** free = the battle AI decides; hold = stand your ground and fight what comes; path = follow the drawn arrow, then free. */
+export type Order = 'free' | 'hold' | 'path';
 
 export interface BSoldier {
   id: number; side: Side; squad: number; unit: UnitKind; slot: number;
@@ -39,6 +50,7 @@ export interface BSoldier {
 export type SquadState = 'march' | 'charge' | 'melee' | 'withdraw';
 export interface BSquad {
   id: number; side: Side; unit: UnitKind; rank: number; num: number;
+  src: number;                // index of this squad in setup.sides[side]
   members: number[];
   cx: number; cy: number;     // formation anchor (front-centre of the block)
   ang: number;                // facing angle (radians)
@@ -56,6 +68,10 @@ export interface BSquad {
   withdrawUntil: number; wx: number; wy: number;
   ammo: number; volley: number; // archers: arrows left (whole squad); volley unused
   hold: boolean;              // archers: standing still and shooting (only move again if the enemy gets well out of range)
+  order: Order;               // the player's order (see Order)
+  path: Pt[]; pathI: number;  // the drawn arrow, and the next point on it
+  commit: number;             // on a path but caught in a real fight: finish this enemy squad first (-1 = none)
+  commitX: number; commitY: number; // where we left the path (don't chase too far from it)
   hitBy: Record<number, number>; // enemy squad id -> last time they hit us
 }
 export interface Arrow { x: number; y: number; sx: number; sy: number; tx: number; ty: number; t: number; dur: number; target: number; dmg: number; hit: boolean; side: Side; squad: number }
@@ -108,17 +124,17 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
   // ---- layout: rows of up to maxRow squads, swordsmen in front, then spearmen, then archers; cavalry on the wings ----
   const gap = halfFront('swordsmen') * 2 + 0.6;   // squads stand side by side with a small gap
   const cavGap = halfFront('cavalry') * 2 + 0.6;
-  type Spot = { q: SquadSetup; depth: number; off: number }; // depth: tiles behind the front line; off: sideways from the middle
+  type Spot = { q: SquadSetup; i: number; depth: number; off: number }; // depth: tiles behind the front line; off: sideways from the middle
   const layouts = ([0, 1] as Side[]).map(side => {
-    const by: Record<string, SquadSetup[]> = { swordsmen: [], spearmen: [], archers: [], cavalry: [] };
-    for (const q of setup.sides[side]) by[q.unit].push(q);
+    const by: Record<string, { q: SquadSetup; i: number }[]> = { swordsmen: [], spearmen: [], archers: [], cavalry: [] };
+    setup.sides[side].forEach((q, i) => by[q.unit].push({ q, i }));
     const spots: Spot[] = [];
     let row = 0, widest = 0;
     for (const u of ['swordsmen', 'spearmen', 'archers'] as UnitKind[]) {
       for (let i = 0; i < by[u].length; i += B.maxRow) {
         const chunk = by[u].slice(i, i + B.maxRow);
         widest = Math.max(widest, chunk.length);
-        chunk.forEach((q, k) => spots.push({ q, depth: row * B.rowGap, off: (k - (chunk.length - 1) / 2) * gap }));
+        chunk.forEach((e, k) => spots.push({ ...e, depth: row * B.rowGap, off: (k - (chunk.length - 1) / 2) * gap }));
         row++;
       }
     }
@@ -126,19 +142,19 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
     // cavalry: two wings, filling outward then backward
     const cav = by.cavalry, perWing = Math.ceil(cav.length / 2);
     const across = Math.max(1, Math.min(3, Math.ceil(perWing / 3)));
-    cav.forEach((q, i) => {
+    cav.forEach((e, i) => {
       const wing = i % 2 ? 1 : -1, k = Math.floor(i / 2);
       const col = k % across, r = Math.floor(k / across);
-      spots.push({ q, depth: 0.6 + r * B.rowGap * 1.3, off: wing * (infHalf + 0.9 + cavGap * (col + 0.5)) });
+      spots.push({ ...e, depth: 0.6 + r * B.rowGap * 1.3, off: wing * (infHalf + 0.9 + cavGap * (col + 0.5)) });
     });
     const cavCols = cav.length ? across : 0;
     const halfW = infHalf + (cavCols ? 0.9 + cavGap * cavCols : 0);
     const depth = Math.max(0, ...spots.map(p => p.depth));
     return { spots, halfW, depth };
   });
-  const H = Math.max(B.fieldH, Math.ceil(Math.max(layouts[0].halfW, layouts[1].halfW) * 2 + 4));
+  const H = setup.field?.H ?? Math.max(B.fieldH, Math.ceil(Math.max(layouts[0].halfW, layouts[1].halfW) * 2 + 4));
   const frontX = 2.5 + Math.max(layouts[0].depth, layouts[1].depth);
-  const W = Math.max(B.fieldW, Math.ceil(frontX * 2 + B.armyGap));
+  const W = setup.field?.W ?? Math.max(B.fieldW, Math.ceil(frontX * 2 + B.armyGap));
   const b: BattleState = {
     t: 0, rng: seed, W, H, soldiers: [], squads: [], arrows: [], fx: [], marks: [],
     over: false, winner: -1, decidedAt: -1, firstContact: -1, home: [-3, W + 3],
@@ -151,15 +167,19 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
     const nums: Partial<Record<UnitKind, number>> = {};
     const onLeft = (side === 0) !== swapSides;
     const face = onLeft ? 0 : Math.PI;
-    const place = (q: SquadSetup, x: number, y: number) => {
-      const fx = onLeft ? x : b.W - x;
+    const ordered = !!setup.orders?.[side];
+    const mx = (x: number) => onLeft ? x : b.W - x;
+    const place = (q: SquadSetup, src: number, x: number, y: number) => {
+      const fx = mx(x);
       nums[q.unit] = (nums[q.unit] ?? 0) + 1;
       const sq: BSquad = {
-        id: qid++, side, unit: q.unit, rank: q.rank, num: nums[q.unit]!, members: [],
+        id: qid++, side, unit: q.unit, rank: q.rank, num: nums[q.unit]!, src, members: [],
         cx: fx, cy: y, ang: face, mx: fx, my: y, homeY: y, state: 'march', target: -1, retarget: 0, flankSide: 0,
         broken: false, brokenAt: 0, fleeing: false, gone: false, brokeBy: '',
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
         withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
+        order: !ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold',
+        path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
       };
       for (let i = 0; i < unitSize(q.unit); i++) {
         const p = slotWorld(sq, i);
@@ -176,7 +196,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
       }
       b.squads.push(sq);
     };
-    for (const p of layouts[side].spots) place(p.q, frontX - p.depth, b.H / 2 + p.off);
+    for (const p of layouts[side].spots) place(p.q, p.i, p.q.x ?? frontX - p.depth, p.q.y ?? b.H / 2 + p.off);
   }
   return b;
 }
@@ -229,6 +249,27 @@ export function stepBattle(b: BattleState) {
   b.t += DT;
   const sq = (id: number) => b.squads[id - 1];
   const so = (id: number) => b.soldiers[id - 1];
+  const O = B.orders;
+  /** The next point on a squad's drawn arrow (null when it's done: the squad is then free to fight anyone). */
+  const pathStep = (q: BSquad): Pt | null => {
+    while (q.pathI < q.path.length && Math.hypot(q.path[q.pathI].x - q.cx, q.path[q.pathI].y - q.cy) < O.pointReach) q.pathI++;
+    if (q.pathI >= q.path.length) { q.order = 'free'; return null; }
+    return q.path[q.pathI];
+  };
+  /** A squad that left its path to finish a fight goes back to it once that enemy is beaten, or once it's chased too far. */
+  const pathResume = (q: BSquad): boolean => {
+    if (q.commit < 0) return true;
+    const c = sq(q.commit);
+    if (!c || c.gone || c.broken || c.fleeing || Math.hypot(q.mx - q.commitX, q.my - q.commitY) > O.maxChase) {
+      q.commit = -1;
+      // carry on from the nearest point of the path ahead
+      let bi = q.pathI, bd = Infinity;
+      for (let i = q.pathI; i < q.path.length; i++) { const d = Math.hypot(q.path[i].x - q.cx, q.path[i].y - q.cy); if (d < bd) { bd = d; bi = i; } }
+      q.pathI = bi;
+      return true;
+    }
+    return false;
+  };
 
   // spatial grid for nearby lookups
   const grid = new Map<number, BSoldier[]>();
@@ -327,13 +368,18 @@ export function stepBattle(b: BattleState) {
         }
       }
     }
+    // on a path but committed to a real fight: that enemy squad is the target until it's beaten
+    if (q.commit > 0) {
+      const c = sq(q.commit);
+      if (c && !c.gone && !c.broken && !c.fleeing) { tq = c; q.target = c.id; }
+    }
     if (!tq) continue;
 
     const toE = Math.atan2(tq.my - q.my, tq.mx - q.mx);
     const dE = Math.hypot(tq.mx - q.mx, tq.my - q.my);
     const fwdX = Math.cos(q.ang), fwdY = Math.sin(q.ang);
     let gx = q.cx, gy = q.cy, speed = U.speed, faceTo = toE, turnRate = 1.6;
-    let contact = false;
+    let contact = false, wp: Pt | null = null;
 
     if (shooter(q)) {
       // archers: walk up until the enemy is well within range, then stand and shoot volleys
@@ -342,11 +388,15 @@ export function stepBattle(b: BattleState) {
       // standing and shooting until the enemy is well out of range, then walk up to a comfortable distance
       const range = rangeOf(q.side, q.unit), want = range * 0.6;
       const a = Math.atan2(ny - q.my, nx - q.mx);
-      if (q.hold && nd > range * 0.9) q.hold = false;
-      if (!q.hold && nd <= want + 0.2) q.hold = true;
-      if (!q.hold) { gx = nx - Math.cos(a) * want; gy = ny - Math.sin(a) * want; }
+      const wp = q.order === 'path' ? pathStep(q) : null;
+      if (wp) { gx = wp.x; gy = wp.y; } // following the player's arrow (shooting at whatever comes in range)
+      else if (q.order !== 'hold') {
+        if (q.hold && nd > range * 0.9) q.hold = false;
+        if (!q.hold && nd <= want + 0.2) q.hold = true;
+        if (!q.hold) { gx = nx - Math.cos(a) * want; gy = ny - Math.sin(a) * want; }
+      }
       q.state = nd < 1.5 ? 'melee' : 'march';
-      faceTo = a; turnRate = 1.5;
+      faceTo = wp && nd > range ? Math.atan2(gy - q.cy, gx - q.cx) : a; turnRate = 1.5;
     } else if (q.state === 'withdraw') {
       // cavalry pulling out to charge again
       gx = q.wx; gy = q.wy; speed = U.speed * 1.1;
@@ -407,13 +457,25 @@ export function stepBattle(b: BattleState) {
           speed = U.speed * 0.6; // the enemy slipped away from our front: follow them
         }
         faceTo = toE; turnRate = 0.9; // a fighting line wheels slowly
-        // cavalry stuck in a grinding melee pull out and charge again
-        if (isCav && tq.unit !== 'archers' && b.t - q.meleeSince > C.cycleAfter && squadHp(b, q) > C.cycleMinHp && !q.broken) {
+        // following an arrow and caught in a real (lasting) fight: finish that enemy squad off first
+        if (q.order === 'path' && q.commit < 0 && b.t - q.meleeSince > O.commitAfter) { q.commit = tq.id; q.commitX = q.mx; q.commitY = q.my; }
+        // cavalry stuck in a grinding melee pull out and charge again (not when told to hold)
+        if (isCav && q.order !== 'hold' && tq.unit !== 'archers' && b.t - q.meleeSince > C.cycleAfter && squadHp(b, q) > C.cycleMinHp && !q.broken) {
           q.state = 'withdraw'; q.withdrawUntil = b.t + 6;
           const back = Math.atan2(q.my - tq.my, q.mx - tq.mx);
           q.wx = Math.max(1, Math.min(b.W - 1, q.mx + Math.cos(back) * C.withdrawDist));
           q.wy = Math.max(1, Math.min(b.H - 1, q.my + Math.sin(back) * C.withdrawDist));
         }
+      } else if (q.order === 'hold') {
+        // holding: stand our ground, turn to face what's coming
+        q.meleeSince = -1;
+        q.state = 'march'; gx = q.cx; gy = q.cy; speed = 0;
+        faceTo = dE < 12 ? toE : q.ang; turnRate = 1;
+      } else if (q.order === 'path' && pathResume(q) && (wp = pathStep(q))) {
+        // following the player's arrow
+        q.meleeSince = -1;
+        q.state = 'march'; gx = wp.x; gy = wp.y; speed = U.speed;
+        faceTo = Math.atan2(gy - q.cy, gx - q.cx); turnRate = 2.5;
       } else {
         q.meleeSince = -1;
         const charging = dE < C.distance && !support;

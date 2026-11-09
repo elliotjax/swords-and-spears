@@ -237,3 +237,13 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 .labrow button.p5 { width: 32px; font-size: 12px; }
 .labrow b { min-width: 18px; }
 .labmen { font-size: 11.5px; color: var(--muted); font-weight: 800; text-align: right; margin: 2px 2px 4px; }
+/* battle deployment */
+.labhint { font-size: 12.5px; margin: 0 0 6px; }
+.labtray { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
+.traycard { touch-action: none; flex: none; width: 54px; height: 58px; border-radius: 10px; background: #eef1f5; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; }
+.traycard img { width: 30px; height: 30px; image-rendering: pixelated; pointer-events: none; -webkit-user-drag: none; user-select: none; }
+.labtools { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.labtools .mini { flex: 1; }
+.labsel { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12.5px; flex-wrap: wrap; }
+.labsel img { width: 28px; height: 28px; image-rendering: pixelated; }
+.labsel span { color: var(--muted); font-weight: 700; flex: 1; min-width: 90px; }

@@ -5,7 +5,7 @@ import { unitIcon } from '../ui/ui';
 import { IC } from '../ui/icons';
 import {
   BATTLE_TPS, createBattle, runBattle, squadAlive, squadHp, stepBattle, wavering,
-  type BattleSetup, type BattleState, type BSoldier, type Side, type SideBonus,
+  type BattleSetup, type BattleState, type BSoldier, type Pt, type Side, type SideBonus, type SquadSetup,
 } from './battle';
 import type { GameState } from '../sim/types';
 
@@ -48,6 +48,14 @@ export class BattleLab {
   private last = 0;
   private batch: { done: number; total: number; wins: number[]; time: number } | null = null;
   private view: 'setup' | 'fight' | 'result' = 'setup';
+  // ---- deployment (your side) ----
+  /** Your squads: where they stand (x, y), their automatic spot (ax, ay), the arrow you drew, and whether they're on the field. */
+  private army: (SquadSetup & { ax: number; ay: number; placed: boolean })[] = [];
+  private field = { W: CONFIG.battle.fieldW, H: CONFIG.battle.fieldH };
+  private sel = -1;                       // selected squad (index into army)
+  private page: 'deploy' | 'army' = 'deploy';
+  private drag: { mode: 'move' | 'path'; i: number; ox: number; oy: number; lx: number; ly: number } | null = null;
+  private placedIdx: number[] = [];       // army index of each squad in the current battle setup
 
   constructor(private onClose: () => void, private getState?: () => GameState) {
     this.counts = [{ swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }];
@@ -77,9 +85,10 @@ export class BattleLab {
   open() {
     this.isOpen = true;
     this.root.classList.remove('hidden');
-    this.view = 'setup';
-    this.preview();
+    this.view = 'setup'; this.page = 'deploy';
+    if (!this.army.length) this.rebuildArmy(); else this.preview();
     this.renderPanel();
+    this.fit();
     this.last = performance.now();
     const loop = (now: number) => {
       if (!this.isOpen) return;
@@ -96,9 +105,25 @@ export class BattleLab {
     this.onClose();
   }
 
+  private side(i: 0 | 1): SquadSetup[] { return UNITS.flatMap(u => Array.from({ length: this.counts[i][u] }, () => ({ unit: u, rank: this.ranks[i] }))); }
+  /** The battle as deployed: your placed squads with their spots and arrows (no arrow = hold), the enemy in its automatic formation. */
   private setup(): BattleSetup {
-    const side = (i: 0 | 1) => UNITS.flatMap(u => Array.from({ length: this.counts[i][u] }, () => ({ unit: u, rank: this.ranks[i] })));
-    return { sides: [side(0), side(1)], bonus: [this.colonyBonus(), {}] };
+    this.placedIdx = [];
+    const mine: SquadSetup[] = [];
+    this.army.forEach((a, i) => { if (a.placed) { this.placedIdx.push(i); mine.push({ unit: a.unit, rank: a.rank, x: a.x, y: a.y, path: a.path }); } });
+    return { sides: [mine, this.side(1)], bonus: [this.colonyBonus(), {}], orders: [true, false], field: this.field };
+  }
+
+  /** New armies: everyone starts in the automatic formation, with no arrows (holding). */
+  private rebuildArmy() {
+    const auto = createBattle({ sides: [this.side(0), this.side(1)] }, this.seed);
+    this.field = { W: auto.W, H: auto.H };
+    this.army = this.side(0).map(q => ({ ...q, ax: 0, ay: 0, placed: true }));
+    for (const q of auto.squads) if (q.side === 0) { const a = this.army[q.src]; a.ax = a.x = q.cx; a.ay = a.y = q.cy; }
+    this.sel = -1;
+    this.ground = null;
+    this.preview();
+    this.fit();
   }
 
   /** Your researched military techs (from the colony) help the red side. */
@@ -121,18 +146,23 @@ export class BattleLab {
 
   /** Show the armies standing in formation (before pressing Fight). */
   private preview() {
+    const W = this.b?.W, H = this.b?.H;
     this.b = createBattle(this.setup(), this.seed);
-    this.ground = null;
-    this.fit();
+    if (W !== this.b.W || H !== this.b.H) this.ground = null;
   }
 
+  /** Show the whole field above the bottom panel. */
   private fit() {
     const d = Math.min(3, window.devicePixelRatio || 1);
     this.canvas.width = Math.round(window.innerWidth * d);
     this.canvas.height = Math.round(window.innerHeight * d);
-    const W = this.b?.W ?? CONFIG.battle.fieldW, H = this.b?.H ?? CONFIG.battle.fieldH;
-    this.cam = { x: W / 2, y: H / 2 + 2.2, zoom: 1 };
-    this.autoCam = true;
+    const W = this.field.W, H = this.field.H, vw = window.innerWidth, vh = window.innerHeight;
+    const panelH = this.panel.getBoundingClientRect().height || vh * 0.42, top = 70;
+    const freeH = Math.max(140, vh - panelH - top - 12);
+    const zoom = Math.min(1, (freeH / H) / (vw / W));
+    const ppt = (vw / W) * zoom;
+    this.cam = { x: W / 2, y: H / 2 + (vh / 2 - (top + freeH / 2)) / ppt, zoom };
+    this.autoCam = this.view !== 'setup';
   }
 
   // ---------------- clicks ----------------
@@ -144,21 +174,32 @@ export class BattleLab {
     switch (act) {
       case 'close': this.close(); return;
       case 'cam': this.autoCam = true; this.renderTop(); return;
-      case 'add': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 1); this.preview(); break;
-      case 'add5': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 5); this.preview(); break;
-      case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.preview(); break;
-      case 'rank': this.ranks[side] = (this.ranks[side] + 1) % CONFIG.military.ranks.length; this.preview(); break;
+      case 'add': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 1); this.rebuildArmy(); break;
+      case 'add5': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 5); this.rebuildArmy(); break;
+      case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.rebuildArmy(); break;
+      case 'rank': this.ranks[side] = (this.ranks[side] + 1) % CONFIG.military.ranks.length; for (const a of this.army) a.rank = this.ranks[0]; this.preview(); break;
       case 'preset': {
         const p = PRESETS[Number(el.dataset.i)];
         this.counts = [Object.fromEntries(UNITS.map(x => [x, p.a[x] ?? 0])) as Record<UnitKind, number>, Object.fromEntries(UNITS.map(x => [x, p.b[x] ?? 0])) as Record<UnitKind, number>];
-        this.preview(); break;
+        this.rebuildArmy(); break;
       }
+      case 'page': this.page = this.page === 'army' ? 'deploy' : 'army'; this.renderPanel(); this.fit(); return;
+      // deployment
+      case 'auto': for (const a of this.army) { a.x = a.ax; a.y = a.ay; a.placed = true; a.path = undefined; } this.sel = -1; this.preview(); break;
+      case 'clear': for (const a of this.army) { a.placed = false; a.path = undefined; } this.sel = -1; this.preview(); break;
+      case 'forward': // every squad without an arrow gets a straight one toward the enemy
+        for (const a of this.army) if (a.placed && !a.path?.length) a.path = [{ x: this.field.W * 0.78, y: a.y! }];
+        this.preview(); break;
+      case 'place': { const a = this.army[Number(el.dataset.i)]; a.placed = true; a.x = a.ax; a.y = a.ay; this.sel = Number(el.dataset.i); this.preview(); break; }
+      case 'unplace': if (this.sel >= 0) { this.army[this.sel].placed = false; this.army[this.sel].path = undefined; this.sel = -1; this.preview(); } break;
+      case 'unpath': if (this.sel >= 0) { this.army[this.sel].path = undefined; this.preview(); } break;
       case 'fight':
         if (!this.b || !this.b.squads.some(q => q.side === 0) || !this.b.squads.some(q => q.side === 1)) return;
-        this.view = 'fight'; if (!this.speed) this.speed = 1; break;
-      case 'stop': this.view = 'setup'; this.seed++; this.preview(); break;
-      case 'again': this.seed++; this.preview(); this.view = 'fight'; break;
-      case 'edit': this.view = 'setup'; this.seed++; this.preview(); break;
+        this.sel = -1; this.preview();
+        this.view = 'fight'; this.autoCam = true; if (!this.speed) this.speed = 1; break;
+      case 'stop': this.view = 'setup'; this.seed++; this.preview(); this.renderPanel(); this.fit(); return;
+      case 'again': this.seed++; this.preview(); this.view = 'fight'; this.autoCam = true; break;
+      case 'edit': this.view = 'setup'; this.seed++; this.preview(); this.renderPanel(); this.fit(); return;
       case 'batch': this.runBatch(50); break;
     }
     this.renderPanel();
@@ -192,18 +233,27 @@ export class BattleLab {
   private renderPanel() {
     this.renderTop();
     const rankName = (i: number) => CONFIG.military.ranks[i].name;
-    if (this.view === 'setup') {
+    if (this.view === 'setup' && this.page === 'deploy') {
+      const tray = this.army.map((a, i) => a.placed ? '' : `<button class="traycard" data-lab="place" data-i="${i}"><img src="${unitIcon(a.unit)}" alt="" draggable="false"><span>${SHORT[a.unit]}</span></button>`).join('');
+      const a = this.sel >= 0 ? this.army[this.sel] : null;
+      const selRow = a ? `<div class="labsel"><img src="${unitIcon(a.unit)}" alt=""><b>${CONFIG.military.units[a.unit].name}</b><span>${a.path?.length ? 'follows its arrow' : 'holds its ground'}</span>
+          ${a.path?.length ? '<button class="mini" data-lab="unpath">✕ Arrow</button>' : ''}<button class="mini" data-lab="unplace">To tray</button></div>` : '';
+      const placed = this.army.filter(x => x.placed).length;
+      this.panel.innerHTML = `${selRow || `<p class="labhint">Drag squads to move them. Tap one, then drag its <b>➜</b> to draw its path. <b>No arrow = it holds its ground.</b></p>`}
+        ${tray ? `<div class="labtray">${tray}</div>` : ''}
+        <div class="labtools"><button class="mini" data-lab="page">⚙ Armies</button><button class="mini" data-lab="auto">Auto</button><button class="mini" data-lab="clear">Clear</button><button class="mini" data-lab="forward">All ➜</button></div>
+        <div class="labbtns"><button class="btn" data-lab="fight" ${placed ? '' : 'disabled'}>▶ Fight</button><button class="btn ghost" data-lab="batch">Run 50 battles</button></div>
+        ${this.batchHtml()}`;
+    } else if (this.view === 'setup') {
       const col = (side: 0 | 1) => `<div class="labcol"><div class="labside" style="color:${TEAM[side]}">${SIDE_NAME[side]}</div>
         ${UNITS.map(u => `<div class="labrow"><img src="${unitIcon(u)}" alt=""><span>${CONFIG.military.units[u].name}</span>
           <button data-lab="sub" data-side="${side}" data-unit="${u}">−</button><b>${this.counts[side][u]}</b><button data-lab="add" data-side="${side}" data-unit="${u}">+</button><button class="p5" data-lab="add5" data-side="${side}" data-unit="${u}">+5</button></div>`).join('')}
         <div class="labmen">${this.men(side)} soldiers</div>
         <button class="mini" data-lab="rank" data-side="${side}">Rank: ${rankName(this.ranks[side])}</button></div>`;
-      const bt = this.batch;
-      const batch = bt ? (bt.done < bt.total ? `<p>Running ${bt.done}/${bt.total} battles…</p>`
-        : `<p><b>${bt.total} battles:</b> <b style="color:${TEAM[0]}">You win ${Math.round(bt.wins[0] / bt.total * 100)}%</b> · <b style="color:${TEAM[1]}">Enemy ${Math.round(bt.wins[1] / bt.total * 100)}%</b> · Draw ${Math.round(bt.wins[2] / bt.total * 100)}% · avg ${fmtTime(bt.time / bt.total)}</p>`) : '';
       this.panel.innerHTML = `<div class="labpresets">${PRESETS.map((p, i) => `<button class="chip panel" data-lab="preset" data-i="${i}">${p.name}</button>`).join('')}</div>
-        <div class="labcols">${col(0)}${col(1)}</div>${this.techNames().length ? `<p style="font-size:12px">Your techs help red: <b>${this.techNames().join(', ')}</b></p>` : ''}${batch}
-        <div class="labbtns"><button class="btn" data-lab="fight">▶ Fight</button><button class="btn ghost" data-lab="batch">Run 50 battles</button></div>`;
+        <div class="labcols">${col(0)}${col(1)}</div>${this.techNames().length ? `<p style="font-size:12px">Your techs help red: <b>${this.techNames().join(', ')}</b></p>` : ''}
+        <p style="font-size:12px">Changing the armies puts your squads back in the automatic formation.</p>
+        <div class="labbtns"><button class="btn" data-lab="page">Done: deploy ➜</button></div>`;
     } else if (this.view === 'fight') {
       this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div><button class="btn ghost" data-lab="stop">Stop</button></div>`;
     } else {
@@ -219,6 +269,12 @@ export class BattleLab {
         <div class="labcol"><div class="labside" style="color:${TEAM[1]}">${SIDE_NAME[1]}</div>${rows(1)}</div></div>
         <div class="labbtns"><button class="btn" data-lab="again">Fight again</button><button class="btn ghost" data-lab="edit">Change armies</button></div>`;
     }
+  }
+
+  private batchHtml() {
+    const bt = this.batch;
+    return bt ? (bt.done < bt.total ? `<p>Running ${bt.done}/${bt.total} battles…</p>`
+      : `<p><b>${bt.total} battles:</b> <b style="color:${TEAM[0]}">You win ${Math.round(bt.wins[0] / bt.total * 100)}%</b> · <b style="color:${TEAM[1]}">Enemy ${Math.round(bt.wins[1] / bt.total * 100)}%</b> · Draw ${Math.round(bt.wins[2] / bt.total * 100)}% · avg ${fmtTime(bt.time / bt.total)}</p>`) : '';
   }
 
   private scoreHtml() {
@@ -264,6 +320,11 @@ export class BattleLab {
     c.imageSmoothingEnabled = false;
     if (!this.ground) this.ground = paintField(b);
     c.drawImage(this.ground, ox, oy, b.W * R * p, b.H * R * p);
+    if (this.view === 'setup') { // your half: where you can deploy
+      c.fillStyle = 'rgba(192,57,43,.08)'; c.fillRect(ox, oy, (b.W / 2) * R * p, b.H * R * p);
+      c.strokeStyle = 'rgba(192,57,43,.55)'; c.lineWidth = 1.5 * d; c.setLineDash([6 * d, 5 * d]);
+      c.beginPath(); c.moveTo(ox + (b.W / 2) * R * p, oy); c.lineTo(ox + (b.W / 2) * R * p, oy + b.H * R * p); c.stroke(); c.setLineDash([]);
+    }
 
     const px = (x: number) => Math.floor(x * R);
     // only draw what's on screen (big battles)
@@ -309,6 +370,7 @@ export class BattleLab {
         drawP(ax, ay, '#fff6c8'); drawP(ax - 1, ay - 1, '#ffe07a'); drawP(ax + 1, ay + 1, '#ffe07a');
       }
     }
+    this.drawOrders(b, ox, oy, p, d);
     // squad badges: unit symbol, filled from the bottom by the squad's average HP
     c.textAlign = 'center'; c.textBaseline = 'top';
     c.font = `800 ${9.5 * d}px Nunito, system-ui, sans-serif`;
@@ -351,6 +413,79 @@ export class BattleLab {
     }
   }
 
+  /** Arrows (paths) on the field: all of them while deploying, the rest of each path during the fight. */
+  private drawOrders(b: BattleState, ox: number, oy: number, p: number, d: number) {
+    const c = this.ctx;
+    const S = (x: number, y: number) => ({ x: ox + x * R * p, y: oy + y * R * p });
+    const arrow = (pts: Pt[], col: string, w: number, alpha: number) => {
+      if (pts.length < 2) return;
+      c.globalAlpha = alpha; c.strokeStyle = col; c.lineWidth = w; c.lineCap = 'round'; c.lineJoin = 'round';
+      c.setLineDash([w * 2.2, w * 1.6]);
+      c.beginPath(); pts.forEach((q, i) => { const v = S(q.x, q.y); if (i) c.lineTo(v.x, v.y); else c.moveTo(v.x, v.y); }); c.stroke(); c.setLineDash([]);
+      const a = S(pts[pts.length - 1].x, pts[pts.length - 1].y), z = S(pts[pts.length - 2].x, pts[pts.length - 2].y);
+      const ang = Math.atan2(a.y - z.y, a.x - z.x), h = w * 3.2;
+      c.fillStyle = col; c.beginPath(); c.moveTo(a.x + Math.cos(ang) * h * 0.6, a.y + Math.sin(ang) * h * 0.6);
+      c.lineTo(a.x + Math.cos(ang + 2.5) * h, a.y + Math.sin(ang + 2.5) * h); c.lineTo(a.x + Math.cos(ang - 2.5) * h, a.y + Math.sin(ang - 2.5) * h); c.fill();
+      c.globalAlpha = 1;
+    };
+    if (this.view === 'setup') {
+      this.army.forEach((a, i) => {
+        if (!a.placed) return;
+        if (a.path?.length) arrow([{ x: a.x!, y: a.y! }, ...a.path], i === this.sel ? '#ffffff' : TEAM[0], (i === this.sel ? 3.2 : 2.4) * d, i === this.sel ? 0.95 : 0.8);
+      });
+      if (this.drag?.mode === 'path') { const a = this.army[this.drag.i]; arrow([{ x: a.x!, y: a.y! }, ...(a.path ?? [])], '#ffffff', 3.2 * d, 0.95); }
+      const a = this.sel >= 0 ? this.army[this.sel] : null;
+      if (a?.placed) {
+        const box = this.squadBox(this.sel);
+        if (box) { // selection ring
+          const p0 = S(box.x0, box.y0), p1 = S(box.x1, box.y1);
+          c.strokeStyle = '#ffffff'; c.lineWidth = 2 * d; c.setLineDash([5 * d, 4 * d]);
+          c.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y); c.setLineDash([]);
+        }
+        // the knob you drag to draw an arrow
+        const k = this.knob(this.sel), v = S(k.x, k.y), r = 13 * d;
+        c.fillStyle = 'rgba(15,15,25,.4)'; c.beginPath(); c.arc(v.x + d, v.y + 2 * d, r, 0, 7); c.fill();
+        c.fillStyle = '#ffffff'; c.beginPath(); c.arc(v.x, v.y, r, 0, 7); c.fill();
+        c.strokeStyle = TEAM[0]; c.lineWidth = 2.5 * d; c.stroke();
+        c.fillStyle = TEAM[0]; c.beginPath(); c.moveTo(v.x + 7 * d, v.y); c.lineTo(v.x - 3 * d, v.y - 6 * d); c.lineTo(v.x - 3 * d, v.y + 6 * d); c.fill();
+        c.fillRect(v.x - 8 * d, v.y - 2 * d, 6 * d, 4 * d);
+        // ✕ at the end of its arrow
+        if (a.path?.length) {
+          const e = this.xSpot(this.sel), xv = S(e.x, e.y), rr2 = 11 * d;
+          c.fillStyle = '#ffffff'; c.beginPath(); c.arc(xv.x, xv.y, rr2, 0, 7); c.fill();
+          c.strokeStyle = '#d6453d'; c.lineWidth = 2.5 * d; c.stroke();
+          c.beginPath(); c.moveTo(xv.x - 4.5 * d, xv.y - 4.5 * d); c.lineTo(xv.x + 4.5 * d, xv.y + 4.5 * d); c.moveTo(xv.x + 4.5 * d, xv.y - 4.5 * d); c.lineTo(xv.x - 4.5 * d, xv.y + 4.5 * d); c.stroke();
+        }
+      }
+    } else {
+      for (const q of b.squads) if (q.side === 0 && q.order === 'path' && !q.gone && !q.fleeing) arrow([{ x: q.mx, y: q.my }, ...q.path.slice(q.pathI)], TEAM_LIGHT[0], 2 * d, 0.55);
+    }
+  }
+
+  /** Where a squad is on the field (its soldiers' box), from the preview battle. */
+  private squadBox(i: number) {
+    const b = this.b; if (!b) return null;
+    const k = this.placedIdx.indexOf(i); if (k < 0) return null;
+    const q = b.squads.find(x => x.side === 0 && x.src === k); if (!q) return null;
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const id of q.members) { const s = b.soldiers[id - 1]; x0 = Math.min(x0, s.x); y0 = Math.min(y0, s.y); x1 = Math.max(x1, s.x); y1 = Math.max(y1, s.y); }
+    return { x0: x0 - 0.3, y0: y0 - 0.55, x1: x1 + 0.3, y1: y1 + 0.25 };
+  }
+  private knob(i: number): Pt { const a = this.army[i]; return { x: a.x! + 1.1, y: a.y! }; }
+  private xSpot(i: number): Pt { const a = this.army[i], e = a.path![a.path!.length - 1]; return { x: e.x, y: e.y - 0.9 }; }
+  /** Your placed squad under a point on the field (or -1). */
+  private squadAt(w: Pt): number {
+    let best = -1, bd = Infinity;
+    this.army.forEach((a, i) => {
+      if (!a.placed) return;
+      const box = this.squadBox(i); if (!box) return;
+      const dx = Math.max(box.x0 - w.x, 0, w.x - box.x1), dy = Math.max(box.y0 - w.y, 0, w.y - box.y1);
+      const d = Math.hypot(dx, dy);
+      if (d < 0.35 && d < bd) { bd = d; best = i; }
+    });
+    return best;
+  }
+
   /** Battle camera: frame everyone still on the field, zoomed in as close as fits. */
   private followAction(b: BattleState, vw: number, vh: number) {
     // everyone still fighting (not fleeing); ignore the furthest 8% at each edge (stragglers)
@@ -387,16 +522,95 @@ export class BattleLab {
     const fw = () => this.b?.W ?? CONFIG.battle.fieldW, fh = () => this.b?.H ?? CONFIG.battle.fieldH;
     const zmax = () => this.b ? maxZoom(this.b) : 4;
     const ppt = () => (window.innerWidth / fw()) * this.cam.zoom;
-    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: this.cam.zoom }; } });
+    const world = (sx: number, sy: number): Pt => ({ x: this.cam.x + (sx - window.innerWidth / 2) / ppt(), y: this.cam.y + (sy - window.innerHeight / 2) / ppt() });
+    let tapStart: { x: number; y: number } | null = null;
+    cv.addEventListener('pointerdown', e => {
+      cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 2) { this.drag = null; const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: this.cam.zoom }; return; }
+      tapStart = { x: e.clientX, y: e.clientY };
+      if (this.view !== 'setup') return;
+      // deployment: the selected squad's arrow knob, its ✕, or a squad to drag
+      const w = world(e.clientX, e.clientY), near = (p: Pt, r: number) => Math.hypot(p.x - w.x, p.y - w.y) < r;
+      const grab = Math.max(0.5, 18 / ppt()); // about a fingertip
+      if (this.sel >= 0 && this.army[this.sel].placed) {
+        if (this.army[this.sel].path?.length && near(this.xSpot(this.sel), grab)) { this.army[this.sel].path = undefined; this.preview(); this.renderPanel(); tapStart = null; return; }
+        if (near(this.knob(this.sel), grab)) { this.army[this.sel].path = []; this.drag = { mode: 'path', i: this.sel, ox: 0, oy: 0, lx: w.x, ly: w.y }; return; }
+      }
+      const i = this.squadAt(w);
+      if (i >= 0) {
+        const a = this.army[i];
+        if (this.sel !== i) { this.sel = i; this.renderPanel(); }
+        this.drag = { mode: 'move', i, ox: a.x! - w.x, oy: a.y! - w.y, lx: a.x!, ly: a.y! };
+      }
+    });
+    const endDrag = () => {
+      const g = this.drag; this.drag = null;
+      if (!g) return;
+      const a = this.army[g.i];
+      if (g.mode === 'path') {
+        // too short to mean anything: no arrow
+        let len = 0, prev: Pt = { x: a.x!, y: a.y! };
+        for (const q of a.path ?? []) { len += Math.hypot(q.x - prev.x, q.y - prev.y); prev = q; }
+        if (len < 1.2) a.path = undefined;
+      }
+      this.preview(); this.renderPanel();
+    };
     cv.addEventListener('pointermove', e => {
       const q = pts.get(e.pointerId); if (!q) return;
       const dx = e.clientX - q.x, dy = e.clientY - q.y; q.x = e.clientX; q.y = e.clientY;
+      if (this.drag && pts.size === 1) {
+        const w = world(e.clientX, e.clientY), g = this.drag, a = this.army[g.i], F = this.field;
+        if (g.mode === 'path') {
+          const pts2 = a.path!, last = pts2.length ? pts2[pts2.length - 1] : { x: a.x!, y: a.y! };
+          const x = Math.max(0.5, Math.min(F.W - 0.5, w.x)), y = Math.max(0.5, Math.min(F.H - 0.5, w.y));
+          if (Math.hypot(x - last.x, y - last.y) > 0.45) pts2.push({ x, y });
+        } else {
+          // move (your half only), the arrow moves with the squad
+          const nx = Math.max(0.8, Math.min(F.W / 2 - 0.4, w.x + g.ox)), ny = Math.max(1, Math.min(F.H - 1, w.y + g.oy));
+          const mx = nx - a.x!, my = ny - a.y!;
+          a.x = nx; a.y = ny;
+          if (a.path) a.path = a.path.map(p => ({ x: p.x + mx, y: p.y + my }));
+          this.preview();
+        }
+        return;
+      }
       if (Math.abs(dx) + Math.abs(dy) > 0.5 && this.autoCam) { this.autoCam = false; this.renderTop(); }
       if (pts.size === 1) { this.cam.x -= dx / ppt(); this.cam.y -= dy / ppt(); }
       else if (pinch) { const [a, b] = [...pts.values()]; this.cam.zoom = Math.max(0.8, Math.min(zmax(), pinch.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d)); }
       this.cam.x = Math.max(0, Math.min(fw(), this.cam.x)); this.cam.y = Math.max(-2, Math.min(fh() + 6, this.cam.y));
     });
-    const end = (e: PointerEvent) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+    // dragging a card from the tray onto the field: it lands where you let go (a tap puts it in its usual spot)
+    let card: { i: number; x: number; y: number; on: boolean } | null = null;
+    this.panel.addEventListener('pointerdown', e => {
+      const el = (e.target as HTMLElement).closest('.traycard') as HTMLElement | null;
+      if (el && this.view === 'setup') card = { i: Number(el.dataset.i), x: e.clientX, y: e.clientY, on: false };
+    });
+    window.addEventListener('pointermove', e => {
+      if (!card) return;
+      if (!card.on && Math.hypot(e.clientX - card.x, e.clientY - card.y) < 10) return;
+      const top = this.panel.getBoundingClientRect().top;
+      const a = this.army[card.i], F = this.field;
+      if (e.clientY < top - 10) {
+        const w = world(e.clientX, e.clientY - 20);
+        a.x = Math.max(0.8, Math.min(F.W / 2 - 0.4, w.x)); a.y = Math.max(1, Math.min(F.H - 1, w.y));
+        a.placed = true; card.on = true; this.sel = card.i;
+        this.preview();
+      } else if (card.on) { a.placed = false; card.on = false; this.preview(); } // dragged back onto the tray
+    });
+    const cardUp = () => {
+      if (!card) return;
+      const moved = card.on || false; card = null;
+      if (moved) this.renderPanel();
+    };
+    window.addEventListener('pointerup', cardUp); window.addEventListener('pointercancel', cardUp);
+
+    const end = (e: PointerEvent) => {
+      pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
+      if (this.drag) { endDrag(); return; }
+      // a tap on empty ground while deploying clears the selection
+      if (this.view === 'setup' && tapStart && e.type === 'pointerup' && Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) < 8 && this.sel >= 0) { this.sel = -1; this.renderPanel(); }
+      tapStart = null;
+    };
     cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
     cv.addEventListener('wheel', e => { e.preventDefault(); this.cam.zoom = Math.max(0.8, Math.min(zmax(), this.cam.zoom * Math.exp(-e.deltaY * 0.0015))); }, { passive: false });
   }
@@ -416,6 +630,7 @@ function drawGlyph(c: CanvasRenderingContext2D, u: UnitKind, cx: number, cy: num
   for (let r = 0; r < 7; r++) for (let i = 0; i < 7; i++) if (g[r][i] === 'x') c.fillRect(x0 + i * k, y0 + r * k, k, k);
 }
 
+const SHORT: Record<UnitKind, string> = { swordsmen: 'Swords', spearmen: 'Spears', archers: 'Archers', cavalry: 'Horse' };
 const MAX_SQUADS = 50; // per unit type, per side
 /** Closest zoom: about 7 tiles across the screen. */
 const maxZoom = (b: BattleState) => Math.max(4, b.W / 7);

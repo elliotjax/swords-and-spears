@@ -241,6 +241,12 @@ export const CONFIG = {
     counterBonus: 1.5,
     flankBonus: 1.4,            // melee damage multiplier when hitting a squad from the side or behind
     deadliness: 0.8,            // multiplies all damage (smaller = longer battles, same amount of fighting)
+    // Player orders (set on the deployment screen). Squads with no arrow hold their ground.
+    orders: {
+      commitAfter: 4,           // a squad on an arrow that's been in melee this long stays to finish that enemy squad...
+      maxChase: 4,              // ...but won't chase it further than this from where it left the arrow
+      pointReach: 0.8,          // how close counts as reaching a point on the arrow
+    },
     tempo: 1,                   // multiplies every attack's wait (bigger = slower swings). Battles are long because most frontal blows get parried, not because people stand around
     pursuitSeconds: 6,          // after one side is beaten, the winners chase the fleeing for this long
     // Morale (courage, 0-100). A squad breaks when its HP drops to breakAt OR its morale hits 0.
