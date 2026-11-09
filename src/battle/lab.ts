@@ -427,6 +427,7 @@ export class BattleLab {
     c.textAlign = 'center'; c.textBaseline = 'top';
     c.font = `800 ${9.5 * d}px Nunito, system-ui, sans-serif`;
     const words = ppt >= 24; // zoomed far out (big battles): just the badges, no words
+    this.badges.clear();
     for (const q of b.squads) {
       if (q.gone) continue;
       let sx = 0, sy = 0, n = 0, top = 1e9;
@@ -443,6 +444,7 @@ export class BattleLab {
       for (const v of vs) if (Math.abs(v.y - sy) < 2.2) top = Math.min(top, v.y);
       const size = Math.round(Math.max(15, Math.min(24, ppt * 0.9)) * d);
       const bx = Math.round(ox + sx * R * p - size / 2), by = Math.round(oy + top * R * p - 8 * p - size);
+      if (q.side === 0 && this.view === 'setup') this.badges.set(q.src, { x0: bx / d, y0: by / d, x1: (bx + size) / d, y1: (by + size) / d }); // a tap target
       const hp = Math.max(0, Math.min(1, squadHp(b, q)));
       const shaky = wavering(q);
       const edge = q.broken ? '#e8a03a' : shaky && Math.floor(b.t * 3) % 2 ? '#f2d03a' : TEAM[q.side];
@@ -578,18 +580,29 @@ export class BattleLab {
     const k = this.placedIdx.indexOf(i); if (k < 0) return null;
     return b.squads.find(x => x.side === 0 && x.src === k) ?? null;
   }
-  /** Your placed squad under a screen point (CSS px), within a fingertip (or -1). */
+  /**
+   * Your placed squad under a screen point (CSS px): its soldiers or its badge, whichever is closer.
+   * Generous: the nearest squad within a fingertip (30 px) counts, so small squads (cavalry) are easy to hit zoomed out.
+   */
   private squadAtScreen(sx: number, sy: number): number {
     let best = -1, bd = Infinity;
+    const dist = (r: { x0: number; y0: number; x1: number; y1: number }) => Math.hypot(Math.max(r.x0 - sx, 0, sx - r.x1), Math.max(r.y0 - sy, 0, sy - r.y1));
+    const toMid = (r: { x0: number; y0: number; x1: number; y1: number }) => Math.hypot((r.x0 + r.x1) / 2 - sx, (r.y0 + r.y1) / 2 - sy);
     this.army.forEach((a, i) => {
       if (!a.placed) return;
       const box = this.squadBox(i); if (!box) return;
-      const r = this.screenBox(box);
-      const d = Math.hypot(Math.max(r.x0 - sx, 0, sx - r.x1), Math.max(r.y0 - sy, 0, sy - r.y1));
-      if (d < 16 && d < bd) { bd = d; best = i; }
+      const body = this.screenBox(box);
+      const k = this.placedIdx.indexOf(i), badge = k >= 0 ? this.badges.get(k) : undefined;
+      // a badge is drawn on top, so a finger on a badge means that squad; then a finger on its soldiers; then the nearest
+      let d: number;
+      if (badge && dist(badge) === 0) d = -1000 + toMid(badge);
+      else if (dist(body) === 0) d = -500 + toMid(body);
+      else d = Math.min(dist(body), badge ? dist(badge) : Infinity);
+      if (d < 30 && d < bd) { bd = d; best = i; }
     });
     return best;
   }
+  private badges = new Map<number, { x0: number; y0: number; x1: number; y1: number }>(); // your squads' badges on screen (CSS px), by setup index
 
   /** Battle camera: frame everyone still on the field, zoomed in as close as fits. */
   private followAction(b: BattleState, vw: number, vh: number) {
