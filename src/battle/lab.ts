@@ -54,7 +54,7 @@ export class BattleLab {
   private view: 'setup' | 'fight' | 'result' = 'setup';
   // ---- deployment (your side) ----
   /** Your squads: where they stand (x, y), their automatic spot (ax, ay), the arrow you drew, and whether they're on the field. */
-  private army: (SquadSetup & { ax: number; ay: number; placed: boolean })[] = [];
+  private army: (SquadSetup & { ax: number; ay: number; placed: boolean; advance?: boolean })[] = []; // advance = march with the army (battle AI) instead of holding
   private field = { W: CONFIG.battle.fieldW, H: CONFIG.battle.fieldH };
   private sel: number[] = [];             // selected squads (indexes into army); tap squads to add them
   private page: 'deploy' | 'army' = 'deploy';
@@ -128,7 +128,7 @@ export class BattleLab {
   private setup(): BattleSetup {
     this.placedIdx = [];
     const mine: SquadSetup[] = [];
-    this.army.forEach((a, i) => { if (a.placed) { this.placedIdx.push(i); mine.push({ unit: a.unit, rank: a.rank, x: a.x, y: a.y, path: a.path }); } });
+    this.army.forEach((a, i) => { if (a.placed) { this.placedIdx.push(i); mine.push({ unit: a.unit, rank: a.rank, x: a.x, y: a.y, path: a.path, ...(a.advance && !a.path?.length ? { order: 'free' as const } : {}) }); } });
     return { sides: [mine, this.enemy], bonus: [this.colonyBonus(), {}], orders: [true, true], field: this.field };
   }
 
@@ -251,9 +251,17 @@ export class BattleLab {
       case 'plan': this.planAuto = false; this.plan = (this.plan + 1 + Math.floor(Math.random() * (PLANS.length - 1))) % PLANS.length; this.makeEnemy(); this.preview(); break;
       case 'selall': this.sel = this.army.map((a, i) => a.placed ? i : -1).filter(i => i >= 0); break;
       case 'desel': this.sel = []; break;
-      case 'forward': // every squad without an arrow gets a straight one toward the enemy
-        for (const a of this.army) if (a.placed && !a.path?.length) a.path = [{ x: this.field.W * 0.78, y: a.y! }];
+      case 'forward': { // every squad without an arrow advances with the army (tap again: all hold)
+        const free = this.army.filter(a => a.placed && !a.path?.length);
+        const all = free.length > 0 && free.every(a => a.advance);
+        for (const a of free) a.advance = !all;
         this.preview(); break;
+      }
+      case 'advsel': { // selected squads: advance with the army / hold
+        const sel = this.sel.map(i => this.army[i]), all = sel.every(a => a.advance && !a.path?.length);
+        for (const a of sel) { a.advance = !all; if (!all) a.path = undefined; }
+        this.preview(); break;
+      }
       case 'place': { const i = Number(el.dataset.i), a = this.army[i]; a.placed = true; a.x = a.ax; a.y = a.ay; this.sel = [i]; this.preview(); break; }
       case 'unplace': for (const i of this.sel) { this.army[i].placed = false; this.army[i].path = undefined; } this.sel = []; this.preview(); break;
       case 'unpath': for (const i of this.sel) this.army[i].path = undefined; this.preview(); break;
@@ -303,14 +311,16 @@ export class BattleLab {
       const arrows = sel.filter(a => a.path?.length).length;
       const icons = [...new Set(sel.map(a => a.unit))].map(u => `<img src="${unitIcon(u)}" alt="">`).join('');
       const what = sel.length === 1 ? CONFIG.military.units[sel[0].unit].name : `${sel.length} squads`;
-      const doing = arrows === sel.length ? (sel.length === 1 ? 'follows its arrow' : 'follow their arrows') : arrows ? `${arrows} with arrows` : sel.length === 1 ? 'holds its ground' : 'hold their ground';
+      const adv = sel.filter(a => a.advance && !a.path?.length).length, one = sel.length === 1;
+      const doing = arrows === sel.length ? (one ? 'follows its arrow' : 'follow their arrows') : adv === sel.length ? (one ? 'advances with the army' : 'advance with the army')
+        : arrows || adv ? [arrows ? `${arrows} with arrows` : '', adv ? `${adv} advancing` : ''].filter(Boolean).join(', ') : one ? 'holds its ground' : 'hold their ground';
       const selRow = sel.length ? `<div class="labsel">${icons}<b>${what}</b><span>${doing}</span>
-          ${arrows ? `<button class="mini" data-lab="unpath">✕ Arrow${arrows > 1 ? 's' : ''}</button>` : ''}<button class="mini" data-lab="unplace">To tray</button>
+          <button class="mini" data-lab="advsel">${adv === sel.length ? 'Hold' : 'Advance'}</button>${arrows ? `<button class="mini" data-lab="unpath">✕ Arrow${arrows > 1 ? 's' : ''}</button>` : ''}<button class="mini" data-lab="unplace">To tray</button>
           <button class="mini desel" data-lab="desel" aria-label="Deselect">✕</button></div>` : '';
       const placed = this.army.filter(x => x.placed).length;
-      this.panel.innerHTML = `${selRow || `<div class="labsel"><p class="labhint">Tap squads to select them (as many as you like), then drag the <b>➜</b> to draw their path. Drag a selected squad to move the group. <b>No arrow = hold ground.</b></p><button class="mini" data-lab="selall">Select all</button></div>`}
+      this.panel.innerHTML = `${selRow || `<div class="labsel"><p class="labhint">Tap squads to select them (as many as you like), then drag the <b>➜</b> to draw their path. Drag a selected squad to move the group. <b>No arrow = hold ground</b> (or tap <b>Advance all</b>).</p><button class="mini" data-lab="selall">Select all</button></div>`}
         ${tray ? `<div class="labtray">${tray}</div>` : ''}
-        <div class="labtools"><button class="mini" data-lab="page">⚙ Armies</button><button class="mini" data-lab="auto">Auto</button><button class="mini" data-lab="clear">Clear</button><button class="mini" data-lab="forward">All ➜</button></div>
+        <div class="labtools"><button class="mini" data-lab="page">⚙ Armies</button><button class="mini" data-lab="auto">Auto</button><button class="mini" data-lab="clear">Clear</button><button class="mini" data-lab="forward">${this.army.some(a => a.placed && !a.path?.length) && this.army.filter(a => a.placed && !a.path?.length).every(a => a.advance) ? 'All hold' : 'Advance all'}</button></div>
         <div class="labplan"><span>Enemy plan: <b style="color:${TEAM[1]}">${PLANS[this.plan].name}</b> <small>${PLANS[this.plan].desc}${this.planAuto ? ' (its pick for these armies)' : ''}</small></span><button class="mini" data-lab="plan">🎲 New plan</button></div>
         <div class="labbtns"><button class="btn" data-lab="fight" ${placed ? '' : 'disabled'}>▶ Fight</button><button class="btn ghost" data-lab="batch">Run 50 battles</button></div>
         ${this.batchHtml()}`;
@@ -515,8 +525,14 @@ export class BattleLab {
     };
     if (this.view === 'setup') {
       this.army.forEach((a, i) => {
-        if (!a.placed || !a.path?.length) return;
+        if (!a.placed) return;
         const on = this.sel.includes(i);
+        if (a.advance && !a.path?.length) { // a short "advance" marker in front of the squad
+          const p0 = { x: a.x! + 0.5, y: a.y! }, p1 = { x: a.x! + 2.0, y: a.y! };
+          arrow([p0, p1], on ? '#ffffff' : '#f4c430', 3.2 * d, 0.9);
+          return;
+        }
+        if (!a.path?.length) return;
         arrow([{ x: a.x!, y: a.y! }, ...a.path], on ? '#ffffff' : TEAM[0], (on ? 3.4 : 2.6) * d, on ? 0.95 : 0.85);
       });
     } else {
@@ -857,7 +873,7 @@ export class BattleLab {
         if (len < 1.2) { const old = this.extendBase.get(i)!; a.path = old.length ? old : undefined; } // a tiny scribble: put the arrow back as it was
         else if (a.path?.length) a.path = this.smoothPath({ x: a.x!, y: a.y! }, a.path);
       }
-      if (len >= 1.2) this.sel = []; // arrow given: done with these squads (unselect them)
+      if (len >= 1.2) { for (const [i] of g.start) this.army[i].advance = false; this.sel = []; } // arrow given: done with these squads (unselect them)
     }
     this.preview(); this.renderPanel();
   }

@@ -107,6 +107,8 @@ function rand(b: BattleState) {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
+/** A fixed 0..1 number for a pair of ids (repeatable "personal taste"). */
+const hash01 = (a: number, b: number) => { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 const unitSize = (u: UnitKind) => CONFIG.military.units[u].size;
 const stats = (u: UnitKind) => CONFIG.battle.units[u];
 const angDiff = (a: number, b: number) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -389,7 +391,8 @@ export function stepBattle(b: BattleState) {
         let d = Math.hypot(ex, ey);
         if (!isCav && !shooter(q)) { // infantry go for the enemy squad opposite them (keeps the line together)
           const fx = Math.cos(q.ang), fy = Math.sin(q.ang);
-          d = Math.abs(ex * fx + ey * fy) * 0.45 + Math.abs(-ex * fy + ey * fx) * 1.1;
+          d = Math.abs(ex * fx + ey * fy) * 0.5 + Math.abs(-ex * fy + ey * fx) * A.lateralWeight;
+          d += hash01(q.id, e.id) * A.targetJitter; // every squad sizes things up a little differently (no perfect lanes)
         }
         if (U.strongVs.includes(e.unit)) d -= 4;             // go for what we beat
         if (stats(e.unit).strongVs.includes(q.unit)) d += 3; // avoid what beats us
@@ -402,6 +405,7 @@ export function stepBattle(b: BattleState) {
               Math.cos(angDiff(ef.ang, Math.atan2(e.my - ef.my, e.mx - ef.mx))) < 0.2) d -= A.protectBonus;
           if (wavering(e)) d -= isCav ? A.cavWaverBonus : A.waverBonus;   // finish off a squad that's about to break
           if (busy && (attackersOf.get(e.id) ?? 0) === 0) d -= A.unattendedBonus; // nobody is answering this one yet
+          if (busy && ef && (wavering(ef) || squadHp(b, ef) < A.helpHp) && Math.hypot(e.mx - q.mx, e.my - q.my) < A.helpRange) d -= A.helpBonus; // a friend is losing: go help
           if (isCav) {
             if (busy) d -= A.cavBusyBonus;                    // cavalry love an enemy that's busy: hit it from behind
             else if (e.unit === 'spearmen') d += A.cavSpearFear; // ...and hate fresh spearmen who can brace
@@ -439,6 +443,10 @@ export function stepBattle(b: BattleState) {
         tq = th; q.target = th.id; q.flankSide = 0; q.retarget = 2;
       }
     }
+    // infantry on an arrow: once an enemy squad is close, leave the arrow and fight like a free squad (and stay free afterwards)
+    if (q.order === 'path' && !isCav && !shooter(q)) {
+      for (const e of b.squads) if (e.side !== q.side && active(e) && Math.hypot(e.mx - q.mx, e.my - q.my) < O.engageDist) { q.order = 'free'; q.inLine = false; q.commit = -1; break; }
+    }
     // on a path but committed to a real fight: that enemy squad is the target until it's beaten
     if (q.commit > 0) {
       const c = sq(q.commit);
@@ -459,8 +467,11 @@ export function stepBattle(b: BattleState) {
       // standing and shooting until the enemy is well out of range, then walk up to a comfortable distance
       const range = rangeOf(q.side, q.unit), want = range * 0.6;
       const a = Math.atan2(ny - q.my, nx - q.mx);
-      const wp = q.order === 'path' ? pathStep(q) : null;
-      if (wp) { gx = wp.x; gy = wp.y; } // following the player's arrow (shooting at whatever comes in range)
+      const inRange = nd <= range * 0.95;
+      const wp = q.order === 'path' && !inRange ? pathStep(q) : null; // on an arrow: walk on only while nothing is in range
+      if (q.order === 'path' && (cover = archerCover(q))) { gx = cover.x; gy = cover.y; speed = U.speed * 1.15; }
+      else if (wp) { gx = wp.x; gy = wp.y; } // following the player's arrow
+      else if (q.order === 'path') { /* stand and shoot */ }
       else if (q.order !== 'hold' && (cover = archerCover(q))) {
         // enemy fighters closing in: fall back behind the nearest friendly infantry (still shooting)
         q.hold = false; gx = cover.x; gy = cover.y; speed = U.speed * 1.15;
@@ -647,10 +658,11 @@ export function stepBattle(b: BattleState) {
     const meleeReach = U.reach + (s.unit === 'spearmen' && slot.rank === 1 ? B.spacing * 1.2 : 0); // spears reach past the front rank
     // how far this soldier may step out of formation to fight; formations fray the longer a melee goes on
     const fray = q.meleeSince >= 0 ? Math.min(ML.frayMax, (b.t - q.meleeSince) * ML.frayRate) : 0;
-    const leash = (q.broken ? ML.brokenLeash : isCav ? ML.cavLeash : q.state === 'charge' ? 0.5
+    const leash = (q.broken ? ML.brokenLeash : isCav ? ML.cavLeash : q.state === 'charge' ? ML.chargeLeash
       : front ? (edge ? ML.edgeLeash : ML.frontLeash) : (edge ? ML.frontLeash : ML.backLeash)) + fray;
     // in a melee, soldiers outside the front rank with nobody to fight go looking (wrapping round, flanking)
-    const hunt = q.state === 'melee' && !front && !shoots ? Math.max(leash, (ML.huntLeash + fray) * (0.75 + s.nerve * 0.5)) : leash;
+    // in a melee, soldiers with nobody to fight go looking (wrapping round, flanking): the back ranks further, the front rank a little
+    const hunt = q.state === 'melee' && !shoots ? Math.max(leash, (ML.huntLeash + fray) * (0.75 + s.nerve * 0.5) * (front && !isCav ? ML.frontHunt : 1)) : leash;
 
     if (q.state === 'withdraw') { goTo(slot.x, slot.y, U.speed * 1.3); continue; }
 
@@ -679,7 +691,7 @@ export function stepBattle(b: BattleState) {
           if (e.inMelee) score += 5; // don't shoot into a melee where our own men are fighting (if there's anything else)
         } else {
           // the enemy nearest our place in the line, but also near us
-          score = Math.hypot(e.x - slot.x, e.y - slot.y) * 0.7 + d * 0.3;
+          score = Math.hypot(e.x - slot.x, e.y - slot.y) * ML.slotWeight + d * (1 - ML.slotWeight);
           if (e.squad === q.target) score -= 0.4;
           if (U.strongVs.includes(e.unit)) score -= 0.3;
           if (e.routing || sq(e.squad).fleeing) score += isCav ? 0 : 1.5;

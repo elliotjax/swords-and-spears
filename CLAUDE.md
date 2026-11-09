@@ -24,7 +24,7 @@
 - You can't watch battles move: use the numbers, the ASCII map, and Playwright screenshots (`npx vite --port 5173`, then `window.game.lab`).
 
 ## Battle AI: how it fits together (see README section 10 for the rules)
-- Every squad has an order: `free` (battle AI), `hold`, or `path` (follow an arrow, then free). Both sides use the same code; the enemy's orders come from its plan (`PLANS` in `lab.ts`).
+- Every squad has an order: `free` (battle AI; "Advance" in the Lab), `hold`, or `path` (an arrow: infantry leave it near the enemy, archers stop to shoot, cavalry keep to it; free at the end). Both sides use the same code; the enemy's orders come from its plan (`PLANS` in `lab.ts`).
 - Squad step in `stepBattle`: pick a target (scoring in tiles, bonuses in `CONFIG.battle.ai`), then one of: archers / withdraw / melee / hold / path / marching in the army line / form up and charge.
 - Soldier step: each soldier picks their own opponent near their formation slot; blows, parries and morale follow.
 - Ideas not built yet: explicit army structure (centre, wings, reserve with a commander deciding when to commit), squads wheeling to face several attackers, one-on-one duel animations, saved formations.

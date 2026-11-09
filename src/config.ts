@@ -266,6 +266,11 @@ export const CONFIG = {
       archerFallBack: 3.2,      // archers fall back when enemy fighters come this close...
       archerCoverRange: 9,      // ...if friendly infantry is within this range to hide behind
       guardJoinRange: 7,        // squads holding "on guard" (enemy plans) join in when a friend this close is fighting...
+      lateralWeight: 0.8,       // infantry prefer the enemy squad opposite them (sideways distance counts this much)...
+      targetJitter: 1.5,        // ...but each squad sizes things up a little differently (up to this many tiles), so it's not perfect pairs
+      helpHp: 0.5,              // a friend below this HP share (or wavering) and fighting...
+      helpRange: 7,             // ...within this range...
+      helpBonus: 2.5,           // ...makes its attacker a priority: go help
       guardArrows: 8,           // ...or after taking this many arrow hits
     },
     tempo: 1,                   // multiplies every attack's wait (bigger = slower swings). Battles are long because most frontal blows get parried, not because people stand around
@@ -296,8 +301,11 @@ export const CONFIG = {
       cavLeash: 1.2,
       brokenLeash: 1.0,         // broken squads get ragged
       pressGap: 0.25,           // the stronger squad leans in and pushes the weaker one back
-      frayRate: 0.05,           // formations fray: soldiers may drift this much further from their place per second of melee...
-      frayMax: 0.6,             // ...up to this much
+      frayRate: 0.08,           // formations fray: soldiers may drift this much further from their place per second of melee...
+      frayMax: 1.0,             // ...up to this much
+      chargeLeash: 0.8,         // in the last rush of a charge the line loosens this much (it's not a parade)
+      frontHunt: 0.6,           // front-rank soldiers with nobody to fight may go looking this share as far as the back ranks
+      slotWeight: 0.45,         // choosing who to fight: how much "near my place in the squad" counts (the rest is "near me")
       huntLeash: 1.3,           // soldiers not in the front rank may go this far from their place to find someone to fight (flanking, wrapping round)
       pressForward: 0.2,        // back ranks with nobody to fight lean forward to fill gaps
     },
