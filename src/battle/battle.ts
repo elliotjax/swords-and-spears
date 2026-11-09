@@ -76,6 +76,8 @@ export interface BSquad {
   commit: number;             // on a path but caught in a real fight: finish this enemy squad first (-1 = none)
   commitX: number; commitY: number; // where we left the path (don't chase too far from it)
   guard: boolean; arrowsTaken: number; // 'hold' squads on guard join the fight when a friend nearby is fighting or after taking this many arrow hits
+  support: number;            // friendly squads close beside us (0, 1 or 2 sides): friends beside you steady you
+  role: '' | 'guard' | 'raid'; // cavalry: guard our flank against enemy cavalry, or raid (archers, rear of the enemy line)
   waiting: boolean;           // in reserve right now: standing behind a friendly squad that's fighting, ready to step in
   inLine: boolean;            // still marching as part of the army's formation (free squads, until the enemy is close)
   lineDepth: number;          // how far behind the army's front this squad stands (keeps the formation's shape on the march)
@@ -191,7 +193,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
         withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
         order: q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
-        guard: !!q.guard, arrowsTaken: 0, waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
+        guard: !!q.guard, arrowsTaken: 0, support: 0, role: '', waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
         path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
       };
       for (let i = 0; i < unitSize(q.unit); i++) {
@@ -214,6 +216,19 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
     const mine = b.squads.filter(q => q.side === side);
     const front = Math.max(...mine.map(q => q.cx * q.fwd));
     for (const q of mine) { q.lineDepth = front - q.cx * q.fwd; q.inLine = q.order === 'free'; }
+  }
+  // cavalry jobs: if the enemy has cavalry, one squad per wing guards our flank against it; the rest raid
+  for (const side of [0, 1] as Side[]) {
+    const cav = b.squads.filter(q => q.side === side && q.unit === 'cavalry');
+    const enemyCav = b.squads.filter(q => q.side !== side && q.unit === 'cavalry').length;
+    for (const q of cav) q.role = 'raid';
+    if (!enemyCav || !cav.length) continue;
+    if (cav.length === 1) { if (enemyCav >= 2) cav[0].role = 'guard'; continue; }
+    if (cav.length < 4) { cav[0].role = 'guard'; continue; } // 2-3 squads: one guard, the rest raid
+    for (const top of [true, false]) {                       // 4+: one guard per wing, the rest raid
+      const wing = cav.filter(q => (q.homeY < b.H / 2) === top).sort((a, z) => a.lineDepth - z.lineDepth);
+      if (wing.length) wing[0].role = 'guard';
+    }
   }
   return b;
 }
@@ -329,13 +344,27 @@ export function stepBattle(b: BattleState) {
     // ganged up on: every extra enemy squad fighting us at once wears courage down
     let attackers = 0;
     for (const k in q.hitBy) if (b.t - q.hitBy[k] < 1.5) attackers++;
-    if (attackers > 1) loseMorale(q, M.outnumberedPerSec * (attackers - 1) * DT);
-    if (b.t - q.lastHit > M.recoverAfter) q.morale = Math.min(M.start, q.morale + M.recoverPerSec * DT);
+    if (attackers > 1) loseMorale(q, M.outnumberedPerSec * (attackers - 1) * M.supportFront[q.support] * DT); // (friends beside you help here too)
+    // between blows courage comes back (faster with friends beside us)
+    if (b.t - q.lastHit > M.recoverAfter - q.support * 0.75) q.morale = Math.min(M.start, q.morale + M.recoverPerSec * (1 + q.support * 0.5) * DT);
     const hpBreak = squadHp(b, q) <= B.breakAt, moraleBreak = q.morale <= 0;
     if (hpBreak || moraleBreak) {
       q.broken = true; q.brokenAt = b.t; q.brokeBy = hpBreak ? 'hp' : 'morale'; q.morale = Math.max(0, q.morale);
       newlyBroken.push(q);
     }
+  }
+  // friends beside us: a friendly squad close on our left and/or right (it steadies us)
+  for (const q of b.squads) {
+    if (!active(q) || q.broken) continue;
+    const fx = Math.cos(q.ang), fy = Math.sin(q.ang);
+    let left = false, right = false;
+    for (const o of b.squads) {
+      if (o === q || o.side !== q.side || !active(o) || o.broken || shooter(o)) continue;
+      const dx = o.mx - q.mx, dy = o.my - q.my, f = dx * fx + dy * fy, r = -dx * fy + dy * fx;
+      if (Math.abs(f) > M.supportDepth || Math.abs(r) < 0.4 || Math.abs(r) > halfFront(q.unit) + halfFront(o.unit) + M.supportGap) continue;
+      if (r > 0) right = true; else left = true;
+    }
+    q.support = (left ? 1 : 0) + (right ? 1 : 0);
   }
   // a squad breaking shakes its friends nearby and heartens the enemy
   for (const br of newlyBroken) for (const o of b.squads) {
@@ -365,6 +394,15 @@ export function stepBattle(b: BattleState) {
     if (!q.inLine && q.unit !== 'cavalry' && (q.state === 'melee' || q.state === 'formup' || q.state === 'charge')) engaged[q.side] = true;
   }
 
+  // each side's infantry front (how far forward its foot soldiers are): enemies behind it are behind our line
+  const sideFront = [-Infinity, -Infinity], fwdOf: [number, number] = [1, -1];
+  for (const q of b.squads) {
+    fwdOf[q.side] = q.fwd;
+    if (active(q) && !q.broken && q.unit !== 'cavalry' && !shooter(q)) sideFront[q.side] = Math.max(sideFront[q.side], q.mx * q.fwd);
+  }
+  const behindLine = (side: Side, x: number) => isFinite(sideFront[side]) && x * fwdOf[side] < sideFront[side] - 0.5;
+  const enemyCavLeft = [0, 1].map(sd => b.squads.some(q => q.side !== sd && q.unit === 'cavalry' && active(q) && !q.broken));
+
   // ---- squads: choose a target and move the formation (order flips each step: fair to both sides) ----
   const order = Math.round(b.t * BATTLE_TPS) % 2 ? b.squads : [...b.squads].reverse();
   for (const q of order) {
@@ -380,6 +418,7 @@ export function stepBattle(b: BattleState) {
     // cavalry may run down routing enemies; everyone else ignores them
     const targetable = (e: BSquad) => !e.gone && (!e.fleeing || isCav);
 
+    if (q.role === 'guard' && !enemyCavLeft[q.side]) q.role = 'raid'; // enemy cavalry beaten: go raiding
     q.retarget -= DT;
     let tq = q.target > 0 ? sq(q.target) : null;
     if (!tq || !targetable(tq) || (q.retarget <= 0 && !fighting && q.state !== 'withdraw')) {
@@ -389,6 +428,14 @@ export function stepBattle(b: BattleState) {
         if (e.side === q.side || !targetable(e)) continue;
         const ex = e.mx - q.mx, ey = e.my - q.my;
         let d = Math.hypot(ex, ey);
+        // guards only go for enemy cavalry that comes near them or is attacking a friend
+        if (isCav && q.role === 'guard' && q.order === 'free' && (e.unit !== 'cavalry' || (d > A.guardRange && !(e.target > 0 && sq(e.target).side === q.side && e.state === 'melee')))) continue;
+        // raiders leave enemy cavalry alone unless it's on us
+        if (isCav && q.role === 'raid' && e.unit === 'cavalry') d += A.raidCavAvoid; // raiders leave enemy cavalry to our guards
+        if (isCav && q.role === 'raid' && e.unit === 'archers') d -= A.raidArcherBonus;
+        // infantry turn to meet enemy cavalry raiding behind our line (spearmen most of all)
+        if (!isCav && !shooter(q) && q.state !== 'melee' && e.unit === 'cavalry' && behindLine(q.side, e.mx) && d < A.rearCavRange)
+          d -= A.rearCavBonus + (q.unit === 'spearmen' ? 2 : 0);
         if (!isCav && !shooter(q)) { // infantry go for the enemy squad opposite them (keeps the line together)
           const fx = Math.cos(q.ang), fy = Math.sin(q.ang);
           d = Math.abs(ex * fx + ey * fy) * 0.5 + Math.abs(-ex * fy + ey * fx) * A.lateralWeight;
@@ -439,7 +486,8 @@ export function stepBattle(b: BattleState) {
     if (!q.broken && q.state !== 'withdraw' && !shooter(q)) {
       let th: BSquad | null = null, tt = b.t - A.threatMemory;
       for (const k in q.hitBy) if (q.hitBy[k] > tt) { const e = sq(Number(k)); if (e && targetable(e) && !shooter(e)) { th = e; tt = q.hitBy[k]; } }
-      if (th && tq && th !== tq && !(b.t - (q.hitBy[tq.id] ?? -99) < A.threatMemory) && Math.hypot(tq.mx - q.mx, tq.my - q.my) > A.engagedDist) {
+      const raidOn = isCav && q.role === 'raid' && th?.unit === 'cavalry' && tq?.unit !== 'cavalry'; // raiders don't turn to duel cavalry
+      if (th && tq && th !== tq && !raidOn && !(b.t - (q.hitBy[tq.id] ?? -99) < A.threatMemory) && Math.hypot(tq.mx - q.mx, tq.my - q.my) > A.engagedDist) {
         tq = th; q.target = th.id; q.flankSide = 0; q.retarget = 2;
       }
     }
@@ -451,6 +499,13 @@ export function stepBattle(b: BattleState) {
     if (q.commit > 0) {
       const c = sq(q.commit);
       if (c && !c.gone && !c.broken && !c.fleeing) { tq = c; q.target = c.id; }
+    }
+    let station = false;
+    if (!tq && q.role === 'guard' && q.order === 'free') {
+      // a guard with nothing to do: keep marching with the army, then wait on our wing level with our infantry front
+      let nd = Infinity;
+      for (const e of b.squads) if (e.side !== q.side && active(e)) { const d = Math.hypot(e.mx - q.mx, e.my - q.my) + (e.unit === 'cavalry' ? 0 : 100); if (d < nd) { nd = d; tq = e; } }
+      station = !!tq && !q.inLine;
     }
     if (!tq) continue;
 
@@ -505,6 +560,23 @@ export function stepBattle(b: BattleState) {
       }
       if (isCav && tq.unit === 'archers' && dE > 4) ay += (tq.my > b.H / 2 ? 1 : -1) * 2; // ride round the outer edge
       gx = ax; gy = ay;
+      // raiders don't ride through the enemy line: if enemy foot is in the way, go round by our wing's edge first
+      if (isCav && q.role === 'raid' && dE > 4) {
+        const wy = q.homeY < b.H / 2 ? 1.2 : b.H - 1.2;
+        if (Math.abs(q.my - wy) > 1.6) {
+          let blocked = false;
+          const sx = ax - q.mx, sy2 = ay - q.my, L2 = sx * sx + sy2 * sy2 || 1;
+          for (const e of b.squads) {
+            if (e === tq || e.side === q.side || !active(e) || e.unit === 'cavalry') continue;
+            const k = Math.max(0, Math.min(1, ((e.mx - q.mx) * sx + (e.my - q.my) * sy2) / L2));
+            if (Math.hypot(q.mx + sx * k - e.mx, q.my + sy2 * k - e.my) < A.raidClearance) { blocked = true; break; }
+          }
+          if (blocked) { gx = q.mx + (ax - q.mx) * 0.5; gy = wy; }
+        }
+      }
+      if (station) { // guard waiting on its wing
+        gx = isFinite(sideFront[q.side]) ? (sideFront[q.side] - 0.5) * q.fwd : q.cx; gy = q.homeY;
+      }
       // a friendly squad is already fighting right in front of us: wait just behind it, ready to step in
       // (unless it's getting worn down: then push up and join the fight)
       let support: BSquad | null = null;
@@ -524,15 +596,17 @@ export function stepBattle(b: BattleState) {
       // is the enemy right in front of our line? (forward gap from our front rank)
       let gap = Infinity;
       const band = halfFront(q.unit) + 0.35, rx = -fwdY, ry = fwdX;
+      const passing = isCav && q.role === 'raid' && tq.unit !== 'cavalry'; // raiders ride past enemy cavalry on the way to their target
       nearby(q.cx, q.cy, 2.5, e => {
         if (e.side === q.side) return;
+        if (passing && e.unit === 'cavalry') return;
         const ex = e.x - q.cx, ey = e.y - q.cy;
         const f = ex * fwdX + ey * fwdY, r = ex * rx + ey * ry;
         if (Math.abs(r) < band && f > -1.2 && f < gap) gap = f; // (enemies pushed into our ranks count too)
       });
       contact = gap < 1.6;
 
-      if (contact || fighting) {
+      if (contact || (fighting && !(passing && dE > 2.5))) {
         q.state = 'melee';
         if (q.meleeSince < 0) q.meleeSince = b.t;
         // the stronger squad leans in, the weaker gives ground
@@ -558,6 +632,12 @@ export function stepBattle(b: BattleState) {
           q.wx = Math.max(1, Math.min(b.W - 1, q.mx + Math.cos(back) * C.withdrawDist));
           q.wy = Math.max(1, Math.min(b.H - 1, q.my + Math.sin(back) * C.withdrawDist));
         }
+      } else if (station) {
+        q.meleeSince = -1; q.state = 'march'; speed = U.speed * 0.6;
+        faceTo = q.fwd > 0 ? 0 : Math.PI; turnRate = 2;
+      } else if (!isCav && q.order !== 'hold' && tq.unit === 'cavalry' && dE < A.braceDist && (tq.target === q.id || tq.state === 'charge')) {
+        // cavalry coming at us: stop, close ranks and face the charge (spearmen brace)
+        q.meleeSince = -1; q.state = 'formup'; gx = q.cx; gy = q.cy; speed = 0; faceTo = toE; turnRate = 3;
       } else if (q.order === 'hold') {
         // holding: stand our ground, turn to face what's coming
         q.meleeSince = -1;
@@ -621,6 +701,8 @@ export function stepBattle(b: BattleState) {
   const hits: Hit[] = [];
   const SO = B.soldier, ML = B.melee;
   const foesNow = new Uint16Array(b.soldiers.length + 1); // attackers on each soldier this step
+  const arrowsOn = new Map<number, number>(); // archers aiming at each enemy squad (last step)
+  for (const s of b.soldiers) if (s.unit === 'archers' && alive(s) && s.target > 0) { const t = so(s.target); arrowsOn.set(t.squad, (arrowsOn.get(t.squad) ?? 0) + 1); }
   const N = b.soldiers.length, start = Math.floor(rand(b) * N);
   for (let k = 0; k < N; k++) {
     const s = b.soldiers[(start + k) % N];
@@ -689,6 +771,8 @@ export function stepBattle(b: BattleState) {
           score = d;
           if (e.routing || sq(e.squad).fleeing) score += 6;
           if (e.inMelee) score += 5; // don't shoot into a melee where our own men are fighting (if there's anything else)
+          if (e.unit === 'cavalry' && behindLine(s.side, e.x)) score -= A.archerRearCav; // cavalry raiding behind our line
+          score += (arrowsOn.get(e.squad) ?? 0) * A.archerSpread;             // ...but don't all shoot the same squad
         } else {
           // the enemy nearest our place in the line, but also near us
           score = Math.hypot(e.x - slot.x, e.y - slot.y) * ML.slotWeight + d * (1 - ML.slotWeight);
@@ -790,18 +874,19 @@ export function stepBattle(b: BattleState) {
     if (h.by.side !== t.side) tq.hitBy[h.by.squad] = b.t;
     if (arrow && h.by.side !== t.side) tq.arrowsTaken++;
     // courage lost per hit grows with how hard the hit was (a scratch is not a gash)
-    if (h.by.side !== t.side) loseMorale(tq, (arrow ? M.arrowHitLoss : h.flank ? M.flankHitLoss : M.frontHitLoss) * h.dmg / M.hitRef);
+    // (blows from the front hurt much less with friends close beside you; flank and rear blows don't care)
+    if (h.by.side !== t.side) loseMorale(tq, (arrow ? M.arrowHitLoss : h.flank ? M.flankHitLoss : M.frontHitLoss * M.supportFront[tq.support]) * h.dmg / M.hitRef);
     if (!arrow && h.by.id) { t.hurtBy = h.by.id; t.hurtAt = b.t; b.stats.hits[t.side]++; if (h.flank) b.stats.flankHits[t.side]++; }
     if (h.heavy) t.stagger = Math.max(t.stagger, SO.heavyStagger); // a heavy blow knocks them off balance
     if (h.charge) {
-      loseMorale(tq, M.chargedLoss);
+      loseMorale(tq, M.chargedLoss * (h.flank ? 1 : M.supportFront[tq.support])); // a charge into a solid line shakes it less
       t.stagger = C.stagger;
       if (h.kb) { const a = Math.atan2(t.y - h.by.y, t.x - h.by.x); t.x += Math.cos(a) * h.kb; t.y = Math.max(0.3, Math.min(b.H - 0.3, t.y + Math.sin(a) * h.kb)); }
     }
     if (rand(b) < 0.5) b.fx.push({ x: t.x, y: t.y - 0.25, t: 0, kind: 'blood' });
     if (t.hp <= 0) {
       t.dead = true; t.hp = 0; t.diedAt = b.t;
-      loseMorale(tq, M.deathLoss / tq.members.length);
+      loseMorale(tq, M.deathLoss / tq.members.length * (1 - M.supportDeath * tq.support));
       b.marks.push({ x: t.x + (rand(b) - 0.5) * 0.2, y: t.y + 0.05, k: rand(b) });
     } else if (rand(b) < 0.25) b.marks.push({ x: t.x + (rand(b) - 0.5) * 0.3, y: t.y + 0.05, k: rand(b) });
   };

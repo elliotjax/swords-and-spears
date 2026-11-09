@@ -271,6 +271,15 @@ export const CONFIG = {
       helpHp: 0.5,              // a friend below this HP share (or wavering) and fighting...
       helpRange: 7,             // ...within this range...
       helpBonus: 2.5,           // ...makes its attacker a priority: go help
+      guardRange: 12,           // cavalry guards go for enemy cavalry within this range (or attacking a friend); else wait on their wing
+      raidCavAvoid: 8,          // cavalry raiders leave enemy cavalry alone (unless it attacks them)
+      raidArcherBonus: 3,       // raiders love archers
+      raidClearance: 2.2,       // raiders ride round enemy foot that's within this distance of their route
+      rearCavRange: 7,          // infantry not fighting turn to meet enemy cavalry behind our line within this range
+      rearCavBonus: 5,          // (spearmen +2)
+      braceDist: 4,             // infantry stop and face cavalry charging at them from this close
+      archerRearCav: 3,         // archers prefer cavalry behind our line...
+      archerSpread: 0.06,       // ...but each archer already aiming at a squad makes it this much less attractive (spread the arrows)
       guardArrows: 8,           // ...or after taking this many arrow hits
     },
     tempo: 1,                   // multiplies every attack's wait (bigger = slower swings). Battles are long because most frontal blows get parried, not because people stand around
@@ -280,10 +289,14 @@ export const CONFIG = {
       start: 100,
       deathLoss: 70,            // losing the whole squad costs this much (shared per soldier)
       hitRef: 25,               // hit losses below are for a hit of this much damage (smaller hits cost less courage)
-      frontHitLoss: 1.2,        // each hit taken from the front
+      frontHitLoss: 1.2,        // each hit taken from the front...
+      supportFront: [1, 0.6, 0.3] as number[], // ...times this with 0 / 1 / 2 friendly squads close beside you
+      supportDeath: 0.2,        // each friendly squad beside you: losing a man costs this share less courage
+      supportGap: 1.8,          // "beside you": a friendly squad's edge within this many tiles of yours...
+      supportDepth: 2.5,        // ...and no more than this far ahead or behind
       flankHitLoss: 4,          // each hit taken from the side or behind (being flanked is terrifying)
       arrowHitLoss: 1,          // each arrow that hits
-      chargedLoss: 4,           // each hit from a charge
+      chargedLoss: 2,           // each hit from a charge (less with friends beside you, unless it's from the flank)
       friendBrokeLoss: 15,      // a friendly squad nearby breaks (less when lots of other friends are close: big armies hold steadier)
       enemyBrokeGain: 8,        // an enemy squad nearby breaks
       nearbyRange: 6,           // tiles
