@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { FOREST, type GameState } from './types';
+import { FOREST, STONE, type GameState } from './types';
 
 // A* pathfinding on the tile grid (8 directions, no corner cutting).
 // Slightly prefers worn tiles so foot traffic reinforces itself into roads.
@@ -50,7 +50,8 @@ export function walkable(s: GameState, i: number): boolean {
 
 export function tileCost(s: GameState, i: number): number {
   const P = CONFIG.paths;
-  const base = s.tiles[i] === FOREST ? CONFIG.villagers.forestWalkCost : 1;
+  const t = s.tiles[i];
+  const base = t === FOREST ? CONFIG.villagers.forestWalkCost : t === STONE ? CONFIG.map.stoneWalkCost : 1;
   return base * (1 - P.preferWorn * s.wear[i]);
 }
 

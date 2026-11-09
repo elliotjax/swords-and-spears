@@ -1,12 +1,16 @@
-import { BUILD_MENU, CONFIG, type BuildingKind, type Category, type UnitKind } from '../config';
+import { BUILD_MENU, CONFIG, GOODS, type BuildingKind, type Cost, type Good, type Category, type UnitKind } from '../config';
 import { buildingCanvas, drawPawn } from '../render/pixel';
 import {
   addWorker, allAsleep, beds, carrierCount, deliveryLoss, birthBlock, birthRate, canPlace, canUpgradeHall, dayNumber, def, foodCap, foodStored, getB, hourOf,
   houseCap, houseCount, idleCount, lockReason, population, presentWorkers, rates, remove,
   removeWorker, spawnVillagers, upgradeHall, soldiers, soldierBeds, armyUpkeep, battleReady, rankOf,
   squadName, recruitBlock, recruit, disband, quickTown, avgHappiness, nearChapel, civilians,
-  techBlock, techDef, startResearch, cancelResearch, hasTech,
+  techBlock, techDef, startResearch, cancelResearch, hasTech, addGoods,
 } from '../sim/sim';
+import {
+  amountOf, available, goodsIn, incoming, isBuilt, isSite, madeHere, siteHours, siteMaterials, siteNeed, siteProgress,
+  siteWrightCap, stockCap, stockTotal,
+} from '../sim/logistics';
 import type { Building, GameState, Squad, Villager } from '../sim/types';
 import type { Game } from '../main';
 import { IC } from './icons';
@@ -39,6 +43,8 @@ export function unitIcon(u: UnitKind): string {
   return url;
 }
 
+const GOOD_LABEL: Record<Good, string> = { wood: 'Wood', stone: 'Stone', furniture: 'Furniture' };
+const GOOD_EMOJI: Record<Good, string> = { wood: '🪵', stone: '🪨', furniture: '🪑' };
 const fmt = (n: number) => (Math.abs(n) >= 100 ? Math.round(n).toString() : (Math.round(n * 10) / 10).toString());
 const sign = (n: number) => (n >= 0 ? '+' : '−') + fmt(Math.abs(n));
 
@@ -49,6 +55,8 @@ export class UI {
   private lastSheet = '';
   private toastT = 0;
   private techsSeen = -1;
+  private sitesSeen = new Map<number, string>(); // building sites last time we looked (to say when they finish)
+  private hallSeen = -1;
   private confirmRemove = 0;
   private confirmNew = false;
   menuOpen = false;
@@ -82,7 +90,7 @@ export class UI {
         <button data-speed="${CONFIG.testSpeed}" aria-label="${CONFIG.testSpeed}x speed">${IC.fast}<span>${CONFIG.testSpeed}×</span></button>
         <button data-act="testVillagers" aria-label="Add 10 villagers">${IC.addPeople}<span>+10</span></button>
         <button data-act="testGold" aria-label="Add 100 gold">${IC.gold}<span>+100</span></button>
-        <button data-act="testWood" aria-label="Add 100 wood">${IC.wood}<span>+100</span></button>
+        <button data-act="testWood" aria-label="Add goods">${IC.wood}<span>+Goods</span></button>
         <button data-act="testLab" aria-label="Battle Lab">${IC.swords}<span>Battle</span></button>
         <button data-act="testTown" aria-label="Build a starter town">${IC.town}<span>Town</span></button>
         <button data-act="testUnlock" id="unlockBtn" aria-label="Unlock everything">${IC.unlock}<span>Unlock</span></button>
@@ -146,7 +154,7 @@ export class UI {
       case 'add': if (!addWorker(s, id)) this.toast(idleCount(s) ? 'Building is full' : 'No idle villagers'); break;
       case 'sub': removeWorker(s, id); break;
       case 'goto': this.tab = 'villagers'; g.view.selected = id; g.centerOn(id); break;
-      case 'upgrade': if (upgradeHall(s)) this.toast(`Town Hall is now Lv ${s.hallLevel}!`); break;
+      case 'upgrade': if (upgradeHall(s)) this.toast('Upgrade started: haulers and wrights are on it'); break;
       case 'remove':
         if (this.confirmRemove === id) { remove(s, id); g.view.selected = null; this.toast('Building removed'); }
         else this.confirmRemove = id;
@@ -161,7 +169,11 @@ export class UI {
       case 'card': break; // handled by input (tap vs drag)
       case 'testVillagers': this.toast(spawnVillagers(s, 10) ? '+10 villagers' : 'Place the Town Hall first'); break;
       case 'testGold': s.gold += 100; this.toast('+100 gold'); break;
-      case 'testWood': s.wood += 100; this.toast('+100 wood'); break;
+      case 'testWood': {
+        const n = addGoods(s, 'wood', 100) + addGoods(s, 'stone', 50) + addGoods(s, 'furniture', 10);
+        this.toast(n ? '+100 wood, +50 stone, +10 furniture' : 'No room: build a Stockpile');
+        break;
+      }
       case 'testLab': g.openLab(); return;
       case 'testTown': { const n = quickTown(s); g.view.selected = null; if (s.hallId != null) g.centerOn(s.hallId); this.toast(`Starter town: ${n} buildings`); break; }
       case 'testUnlock': s.unlockAll = !s.unlockAll; this.toast(s.unlockAll ? 'Everything unlocked (testing)' : 'Normal progression'); break;
@@ -188,7 +200,8 @@ export class UI {
     const a = this.currentAlert();
     if (!a) return;
     if (a.go === 'villagers') { this.tab = 'villagers'; this.game.view.selected = null; }
-    if (a.go === 'housing' || a.go === 'food') { this.tab = 'build'; this.cat = a.go; this.game.view.selected = null; }
+    if (a.go === 'housing' || a.go === 'food' || a.go === 'town') { this.tab = 'build'; this.cat = a.go; this.game.view.selected = null; }
+    if (a.go.startsWith('select:')) { const id = Number(a.go.slice(7)); this.select(id); this.game.centerOn(id); }
     if (a.go === 'hall' && this.s.hallId != null) { this.select(this.s.hallId); this.game.centerOn(this.s.hallId); }
     this.update(true);
   }
@@ -200,16 +213,23 @@ export class UI {
     if (s.hallId == null) return null;
     const r = rates(s);
     const homeless = s.villagers.filter(v => v.home == null).length;
-    const openJobs = s.buildings.reduce((a, b) => a + Math.max(0, (def(b.kind).workers ?? 0) - b.workers.length), 0);
+    const openJobs = s.buildings.reduce((a, b) => a + (isBuilt(b) ? Math.max(0, (def(b.kind).workers ?? 0) - b.workers.length) : 0), 0);
     const has = (k: string) => s.buildings.some(b => b.kind === k);
+    const built = (k: string) => s.buildings.some(b => b.kind === k && isBuilt(b));
+    if (!built('stockpile')) return { title: 'Build a Stockpile', sub: 'Haulers there carry all the materials', level: 'bad', go: 'town' };
+    if (!built('wrights') && s.buildings.some(isSite)) return { title: "Build a Wright's Lodge", sub: 'Wrights build your buildings', level: 'bad', go: 'town' };
     if (!has('farm')) return { title: 'Build a Farm', sub: 'Your people need food', level: r.food < 0 && foodStored(s) <= 0.01 ? 'bad' : 'warn', go: 'food' };
-    if (!has('granary')) return { title: 'Build a Granary', sub: 'Farmers need somewhere to store food', level: 'warn', go: 'food' };
-    const noKeeper = s.buildings.find(b => b.kind === 'granary' && !b.workers.length);
+    if (!built('granary') && !has('granary')) return { title: 'Build a Granary', sub: 'Farmers need somewhere to store food', level: 'warn', go: 'food' };
+    const noKeeper = s.buildings.find(b => b.kind === 'granary' && isBuilt(b) && !b.workers.length);
     if (noKeeper) return { title: 'Granary has no keeper', sub: 'It can\'t take food. Assign 1 worker', level: 'warn', go: 'villagers' };
     if (foodStored(s) <= 0.01 && r.food < 0) return { title: 'Starving!', sub: 'Granary empty. Assign farmers', level: 'bad', go: 'villagers' };
     if (r.food < 0) return { title: 'Food shortage', sub: `Food dropping ${fmt(-r.food)} lb/day`, level: 'warn', go: 'villagers' };
     if (homeless > 0 && houseCount(s) < houseCap(s)) return { title: 'Need houses', sub: `${homeless} villagers have no bed`, level: 'warn', go: 'housing' };
     if (idleCount(s) > 0 && openJobs > 0) return { title: `${idleCount(s)} idle villagers`, sub: 'Tap to give them jobs', level: 'warn', go: 'villagers' };
+    const fullShelf = s.buildings.find(b => { const g = madeHere(b), d = def(b.kind); return g && d.shelf && b.workers.length && amountOf(b, g) >= d.shelf - 0.5; });
+    if (fullShelf) return { title: `${def(fullShelf.kind).name} is full`, sub: 'Work stopped: add haulers or a closer stockpile', level: 'warn', go: 'select:' + fullShelf.id };
+    const pileFull = stockCap(s) && GOODS.reduce((a, g) => a + stockTotal(s, g), 0) >= stockCap(s) - 5;
+    if (pileFull) return { title: 'Stockpiles are full', sub: 'Build another Stockpile', level: 'warn', go: 'town' };
     if (houseCount(s) >= houseCap(s) && beds(s) <= population(s) && CONFIG.townHall.levels[s.hallLevel])
       return { title: 'Houses full', sub: 'Upgrade the Town Hall', level: 'warn', go: 'hall' };
     return null;
@@ -230,7 +250,8 @@ export class UI {
         <span class="vl">${Math.floor(stored)} lb<small style="color:${fc}">${sign(r.food)}/d</small></span></div>
       <div class="gbar"><i style="width:${pct}%;background:${pct < 20 ? 'var(--bad)' : 'var(--good)'}"></i></div>
       <div class="gnote">Granary ${pct}% full</div>
-      <div class="srow"><span class="ic">${IC.wood}</span><span class="lb">Wood</span><span class="vl">${Math.floor(s.wood)}${r.wood ? `<small>+${fmt(r.wood)}/d</small>` : ''}</span></div>
+      ${GOODS.map(g => `<div class="srow"><span class="ic">${IC[g]}</span><span class="lb">${GOOD_LABEL[g]}</span><span class="vl">${Math.floor(stockTotal(s, g))}${Math.abs(r[g]) > 0.05 ? `<small style="color:${r[g] < 0 ? 'var(--bad)' : 'inherit'}">${sign(r[g])}/d</small>` : ''}</span></div>`).join('')}
+      <div class="gnote">Stockpiles ${Math.floor(GOODS.reduce((a, g) => a + stockTotal(s, g), 0))} / ${stockCap(s)}</div>
       <div class="srow"><span class="ic">${IC.gold}</span><span class="lb">Gold</span><span class="vl">${Math.floor(s.gold)}<small>+${fmt(r.gold)}/d</small></span></div>
       <div class="srow"><span class="ic">${IC.people}</span><span class="lb">Villagers</span><span class="vl">${civilians(s)} / ${beds(s)}</span></div>
       <div class="srow"><span class="ic">${IC.baby}</span><span class="lb">Births</span><span class="vl" style="color:${br ? 'var(--good)' : 'var(--muted)'}">${fmt(br)}/day</span></div>
@@ -243,11 +264,19 @@ export class UI {
 
     this.updateClock();
     const hc = document.getElementById('hallChip')!;
-    hc.textContent = `Town Hall Lv ${s.hallLevel}`;
+    hc.textContent = `Town Hall Lv ${s.hallLevel}${getB(s, s.hallId)?.site ? ' ⚒' : ''}`;
     hc.classList.toggle('hidden', s.hallId == null);
 
     if (s.techs.length > this.techsSeen) { const t = techDef(s.techs[s.techs.length - 1]); if (t && this.techsSeen >= 0) this.toast(`Research done: ${t.name}!`); }
     this.techsSeen = s.techs.length;
+    // finished buildings and hall upgrades
+    if (this.hallSeen > 0 && s.hallLevel > this.hallSeen) this.toast(`Town Hall is now Lv ${s.hallLevel}!`);
+    this.hallSeen = s.hallLevel;
+    for (const [id, name] of this.sitesSeen) {
+      const b = getB(s, id);
+      if (b && !b.site && b.kind !== 'townHall') this.toast(`${name} finished!`);
+    }
+    this.sitesSeen = new Map(s.buildings.filter(b => b.site).map(b => [b.id, def(b.kind).name]));
 
     const al = this.currentAlert();
     const ae = document.getElementById('alert')!;
@@ -357,30 +386,86 @@ export class UI {
     if (lock) cost = `<span class="ct">${IC.lock} ${lock}</span>`;
     else if (k === 'townHall') cost = `<span class="ct" style="color:var(--good)">Free</span>`;
     else {
-      const parts: string[] = [];
-      if (d.cost.wood) parts.push(`<span class="ct wood ${s.wood < d.cost.wood ? 'bad' : ''}">${d.cost.wood}🪵</span>`);
-      if (d.cost.gold) parts.push(`<span class="ct ${s.gold < d.cost.gold ? 'bad' : ''}">${d.cost.gold}🪙</span>`);
-      cost = `<div style="display:flex;gap:4px">${parts.join('')}</div>`;
+      cost = `<div class="costs">${this.costHtml(d.cost)}</div>`;
     }
     return `<button class="card panel ${lock ? 'locked' : ''} ${sel ? 'sel' : ''}" data-act="card" data-kind="${k}">
       <img src="${buildingIcon(k)}" alt=""><span class="nm">${d.name}</span>${cost}</button>`;
+  }
+
+  /** Cost chips (red when there isn't enough free in the stockpiles). */
+  private costHtml(c: Cost): string {
+    const s = this.s;
+    const parts: string[] = [];
+    for (const g of GOODS) if (c[g]) parts.push(`<span class="ct ${g} ${available(s, g) < c[g]! ? 'bad' : ''}">${c[g]}${GOOD_EMOJI[g]}</span>`);
+    if (c.gold) parts.push(`<span class="ct ${s.gold < c.gold ? 'bad' : ''}">${c.gold}🪙</span>`);
+    return parts.join('');
+  }
+
+  /** Materials list for a site: delivered / needed (and on the way). */
+  private materialsHtml(b: Building): string {
+    const s = this.s;
+    return GOODS.filter(g => siteNeed(s, b, g)).map(g => {
+      const need = siteNeed(s, b, g), got = Math.min(need, Math.floor(amountOf(b, g))), way = incoming(s, b, g);
+      return `<div class="mrow"><span class="ic">${IC[g]}</span><span class="lb">${GOOD_LABEL[g]}</span>
+        <span class="vl">${got} / ${need}${way ? ` <small>+${way} on the way</small>` : ''}</span></div>
+        <div class="bar thin"><i style="width:${(got / need) * 100}%;background:#b5803a"></i></div>`;
+    }).join('');
+  }
+
+  /** A building that isn't finished yet (or the Town Hall being upgraded). */
+  private siteHtml(b: Building): string {
+    const s = this.s;
+    const prog = siteProgress(s, b), mat = siteMaterials(s, b);
+    const wr = s.villagers.filter(v => v.site === b.id);
+    const working = wr.filter(v => v.inside === b.id && v.mode === 'work').length;
+    const hasWrights = s.buildings.some(q => q.kind === 'wrights' && isBuilt(q) && q.workers.length);
+    const hasHaulers = s.buildings.some(q => q.kind === 'stockpile' && isBuilt(q) && q.workers.length);
+    let why = '';
+    if (mat < 0.999 && !hasHaulers) why = 'No haulers: build a Stockpile and give it workers.';
+    else if (mat < 0.999 && GOODS.some(g => siteNeed(s, b, g) - amountOf(b, g) - incoming(s, b, g) > 0.5 && stockTotal(s, g) < 1)) why = 'Waiting: the stockpiles have run out of something it needs.';
+    else if (!hasWrights) why = "No wrights: build a Wright's Lodge and give it workers.";
+    else if (prog >= mat - 0.01 && mat < 0.999) why = 'Waiting for haulers to bring materials.';
+    return `<p><b>${b.site?.upgrade ? `Upgrading to Lv ${s.hallLevel + 1}` : 'Being built'}</b> · ${Math.floor(prog * 100)}% done</p>
+      <div class="bar"><i style="width:${prog * 100}%;background:#8a8478"></i></div>
+      <h4>Materials</h4>${this.materialsHtml(b) || '<p>None needed.</p>'}
+      <p>Wrights here <b>${working}</b> (${wr.length} assigned, up to ${siteWrightCap(b)}) · Work ${fmt(Math.min(b.site!.work, siteHours(s, b)))} / ${fmt(siteHours(s, b))} wright-hours</p>
+      ${why ? `<p><b style="color:var(--warn)">${why}</b></p>` : ''}
+      <p style="font-size:12px">Haulers bring the materials from the stockpiles; wrights build as far as the materials that have arrived allow.</p>`;
   }
 
   private buildingHtml(b: Building): string {
     const s = this.s, d = def(b.kind);
     const head = `<h3><img src="${buildingIcon(b.kind)}" alt="">${d.name}<button class="x" data-act="close" aria-label="Close">✕</button></h3>`;
     let body = '';
-    if (b.kind === 'townHall') {
+    if (b.site && !b.site.upgrade) {
+      body = this.siteHtml(b);
+    } else if (b.kind === 'townHall') {
       const next = CONFIG.townHall.levels[s.hallLevel];
       const can = canUpgradeHall(s);
       body = `<p>Level <b>${s.hallLevel}</b> · Houses <b>${houseCount(s)} / ${houseCap(s)}</b></p>
         <p>Food stored here <b>${Math.floor(b.food)} / ${d.foodStorage} lb</b></p>
         <p>Villagers visit the hall in the evening. Homeless villagers sleep here.</p>`;
-      if (next?.upgradeCost) {
+      if (b.site) body += this.siteHtml(b);
+      else if (next?.upgradeCost) {
         const unlocks = Object.values(CONFIG.buildings).filter(x => x.unlockHallLevel === s.hallLevel + 1).map(x => x.name);
         body += `<p>Next level: house limit <b>${next.houseCap}</b>${unlocks.length ? `, unlocks <b>${unlocks.join(', ')}</b>` : ''}.</p>
-          <button class="btn" data-act="upgrade" ${can.ok ? '' : 'disabled'}>Upgrade to Lv ${s.hallLevel + 1} · ${next.upgradeCost.wood} wood, ${next.upgradeCost.gold} gold</button>`;
+          <p>Upgrade cost: <span class="costs">${this.costHtml(next.upgradeCost)}</span> (gold now; haulers bring the rest and wrights do the work)</p>
+          <button class="btn" data-act="upgrade" ${can.ok ? '' : 'disabled'}>${can.ok ? `Upgrade to Lv ${s.hallLevel + 1}` : can.reason}</button>`;
       } else body += `<p><b>Max level for now.</b></p>`;
+    } else if (d.storage) {
+      const used = goodsIn(b), pct = Math.round((used / d.storage) * 100);
+      body = `${this.stepperHtml(b, 'Haulers')}
+        <p>Stored <b>${Math.floor(used)} / ${d.storage}</b> (${pct}% full)</p>
+        <div class="bar"><i style="width:${pct}%;background:#b5803a"></i></div>
+        ${GOODS.map(g => `<div class="mrow"><span class="ic">${IC[g]}</span><span class="lb">${GOOD_LABEL[g]}</span><span class="vl">${Math.floor(amountOf(b, g))}</span></div>`).join('')}
+        <p>Haulers out working now: <b>${s.villagers.filter(v => v.job === b.id && v.haul).length}</b> of ${b.workers.length}</p>
+        <p style="font-size:12px">Haulers carry materials to building sites first, then supplies to workshops, then collect goods from work buildings (fullest shelves first). Nearby jobs win.</p>`;
+    } else if (b.kind === 'wrights') {
+      const sites = s.buildings.filter(isSite);
+      body = `${this.stepperHtml(b, 'Wrights')}
+        <p>At a building site now: <b>${s.villagers.filter(v => v.job === b.id && v.site != null && v.inside === v.site).length}</b> · Building sites: <b>${sites.length}</b></p>
+        ${sites.map(q => `<div class="mrow"><span class="ic">${IC.hammer}</span><span class="lb">${def(q.kind).name}${q.site?.upgrade ? ' upgrade' : ''}</span><span class="vl">${Math.floor(siteProgress(s, q) * 100)}%<small>${s.villagers.filter(v => v.site === q.id).length} wrights</small></span></div>`).join('')}
+        <p style="font-size:12px">Wrights build anything you place. They go to the nearest site that has materials waiting (older sites first), up to ${CONFIG.build.wrightsPerTile * 4 | 0} on a small site, and stay until it's done.</p>`;
     } else if (d.foodStorage) {
       const pct = Math.round((b.food / d.foodStorage) * 100);
       body = `${d.workers ? this.stepperHtml(b) : ''}
@@ -396,13 +481,22 @@ export class UI {
     } else if (d.workers) {
       const here = presentWorkers(s, b);
       const out = d.output!;
-      const [res, unit] = out.food ? [out.food, 'lb food'] : out.wood ? [out.wood, 'wood'] : [out.gold!, 'gold'];
+      const mg = madeHere(b);
+      const [res, unit] = out.food ? [out.food, 'lb food'] : mg ? [out[mg]!, GOOD_LABEL[mg].toLowerCase()] : [out.gold!, 'gold'];
       const bonus = d.grassBonus ? ` (+${Math.round(d.grassBonus * 100)}% on grassland)` : '';
       const eff = Math.min(1, b.workers.length / d.workers);
       body = `${this.stepperHtml(b)}
         <div class="bar"><i style="width:${eff * 100}%"></i></div>
         <p>At work right now: <b>${here}</b> · Idle villagers: <b>${idleCount(s)}</b></p>
-        <p>Full staff makes <b>${res} ${unit}/day</b>${bonus}. Each worker adds an equal share.</p>`;
+        <p>Full staff makes <b>${res} ${unit}/day</b>${bonus}. Each worker adds an equal share, only while actually working.</p>`;
+      if (mg && d.shelf) {
+        const have = amountOf(b, mg), full = have >= d.shelf - 0.5;
+        body += `<p>Waiting here: <b style="color:${full ? 'var(--bad)' : 'inherit'}">${Math.floor(have)} / ${d.shelf}</b>${full ? ' · <b style="color:var(--bad)">Full! Work stops until haulers collect it</b>' : ' (haulers take it to a stockpile)'}</p>`;
+      }
+      if (d.input) for (const [ig, per] of Object.entries(d.input) as [Good, number][]) {
+        const have = amountOf(b, ig);
+        body += `<p>Uses <b>${per} ${ig}</b> per piece · In stock here <b style="color:${have < per ? 'var(--bad)' : 'inherit'}">${Math.floor(have)} / ${d.inputKeep}</b>${have < per ? ' · <b style="color:var(--bad)">Out of ' + ig + '!</b>' : ''}</p>`;
+      }
       if (d.farmStorage) {
         const full = b.food >= d.farmStorage - 0.5;
         body += `<p>Waiting ${b.kind === 'farm' ? 'at the farm' : 'here'}: <b style="color:${full ? 'var(--bad)' : 'inherit'}">${Math.floor(b.food)} / ${d.farmStorage} lb</b>${full ? ' · <b style="color:var(--bad)">Full! Build a granary</b>' : ''}</p>
@@ -412,14 +506,16 @@ export class UI {
     }
     if (b.kind !== 'townHall') {
       const confirm = this.confirmRemove === b.id;
-      body += `<button class="btn danger" data-act="remove" data-id="${b.id}">${confirm ? (d.foodStorage ? 'Tap again: food inside is lost' : 'Tap again to remove') : `Remove (refund ${Math.round(CONFIG.removeRefund * 100)}%)`}</button>`;
+      const label = b.site ? (confirm ? 'Tap again to cancel it' : 'Cancel building (full refund)')
+        : confirm ? (d.foodStorage ? 'Tap again: food inside is lost' : d.storage && goodsIn(b) ? 'Tap again: goods move to other stockpiles (if there is room)' : 'Tap again to remove') : `Remove (refund ${Math.round(CONFIG.removeRefund * 100)}%)`;
+      body += `<button class="btn danger" data-act="remove" data-id="${b.id}">${label}</button>`;
     }
     return `<div class="panel sheetp">${head}${body}</div>`;
   }
 
-  private stepperHtml(b: Building): string {
+  private stepperHtml(b: Building, label = 'Workers'): string {
     const d = def(b.kind), s = this.s;
-    return `<div class="row"><span class="lb">Workers</span><div class="stepper">
+    return `<div class="row"><span class="lb">${label}</span><div class="stepper">
       <button data-act="sub" data-id="${b.id}" ${b.workers.length ? '' : 'disabled'}>−</button>
       <span class="n">${b.workers.length} / ${d.workers}</span>
       <button data-act="add" data-id="${b.id}" ${b.workers.length < d.workers! && idleCount(s) ? '' : 'disabled'}>+</button></div></div>`;
@@ -427,7 +523,7 @@ export class UI {
 
   private villagersHtml(): string {
     const s = this.s;
-    const jobs = s.buildings.filter(b => def(b.kind).workers);
+    const jobs = s.buildings.filter(b => def(b.kind).workers && isBuilt(b));
     const homeless = s.villagers.filter(v => v.home == null).length;
     const rows = jobs.map(b => {
       const d = def(b.kind);

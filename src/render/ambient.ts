@@ -18,6 +18,7 @@ function fires(kind: BuildingKind, W: number, H: number): { x: number; y: number
     case 'townHall': return [{ x: 8, y: H - 9 }, { x: W - 8, y: H - 9 }];
     case 'tavern': return [{ x: W - 6, y: H - 6, big: true }];
     case 'barracks': return [{ x: 5, y: H - 6 }];
+    case 'wrights': case 'carpenter': return [{ x: W - 6, y: H - 6 }];
     case 'hunter': return [{ x: 10, y: 24, big: true }];
     default: return [];
   }
@@ -31,7 +32,7 @@ function lights(kind: BuildingKind, W: number, H: number): { x: number; y: numbe
     case 'market': return [{ x: W / 2, y: H / 2, r: 1.2 }];
     case 'townHall': return [...f, { x: W / 2, y: H - 2, r: 1.8 }];
     case 'tavern': return [...f, { x: W / 2, y: H / 2, r: 1.6 }];
-    case 'granary': case 'farm': case 'lumberCamp': case 'palisade': case 'trainingGrounds': return [];
+    case 'granary': case 'farm': case 'lumberCamp': case 'palisade': case 'trainingGrounds': case 'stockpile': case 'quarry': return [];
     default: return f;
   }
 }
@@ -53,6 +54,7 @@ export function drawAmbient(c: CanvasRenderingContext2D, s: GameState, ox: numbe
 
   for (const b of s.buildings) {
     const bx = b.x * R, by = b.y * R, W = b.w * R, H = b.h * R;
+    if (b.site && !b.site.upgrade) continue; // building sites: nothing lit yet
     if (!inView(bx + W / 2, by + H / 2, W + 30)) continue;
     // fires flicker; homes only smoke when somebody is in (or it's cooking time)
     const lit = b.kind === 'townHall' || b.kind === 'tavern' || (b.kind === 'hunter' ? b.workers.length > 0 : cooking || occupied(s, b.id));
@@ -127,6 +129,7 @@ export function drawLights(c: CanvasRenderingContext2D, s: GameState, ox: number
   c.globalCompositeOperation = 'lighter';
   for (const b of s.buildings) {
     const W = b.w * R, H = b.h * R;
+    if (b.site && !b.site.upgrade) continue;
     for (const [i, l] of lights(b.kind, W, H).entries()) {
       const x = ox + (b.x * R + l.x) * p, y = oy + (b.y * R + l.y) * p;
       const flick = 1 + Math.sin(t * 7 + b.id + i) * 0.04 + Math.sin(t * 13 + i) * 0.03;

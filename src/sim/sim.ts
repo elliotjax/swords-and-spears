@@ -1,15 +1,19 @@
-import { CONFIG, type BuildingKind, type TechDef, type TechEffect, type UnitKind } from '../config';
+import { CONFIG, GOODS, type BuildingKind, type Good, type TechDef, type TechEffect, type TileKind, type UnitKind } from '../config';
 import { hash, noise2, rand } from './rng';
 import { DOORS } from './doors';
 import { findPathToRect, findPathToTile } from './path';
-import { FOREST, GRASS, type Building, type GameState, type Pt, type Squad, type Villager } from './types';
+import { FOREST, GRASS, STONE, type Building, type GameState, type Pt, type Squad, type Villager } from './types';
+import {
+  amountOf, available, haulDrop, haulPickUp, isBuilt, isStockpile, madeHere, pickHaul, pickSite, putInStockpiles,
+  retarget, siteHours, siteMaterials, siteWorkable,
+} from './logistics';
 
 // =====================================================================
 //  The simulation ("game logic"). Knows nothing about drawing.
 //  One call to tick() = one fixed step of 1/ticksPerSecond game-seconds.
 // =====================================================================
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 export const DT = 1 / CONFIG.time.ticksPerSecond;
 export const TICKS_PER_DAY = CONFIG.time.dayLengthSeconds * CONFIG.time.ticksPerSecond;
 
@@ -41,6 +45,27 @@ export function newGame(seed = (Math.random() * 1e9) | 0): GameState {
     for (let x = gx - 2; x <= gx + 2; x++)
       if (x >= 0 && y >= 0 && x < W && y < H && Math.hypot(x - gx, y - gy) < 2.6)
         tiles[y * W + x] = FOREST;
+  // stone deposits: rocky blobs, one always fairly close to the centre, the rest spread out
+  const deps: Pt[] = [];
+  for (let k = 0; k < M.stoneDeposits * 30 && deps.length < M.stoneDeposits; k++) {
+    let x: number, y: number;
+    if (!deps.length) {
+      const a = ang + Math.PI * (0.7 + hash(seed, 3) * 0.6); // away from the starting grove
+      const r = M.nearDeposit[0] + hash(seed, 4) * (M.nearDeposit[1] - M.nearDeposit[0]);
+      x = cx + Math.cos(a) * r; y = cy + Math.sin(a) * r;
+    } else {
+      x = 5 + hash(seed, k, 5) * (W - 10); y = 5 + hash(seed, k, 6) * (H - 10);
+      if (Math.hypot(x - cx, y - cy) < M.clearRadius + 6) continue;
+      if (deps.some(d => Math.hypot(d.x - x, d.y - y) < 12)) continue;
+    }
+    deps.push({ x, y });
+    const r = M.depositRadius[0] + hash(seed, k, 7) * (M.depositRadius[1] - M.depositRadius[0]);
+    for (let ty = Math.floor(y - r - 2); ty <= y + r + 2; ty++) for (let tx = Math.floor(x - r - 2); tx <= x + r + 2; tx++) {
+      if (tx < 1 || ty < 1 || tx >= W - 1 || ty >= H - 1) continue;
+      const wob = (noise2(tx / 2.2, ty / 2.2, seed + 31 + k) - 0.5) * 2.2;
+      if (Math.hypot(tx + 0.5 - x, ty + 0.5 - y) < r + wob) tiles[ty * W + tx] = STONE;
+    }
+  }
 
   const s: GameState = {
     saveVersion: SAVE_VERSION,
@@ -55,7 +80,7 @@ export function newGame(seed = (Math.random() * 1e9) | 0): GameState {
     occ: new Int32Array(W * H).fill(-1),
     buildings: [], villagers: [],
     nextId: 1, tick: 0,
-    wood: CONFIG.start.wood, gold: CONFIG.start.gold,
+    gold: CONFIG.start.gold,
     hallLevel: 1, hallId: null, births: 0, version: 0,
     squads: [], nextSquadNum: {}, unlockAll: false,
     techs: [], research: null,
@@ -68,7 +93,7 @@ function makeVillager(s: GameState, x: number, y: number): Villager {
     id: s.nextId++, x, y, px: x, py: y,
     home: null, job: null, mode: 'idle', inside: null,
     goalKey: '', goalB: null, goalKind: 'wander',
-    task: null, deliveries: 0, deliveryDay: -1,
+    task: null, deliveries: 0, deliveryDay: -1, haul: null, site: null, think: rand(s),
     way: [], path: [], approach: false, dest: null, timer: rand(s) * 2, vis: 1,
     lastTile: -1, hallDay: -1, carry: null,
     errandB: null, lastErrand: null, errandDay: -1,
@@ -90,10 +115,10 @@ export const getB = (s: GameState, id: number | null) =>
 export const population = (s: GameState) => s.villagers.length;
 /** Beds in houses (civilians). */
 export const beds = (s: GameState) =>
-  s.buildings.reduce((a, b) => a + (def(b.kind).beds ?? 0), 0);
+  s.buildings.reduce((a, b) => a + (isBuilt(b) ? def(b.kind).beds ?? 0 : 0), 0);
 /** Beds in barracks (soldiers). */
 export const soldierBeds = (s: GameState) =>
-  s.buildings.reduce((a, b) => a + (def(b.kind).soldierBeds ?? 0), 0);
+  s.buildings.reduce((a, b) => a + (isBuilt(b) ? def(b.kind).soldierBeds ?? 0 : 0), 0);
 export const soldiers = (s: GameState) => s.villagers.filter(v => v.squad != null).length;
 export const civilians = (s: GameState) => s.villagers.length - soldiers(s);
 export const houseCount = (s: GameState) =>
@@ -105,12 +130,18 @@ export const idleCount = (s: GameState) => s.villagers.filter(v => v.job == null
 export const hourOf = (s: GameState) => dayFrac(s) * 24;
 /** Total food storage (Town Hall + granaries), in lb. */
 export const foodCap = (s: GameState) =>
-  s.buildings.reduce((a, b) => a + (def(b.kind).foodStorage ?? 0), 0);
+  s.buildings.reduce((a, b) => a + (isBuilt(b) ? def(b.kind).foodStorage ?? 0 : 0), 0);
 /** Food in storage (what the colony can eat), in lb. */
 export const foodStored = (s: GameState) =>
   s.buildings.reduce((a, b) => a + (def(b.kind).foodStorage ? b.food : 0), 0);
 /** On shift = physically at work. Carriers out delivering food don't count (that's the delivery penalty). */
 const onShift = (v: Villager) => v.job != null && v.mode === 'work' && v.inside === v.job;
+/** Working right now = at a work spot doing the job (not walking to it or between spots). */
+const working = (v: Villager) => onShift(v) && v.dest == null;
+/** At work in any way: on shift, out hauling, or building at a site (for the info panels). */
+export const atWork = (v: Villager) => v.job != null &&
+  (onShift(v) || v.haul != null || (v.site != null && v.inside === v.site));
+const workHours = (s: GameState) => { const h = hourOf(s); return h >= CONFIG.schedule.workStart && h < CONFIG.schedule.workEnd; };
 
 /** Game hours a villager needs to walk from home to work (used to decide when they wake up). */
 export function commuteHours(s: GameState, v: Villager): number {
@@ -148,7 +179,7 @@ export function deliveryLoss(s: GameState, b: Building): number {
 export const presentWorkers = (s: GameState, b: Building) =>
   b.workers.reduce((a, id) => {
     const v = s.villagers.find(q => q.id === id);
-    return a + (v && v.job === b.id && onShift(v) ? 1 : 0);
+    return a + (v && v.job === b.id && atWork(v) ? 1 : 0);
   }, 0);
 
 /** Output multiplier for a building with `n` workers (0..1+bonus). */
@@ -171,17 +202,23 @@ export function grassBonus(s: GameState, b: Building): number {
 
 /** Expected daily rates from the current job assignments (what the HUD shows). */
 export function rates(s: GameState) {
-  let food = 0, wood = 0, gold = 0;
+  let food = 0, gold = 0;
+  const goods: Record<Good, number> = { wood: 0, stone: 0, furniture: 0 };
   for (const b of s.buildings) {
-    const o = def(b.kind).output;
-    if (!o) continue;
+    const d = def(b.kind), o = d.output;
+    if (!o || !isBuilt(b)) continue;
     const e = efficiency(s, b, b.workers.length) * (1 - deliveryLoss(s, b));
-    food += (o.food ?? 0) * e * outMul(s, 'food'); wood += (o.wood ?? 0) * e * outMul(s, 'wood'); gold += (o.gold ?? 0) * e * outMul(s, 'gold');
+    food += (o.food ?? 0) * e * outMul(s, 'food'); gold += (o.gold ?? 0) * e * outMul(s, 'gold');
+    for (const g of GOODS) {
+      const n = (o[g] ?? 0) * e * outMul(s, g);
+      goods[g] += n;
+      for (const [ig, per] of Object.entries(d.input ?? {}) as [Good, number][]) goods[ig] -= n * per; // inputs used up
+    }
   }
   const eat = population(s) * CONFIG.food.perVillagerPerDay;
   const tax = civilians(s) * CONFIG.tax.goldPerVillagerPerDay * (1 + techBonus(s, 'tax')); // soldiers don't pay tax
   const upkeep = armyUpkeep(s);
-  return { foodProd: food, foodEat: eat, food: food - eat, wood, gold: gold + tax - upkeep, tax, upkeep };
+  return { foodProd: food, foodEat: eat, food: food - eat, ...goods, gold: gold + tax - upkeep, tax, upkeep };
 }
 
 // ---------- building placement ----------
@@ -196,8 +233,13 @@ export function lockReason(s: GameState, kind: BuildingKind): string | null {
   return null;
 }
 
-/** Checks that don't depend on where the building goes (locks, limits, cost). */
-export function buildCheck(s: GameState, kind: BuildingKind): PlaceCheck {
+const GOOD_NAME: Record<Good, string> = { wood: 'wood', stone: 'stone', furniture: 'furniture' };
+
+/**
+ * Checks that don't depend on where the building goes (locks, limits, cost).
+ * Goods must be in the stockpiles (not already promised to other building sites).
+ */
+export function buildCheck(s: GameState, kind: BuildingKind, free = false): PlaceCheck {
   const d = def(kind);
   const lock = lockReason(s, kind);
   if (lock) return { ok: false, reason: lock };
@@ -205,23 +247,26 @@ export function buildCheck(s: GameState, kind: BuildingKind): PlaceCheck {
   if (kind !== 'townHall' && s.hallId == null) return { ok: false, reason: 'Place the Town Hall first' };
   if (d.isHouse && !s.unlockAll && houseCount(s) >= houseCap(s))
     return { ok: false, reason: 'House limit: upgrade Town Hall' };
-  if (s.wood < d.cost.wood) return { ok: false, reason: 'Not enough wood' };
-  if (s.gold < d.cost.gold) return { ok: false, reason: 'Not enough gold' };
+  if (free) return { ok: true };
+  for (const g of GOODS) if ((d.cost[g] ?? 0) > available(s, g) + 1e-6) return { ok: false, reason: `Not enough ${GOOD_NAME[g]}` };
+  if (s.gold < (d.cost.gold ?? 0)) return { ok: false, reason: 'Not enough gold' };
   return { ok: true };
 }
 
-export function canPlace(s: GameState, kind: BuildingKind, x: number, y: number): PlaceCheck {
+export const tileKind = (s: GameState, i: number): TileKind =>
+  s.tiles[i] === FOREST ? 'forest' : s.tiles[i] === STONE ? 'stone' : 'grass';
+
+export function canPlace(s: GameState, kind: BuildingKind, x: number, y: number, free = false): PlaceCheck {
   const d = def(kind);
   if (x < 0 || y < 0 || x + d.w > s.w || y + d.h > s.h) return { ok: false, reason: 'Off the map' };
   for (let ty = y; ty < y + d.h; ty++)
     for (let tx = x; tx < x + d.w; tx++) {
       const i = ty * s.w + tx;
       if (s.occ[i] !== -1) return { ok: false, reason: 'Space is taken' };
-      const t = s.tiles[i] === FOREST ? 'forest' : 'grass';
-      if (!d.allowedTiles.includes(t))
-        return { ok: false, reason: d.allowedTiles[0] === 'forest' ? 'Needs forest' : 'Needs grassland' };
+      if (!d.allowedTiles.includes(tileKind(s, i)))
+        return { ok: false, reason: d.allowedTiles[0] === 'forest' ? 'Needs forest' : d.allowedTiles[0] === 'stone' ? 'Needs a stone deposit' : 'Needs grassland' };
     }
-  return buildCheck(s, kind);
+  return buildCheck(s, kind, free);
 }
 
 function setOcc(s: GameState, b: Building, val: number) {
@@ -229,11 +274,20 @@ function setOcc(s: GameState, b: Building, val: number) {
     for (let x = b.x; x < b.x + b.w; x++) s.occ[y * s.w + x] = val;
 }
 
-export function place(s: GameState, kind: BuildingKind, x: number, y: number): Building | null {
-  if (!canPlace(s, kind, x, y).ok) return null;
+/**
+ * Place a building. Normally it starts as a building site: gold is paid now,
+ * haulers carry the materials over and wrights build it.
+ * `free` = placed finished and at no cost (the Town Hall, the starting buildings, the test town).
+ */
+export function place(s: GameState, kind: BuildingKind, x: number, y: number, free = false): Building | null {
+  free = free || kind === 'townHall';
+  if (!canPlace(s, kind, x, y, free).ok) return null;
   const d = def(kind);
-  s.wood -= d.cost.wood; s.gold -= d.cost.gold;
-  const b: Building = { id: s.nextId++, kind, x, y, w: d.w, h: d.h, workers: [], residents: [], food: 0 };
+  if (!free) s.gold -= d.cost.gold ?? 0;
+  const b: Building = {
+    id: s.nextId++, kind, x, y, w: d.w, h: d.h, workers: [], residents: [], food: 0, goods: {},
+    site: free ? null : { work: 0, since: s.tick },
+  };
   s.buildings.push(b);
   setOcc(s, b, b.id);
   s.version++;
@@ -247,9 +301,12 @@ export function place(s: GameState, kind: BuildingKind, x: number, y: number): B
       const v = makeVillager(s, x + d.w / 2 + Math.cos(a) * 2.6, y + d.h / 2 + Math.sin(a) * 2.6);
       s.villagers.push(v);
     }
+    // they bring a Stockpile with their starting goods and a Wright's Lodge, ready to use
+    const pile = placeNear(s, 'stockpile', x + d.w + 2, y + 1) ?? placeNear(s, 'stockpile', x - 4, y + 1);
+    if (pile) { pile.goods.wood = CONFIG.start.wood; if (CONFIG.start.stone) pile.goods.stone = CONFIG.start.stone; }
+    placeNear(s, 'wrights', x - 3, y + 1);
   }
-  // new buildings start with idle villagers assigned (up to capacity)
-  if (CONFIG.autoFillWorkers && d.workers) for (let i = 0; i < d.workers; i++) if (!addWorker(s, b.id)) break;
+  if (!b.site) finishBuilding(s, b);
   // anyone standing where the new building went steps out to its doorstep
   const ex = entryTile(s, b);
   for (const v of s.villagers) {
@@ -264,16 +321,55 @@ export function place(s: GameState, kind: BuildingKind, x: number, y: number): B
   return b;
 }
 
+/** A building is ready: it starts working (new workers join from the idle villagers). */
+function finishBuilding(s: GameState, b: Building) {
+  const d = def(b.kind);
+  if (b.site?.upgrade) { s.hallLevel++; b.goods = {}; }
+  else if (b.site) b.goods = {}; // the materials are now the building
+  b.site = null;
+  s.version++;
+  for (const v of s.villagers) if (v.site === b.id) { v.site = pickSite(s, v)?.id ?? null; v.goalKey = ''; } // wrights move on
+  if (CONFIG.autoFillWorkers && d.workers) for (let i = 0; i < d.workers; i++) if (!addWorker(s, b.id)) break;
+  assignHomes(s);
+}
+
+/** Free placement at the nearest roomy spot (1-tile gap all round) to (tx, ty). */
+function placeNear(s: GameState, k: BuildingKind, tx: number, ty: number, maxR = 24): Building | null {
+  const d = def(k);
+  const roomy = (x: number, y: number) => {
+    if (!canPlace(s, k, x, y, true).ok) return false;
+    for (let yy = y - 1; yy <= y + d.h; yy++) for (let xx = x - 1; xx <= x + d.w; xx++) {
+      if (xx < 0 || yy < 0 || xx >= s.w || yy >= s.h) continue;
+      if (s.occ[yy * s.w + xx] !== -1) return false;
+    }
+    return true;
+  };
+  for (let r = 0; r < maxR; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+    if (roomy(tx + dx, ty + dy)) return place(s, k, tx + dx, ty + dy, true);
+  }
+  return null;
+}
+
 export function remove(s: GameState, id: number): boolean {
   const b = getB(s, id);
   if (!b || b.kind === 'townHall') return false;
-  const d = def(b.kind);
-  s.wood += Math.floor(d.cost.wood * CONFIG.removeRefund);
-  s.gold += Math.floor(d.cost.gold * CONFIG.removeRefund);
+  const d = def(b.kind), at = doorPt(b);
+  // what comes back: a site returns everything delivered (and its gold);
+  // a finished building returns part of its cost, plus whatever was stored in it
+  const back: Partial<Record<Good, number>> = {};
+  if (b.site) {
+    for (const g of GOODS) back[g] = amountOf(b, g);
+    s.gold += d.cost.gold ?? 0;
+  } else {
+    for (const g of GOODS) back[g] = Math.floor((d.cost[g] ?? 0) * CONFIG.removeRefund) + amountOf(b, g);
+    s.gold += Math.floor((d.cost.gold ?? 0) * CONFIG.removeRefund);
+  }
   for (const v of s.villagers) {
     if (v.job === id) v.job = null;   // soldiers get re-assigned to another training ground if there is one
     if (v.home === id) v.home = null;
     if (v.task?.to === id) { v.task = null; v.carry = null; }
+    if (v.site === id) v.site = null;
     if (v.errandB === id) v.errandB = null;
     if (v.lastErrand === id) v.lastErrand = null;
     if (v.inside === id) { v.inside = null; v.mode = 'idle'; v.way = []; v.path = []; }
@@ -281,23 +377,31 @@ export function remove(s: GameState, id: number): boolean {
   }
   setOcc(s, b, -1);
   s.buildings = s.buildings.filter(q => q !== b);
+  for (const g of GOODS) if (back[g]) putInStockpiles(s, g, back[g]!, at); // (anything that doesn't fit is lost)
   s.version++;
   assignHomes(s);
   return true;
 }
 
 export function canUpgradeHall(s: GameState): PlaceCheck {
+  const hall = getB(s, s.hallId);
+  if (hall?.site) return { ok: false, reason: 'Already upgrading' };
   const next = CONFIG.townHall.levels[s.hallLevel];
   if (!next || !next.upgradeCost) return { ok: false, reason: 'Max level' };
-  if (s.wood < next.upgradeCost.wood) return { ok: false, reason: 'Not enough wood' };
-  if (s.gold < next.upgradeCost.gold) return { ok: false, reason: 'Not enough gold' };
+  for (const g of GOODS) if ((next.upgradeCost[g] ?? 0) > available(s, g) + 1e-6) return { ok: false, reason: `Not enough ${GOOD_NAME[g]}` };
+  if (s.gold < (next.upgradeCost.gold ?? 0)) return { ok: false, reason: 'Not enough gold' };
   return { ok: true };
 }
 
+/** Start upgrading the Town Hall: gold now, then haulers bring the materials and wrights do the work. */
 export function upgradeHall(s: GameState): boolean {
   if (!canUpgradeHall(s).ok) return false;
   const c = CONFIG.townHall.levels[s.hallLevel].upgradeCost!;
-  s.wood -= c.wood; s.gold -= c.gold; s.hallLevel++; s.version++;
+  const hall = getB(s, s.hallId)!;
+  s.gold -= c.gold ?? 0;
+  hall.site = { work: 0, since: s.tick, upgrade: true };
+  hall.goods = {};
+  s.version++;
   return true;
 }
 
@@ -316,51 +420,41 @@ export function spawnVillagers(s: GameState, n: number): boolean {
   return true;
 }
 
+/** Testing: put goods into the stockpiles. Returns how much fit. */
+export function addGoods(s: GameState, g: Good, n: number): number {
+  return n - putInStockpiles(s, g, n, doorPt(getB(s, s.hallId) ?? { x: s.w / 2, y: s.h / 2 } as Building));
+}
+
 /**
  * Testing: build a ready-made starter town around the Town Hall, for free.
  * Leaves a 1-tile gap around every building so there's room to walk.
  */
 export function quickTown(s: GameState): number {
-  const unlock = s.unlockAll, wood = s.wood, gold = s.gold;
+  const unlock = s.unlockAll;
   s.unlockAll = true;
-  s.wood = 1e9; s.gold = 1e9;
   const cx = Math.floor(s.w / 2), cy = Math.floor(s.h / 2);
   if (s.hallId == null) place(s, 'townHall', cx - 1, cy - 1);
   const hall = getB(s, s.hallId)!;
   const hx = hall.x + 1, hy = hall.y + 1;
   // enough people for every job, plus spare idle villagers for recruiting
-  spawnVillagers(s, Math.max(0, 85 - s.villagers.length));
-  const roomy = (k: BuildingKind, x: number, y: number) => {
-    const d = def(k);
-    if (!canPlace(s, k, x, y).ok) return false;
-    for (let yy = y - 1; yy <= y + d.h; yy++) for (let xx = x - 1; xx <= x + d.w; xx++) {
-      if (xx < 0 || yy < 0 || xx >= s.w || yy >= s.h) continue;
-      if (s.occ[yy * s.w + xx] !== -1) return false;
-    }
-    return true;
-  };
+  spawnVillagers(s, Math.max(0, 110 - s.villagers.length));
   let built = 0;
-  const put = (k: BuildingKind, tx: number, ty: number) => {
-    for (let r = 0; r < 22; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-      const x = tx + dx, y = ty + dy;
-      if (roomy(k, x, y)) { place(s, k, x, y); built++; return; }
-    }
-  };
   const plan: [BuildingKind, number, number][] = [
     ['manor', -6, -6], ['manor', -2, -7], ['longhouse', 3, -6], ['house', -7, -1], ['house', 4, -2],
     ['granary', -1, 4], ['granary', 3, 4],
     ['farm', -6, 5], ['farm', -2, 7], ['farm', 2, 7], ['farm', 6, 5],
     ['market', -5, 1], ['tavern', 7, 1], ['chapel', -9, -4],
     ['barracks', 9, -4], ['trainingGrounds', 10, 0],
-    ['lumberCamp', 0, 0], ['lumberCamp', 0, 0], ['hunter', 0, 0],
+    ['stockpile', 4, 2], ['stockpile', -9, 2], ['wrights', -4, -3], ['carpenter', 8, -8],
+    ['lumberCamp', 0, 0], ['lumberCamp', 0, 0], ['hunter', 0, 0], ['quarry', 0, 0], ['quarry', 0, 0],
     ['well', 2, -3], ['well', -3, 3],
   ];
-  for (const [k, dx, dy] of plan) put(k, hx + dx, hy + dy);
+  for (const [k, dx, dy] of plan) if (placeNear(s, k, hx + dx, hy + dy, 26)) built++;
   // stock the stores
   for (const b of s.buildings) { const fs = def(b.kind).foodStorage; if (fs) b.food = Math.max(b.food, fs * 0.6); }
+  addGoods(s, 'wood', 500); addGoods(s, 'stone', 250); addGoods(s, 'furniture', 40);
   s.unlockAll = unlock;
-  s.wood = wood + 500; s.gold = gold + 1500;
+  s.gold += 1500;
   return built;
 }
 
@@ -368,7 +462,7 @@ export function quickTown(s: GameState): number {
 
 export function addWorker(s: GameState, bid: number): boolean {
   const b = getB(s, bid);
-  if (!b) return false;
+  if (!b || !isBuilt(b)) return false;
   const cap = def(b.kind).workers ?? 0;
   if (b.workers.length >= cap) return false;
   const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
@@ -388,7 +482,7 @@ export function removeWorker(s: GameState, bid: number): boolean {
   if (!b || !b.workers.length) return false;
   const vid = b.workers.pop()!;
   const v = s.villagers.find(q => q.id === vid);
-  if (v) { v.job = null; v.goalKey = ''; }
+  if (v) { v.job = null; v.goalKey = ''; v.site = null; }
   return true;
 }
 
@@ -404,6 +498,7 @@ function assignHomes(s: GameState) {
     let best: Building | null = null, bd = Infinity;
     for (const b of s.buildings) {
       const d = def(b.kind);
+      if (!isBuilt(b)) continue;
       const cap = (soldier ? d.soldierBeds : d.beds) ?? 0; // soldiers live in barracks, civilians in houses
       if (b.residents.length >= cap) continue;
       const dd = Math.hypot(v.x - b.x - b.w / 2, v.y - b.y - b.h / 2);
@@ -417,7 +512,7 @@ function assignHomes(s: GameState) {
     if (v.squad == null || v.job != null) continue;
     let best: Building | null = null, bd = Infinity;
     for (const b of s.buildings) {
-      const cap = def(b.kind).trainingSlots ?? 0;
+      const cap = isBuilt(b) ? def(b.kind).trainingSlots ?? 0 : 0;
       if (b.workers.length >= cap) continue;
       const dd = Math.hypot(v.x - b.x - b.w / 2, v.y - b.y - b.h / 2);
       if (dd < bd) { bd = dd; best = b; }
@@ -446,7 +541,7 @@ export const squadName = (q: Squad) => `${unitDef(q.unit).name} #${q.num}`;
 export function recruitBlock(s: GameState, u: UnitKind): string | null {
   const U = unitDef(u);
   if (s.hallId == null) return 'Place the Town Hall first';
-  if (!s.buildings.some(b => b.kind === 'barracks')) return 'Build a Barracks first';
+  if (!s.buildings.some(b => b.kind === 'barracks' && isBuilt(b))) return 'Build a Barracks first';
   if (idleCount(s) < U.size) return `Needs ${U.size} idle villagers`;
   const freeBeds = soldierBeds(s) - soldiers(s);
   if (freeBeds < U.size) return 'Not enough barracks space';
@@ -463,7 +558,7 @@ export function recruit(s: GameState, u: UnitKind): Squad | null {
   s.nextSquadNum[u] = num;
   const q: Squad = { id: s.nextId++, unit: u, num, members: [], trainDays: 0 };
   // idle villagers nearest the barracks sign up
-  const bar = s.buildings.find(b => b.kind === 'barracks')!;
+  const bar = s.buildings.find(b => b.kind === 'barracks' && isBuilt(b))!;
   const idle = s.villagers.filter(v => v.job == null && v.squad == null)
     .sort((a, b) => dist(a, doorPt(bar)) - dist(b, doorPt(bar)))
     .slice(0, U.size);
@@ -514,13 +609,13 @@ export function happinessOf(s: GameState, v: Villager): number {
 }
 export function nearChapel(s: GameState, b: Building): boolean {
   return s.buildings.some(c => {
-    const r = def(c.kind).happyRadius;
+    const r = isBuilt(c) ? def(c.kind).happyRadius : 0;
     return !!r && Math.hypot(c.x + c.w / 2 - b.x - b.w / 2, c.y + c.h / 2 - b.y - b.h / 2) <= r;
   });
 }
 export function nearWell(s: GameState, b: Building): boolean {
   return s.buildings.some(c => {
-    const r = def(c.kind).nearBonusRadius;
+    const r = isBuilt(c) ? def(c.kind).nearBonusRadius : 0;
     return !!r && Math.hypot(c.x + c.w / 2 - b.x - b.w / 2, c.y + c.h / 2 - b.y - b.h / 2) <= r;
   });
 }
@@ -622,13 +717,17 @@ function nearestFreeAround(s: GameState, b: Building, p: Pt): number {
 function desired(s: GameState, v: Villager): { kind: Villager['goalKind']; b: number | null } {
   const S = CONFIG.schedule;
   if (v.task) return { kind: 'deliver', b: v.task.to };
+  if (v.haul) return v.haul.stage === 'fetch' ? { kind: 'fetch', b: v.haul.from } : { kind: 'drop', b: v.haul.to };
   const h = hourOf(s);
   const day = dayNumber(s);
   const home = v.home ?? s.hallId;
   const sleepAt = S.sleepStart + v.jitter;
   if (v.job != null) {
     // wake up just early enough to be at work when it starts
-    if (h >= S.workStart - commuteHours(s, v) && h < S.workEnd) return { kind: 'job', b: v.job };
+    if (h >= S.workStart - commuteHours(s, v) && h < S.workEnd) {
+      if (v.site != null && h >= S.workStart) return { kind: 'site', b: v.site }; // wright: off to the building site
+      return { kind: 'job', b: v.job };
+    }
   } else if (h >= S.workStart && h < S.workEnd) return { kind: 'wander', b: null };
   // free time: a route of short errands (picked in updateVillager), then home
   if (h >= S.workEnd && h < sleepAt && v.errandB != null) return { kind: 'errand', b: v.errandB };
@@ -652,7 +751,7 @@ function pickNextErrand(s: GameState, v: Villager) {
   const stayHours = ((E.stayMaxSeconds + 2) * 24) / CONFIG.time.dayLengthSeconds; // plan with the longest stay
   const opts: { b: Building; w: number }[] = [];
   for (const b of s.buildings) {
-    if (b.id === v.lastErrand || b.id === v.job || b.id === v.inside) continue; // not where they just were / work
+    if (b.id === v.lastErrand || b.id === v.job || b.id === v.inside || !isBuilt(b)) continue; // not where they just were / work
     const ok = (E.places.includes('home') && b.id === v.home) ||
       (b.kind !== 'house' && b.kind !== 'longhouse' && b.kind !== 'manor' && E.places.includes(b.kind));
     if (!ok) continue;
@@ -689,7 +788,7 @@ function millSpot(s: GameState, b: Building): Pt | null {
 /** Can this building take food right now? (Granaries need a keeper assigned.) */
 export const storageOpen = (b: Building) => {
   const d = def(b.kind);
-  return !!d.foodStorage && (!d.workers || b.workers.length > 0);
+  return !!d.foodStorage && isBuilt(b) && (!d.workers || b.workers.length > 0);
 };
 
 function nearestStorage(s: GameState, from: Building, needRoom = true): Building | undefined {
@@ -708,7 +807,12 @@ function startGoal(s: GameState, v: Villager) {
   const target = v.goalKind === 'wander' ? undefined : getB(s, v.goalB);
   if (v.goalKind !== 'wander' && !target) { v.mode = 'idle'; return; }
   if (target && v.inside === target.id) { // already there
-    if (v.mode === 'walk') v.mode = v.goalKind === 'job' ? 'work' : 'inside';
+    if (v.goalKind === 'fetch' || v.goalKind === 'drop' || v.goalKind === 'site') { arrive(s, v); return; }
+    if (v.goalKind === 'job') { // e.g. a hauler who just dropped goods at their own stockpile: back to work
+      if (v.mode !== 'work') { v.mode = 'work'; v.timer = 0; pickWorkSpot(s, v, target); }
+      return;
+    }
+    if (v.mode === 'walk') v.mode = 'inside';
     return;
   }
 
@@ -717,7 +821,9 @@ function startGoal(s: GameState, v: Villager) {
   const cur = getB(s, v.inside);
   if (cur) {
     if (v.task) v.carry = 'basket';
-    else if (v.mode === 'work') v.carry = cur.kind === 'lumberCamp' ? 'logs' : cur.kind === 'market' ? 'coins' : null;
+    else if (v.haul?.stage === 'carry') v.carry = v.haul.good;
+    else if (v.mode === 'work') v.carry = cur.kind === 'market' ? 'coins' : null;
+    else v.carry = null;
     const ex = entryTile(s, cur);
     if (ex >= 0) {
       const out = laneToDoor(cur, centerOf(s, ex)).reverse();
@@ -774,9 +880,14 @@ function arrive(s: GameState, v: Villager) {
     return;
   }
   v.inside = b.id;
-  if (v.goalKind === 'job') {
+  if (v.goalKind === 'job' || v.goalKind === 'site') {
     v.mode = 'work'; v.carry = null; v.timer = 0;
     pickWorkSpot(s, v, b);
+    return;
+  }
+  if (v.goalKind === 'fetch' || v.goalKind === 'drop') { // hauler: loading up / unloading
+    v.mode = 'inside';
+    v.timer = v.goalKind === 'fetch' ? CONFIG.haul.pickupSeconds : CONFIG.haul.dropSeconds;
     return;
   }
   // home, hall or granary: step through the doorway
@@ -787,7 +898,21 @@ function arrive(s: GameState, v: Villager) {
 }
 
 function pickWorkSpot(s: GameState, v: Villager, b: Building) {
-  if (b.kind === 'lumberCamp' || b.kind === 'hunter') {
+  if (b.site && !b.site.upgrade) {
+    // building site: hammer away somewhere around its edge
+    const t = rand(s), side = (rand(s) * 4) | 0;
+    const pts = [
+      { x: b.x + 0.2 + t * (b.w - 0.4), y: b.y + 0.25 },
+      { x: b.x + 0.2 + t * (b.w - 0.4), y: b.y + b.h - 0.2 },
+      { x: b.x + 0.2, y: b.y + 0.3 + t * (b.h - 0.5) },
+      { x: b.x + b.w - 0.2, y: b.y + 0.3 + t * (b.h - 0.5) },
+    ];
+    v.dest = pts[side];
+  } else if (b.kind === 'townHall' && b.site) {
+    v.dest = { x: b.x + 0.3 + rand(s) * (b.w - 0.6), y: b.y + 0.3 + rand(s) * (b.h - 0.6) };
+  } else if (b.kind === 'stockpile' || b.kind === 'quarry') {
+    v.dest = { x: b.x + 0.35 + rand(s) * (b.w - 0.7), y: b.y + 0.4 + rand(s) * (b.h - 0.75) };
+  } else if (b.kind === 'lumberCamp' || b.kind === 'hunter') {
     // chop (or hunt) at the edge of the clearing
     const side = (rand(s) * 4) | 0;
     const t = rand(s);
@@ -857,8 +982,48 @@ export function allAsleep(s: GameState): boolean {
   return s.villagers.every(v => v.mode === 'inside' && v.goalKind === 'home');
 }
 
+/** Keep a hauler's trip and a wright's site valid (buildings can be removed, work can end). */
+function checkTasks(s: GameState, v: Villager) {
+  const h = v.haul;
+  if (h) {
+    if (h.stage === 'fetch') {
+      // a trip not started yet is dropped if either end is gone, the job ended, or work is over
+      if (!getB(s, h.from) || !getB(s, h.to) || v.job == null || !workHours(s)) { v.haul = null; if (v.mode !== 'inside') v.goalKey = ''; }
+    } else if (!getB(s, h.to) || (h.kind === 'site' && !getB(s, h.to)!.site)) {
+      // carrying goods to somewhere that's gone (or a site that got finished): to the nearest stockpile instead
+      retarget(s, v); v.goalKey = '';
+    }
+  }
+  if (v.site != null) {
+    const b = getB(s, v.site);
+    if (!b || !b.site || v.job == null) { v.site = null; v.goalKey = ''; }
+  }
+}
+
+/** An idle hauler or wright at their workplace looks for something to do. */
+function think(s: GameState, v: Villager) {
+  const jb = getB(s, v.job);
+  if (!jb || !workHours(s)) return;
+  v.think -= DT;
+  if (v.think > 0) return;
+  if (jb.kind === 'stockpile') {
+    v.think = CONFIG.haul.thinkSeconds * (0.8 + rand(s) * 0.4);
+    const h = pickHaul(s, v);
+    if (h) { v.haul = h; v.goalKey = ''; }
+  } else if (jb.kind === 'wrights') {
+    v.think = CONFIG.build.thinkSeconds * (0.8 + rand(s) * 0.4);
+    // at a site that has run out of materials (or at the lodge): look for work
+    const cur = getB(s, v.site);
+    if (cur && siteWorkable(s, cur)) return;
+    const b = pickSite(s, v);
+    if (b && b.id !== v.site) { v.site = b.id; v.goalKey = ''; }
+    else if (!b && v.site != null) { v.site = null; v.goalKey = ''; } // nothing to build: back to the lodge
+  }
+}
+
 function updateVillager(s: GameState, v: Villager) {
   v.px = v.x; v.py = v.y;
+  checkTasks(s, v);
   // free time: start (or continue) the evening route of errands
   {
     const S = CONFIG.schedule, h = hourOf(s);
@@ -881,6 +1046,19 @@ function updateVillager(s: GameState, v: Villager) {
 
   switch (v.mode) {
     case 'inside': {
+      if ((v.goalKind === 'fetch' || v.goalKind === 'drop') && v.haul) {
+        v.timer -= DT;
+        if (v.timer > 0) return;
+        if (v.goalKind === 'fetch') haulPickUp(s, v);
+        else haulDrop(s, v);
+        if (!v.haul && workHours(s) && v.job != null) {
+          // done (or nothing to pick up): pick the next job from here, no need to walk back to the stockpile first
+          const next = pickHaul(s, v);
+          if (next) v.haul = next;
+        }
+        v.goalKey = ''; // re-plan
+        return;
+      }
       if (v.goalKind === 'deliver' && v.task) {
         v.timer -= DT;
         if (v.timer <= 0) { // put the food in storage, then head back to work
@@ -925,9 +1103,11 @@ function updateVillager(s: GameState, v: Villager) {
     }
     case 'work': {
       if (maybeDeliver(s, v)) break;
+      think(s, v);
       if (v.timer > 0) { v.timer -= DT; break; }
       if (v.dest) {
-        if (moveToward(v, v.dest.x, v.dest.y, speed * 0.45)) { v.dest = null; v.timer = 1.5 + rand(s) * 2.5; }
+        const Wk = CONFIG.work;
+        if (moveToward(v, v.dest.x, v.dest.y, speed * 0.45)) { v.dest = null; v.timer = Wk.atSpotMin + rand(s) * (Wk.atSpotMax - Wk.atSpotMin); }
       } else {
         const b = getB(s, v.inside);
         if (b) pickWorkSpot(s, v, b); else v.goalKey = '';
@@ -1040,26 +1220,47 @@ export function tick(s: GameState) {
 
   for (const v of s.villagers) updateVillager(s, v);
 
-  // production happens only for workers who are physically at their building
+  // production happens only for workers who are actually working at a spot in their building
   const S = CONFIG.schedule;
-  const shift = ((S.workEnd - S.workStart) / 24) * TICKS_PER_DAY;
+  const shift = ((S.workEnd - S.workStart) / 24) * TICKS_PER_DAY * CONFIG.work.busyShare;
   const present = new Map<number, number>();
   const hr = hourOf(s);
+  const building = new Map<number, number>(); // wrights hammering at each site
   if (hr >= S.workStart && hr < S.workEnd) // work only counts during working hours
-    for (const v of s.villagers)
+    for (const v of s.villagers) {
       if (v.job != null && onShift(v)) {
-        present.set(v.job, (present.get(v.job) ?? 0) + 1);
         if (v.squad != null) v.trained = true; // soldiers at the training grounds
+        if (working(v)) present.set(v.job, (present.get(v.job) ?? 0) + 1);
       }
+      if (v.site != null && v.mode === 'work' && v.inside === v.site && v.dest == null)
+        building.set(v.site, (building.get(v.site) ?? 0) + 1);
+    }
   for (const b of s.buildings) {
     const d = def(b.kind), o = d.output;
-    if (!o) continue;
+    if (!o || !isBuilt(b)) continue;
     const e = efficiency(s, b, present.get(b.id) ?? 0);
     if (!e) continue;
     // farm food waits at the farm until a farmer carries it to a granary
     if (o.food) b.food = Math.min(d.farmStorage ?? Infinity, b.food + (o.food * e * outMul(s, 'food')) / shift);
-    s.wood += ((o.wood ?? 0) * e * outMul(s, 'wood')) / shift;
     s.gold += ((o.gold ?? 0) * e * outMul(s, 'gold')) / shift;
+    // goods wait on the building's shelf for haulers; a full shelf (or no supplies) stops the work
+    const g = madeHere(b);
+    if (g) {
+      let n = ((o[g] ?? 0) * e * outMul(s, g)) / shift;
+      n = Math.max(0, Math.min(n, (d.shelf ?? Infinity) - amountOf(b, g)));
+      for (const [ig, per] of Object.entries(d.input ?? {}) as [Good, number][]) n = Math.min(n, amountOf(b, ig) / per);
+      for (const [ig, per] of Object.entries(d.input ?? {}) as [Good, number][]) b.goods[ig] = amountOf(b, ig) - n * per;
+      if (n > 0) b.goods[g] = amountOf(b, g) + n;
+    }
+  }
+  // building sites: wrights turn the delivered materials into the building
+  const perTick = 24 / TICKS_PER_DAY; // game hours per tick
+  for (const [id, n] of building) {
+    const b = getB(s, id);
+    if (!b?.site) continue;
+    const need = siteHours(s, b);
+    b.site.work = Math.min(need * siteMaterials(s, b), b.site.work + n * perTick);
+    if (b.site.work >= need - 1e-6) finishBuilding(s, b);
   }
   // everyone eats from storage (fullest store first), slowly, during free time only
   const pop = population(s);
@@ -1127,7 +1328,8 @@ export function techBonus(s: GameState, key: TechEffect): number {
   return v;
 }
 /** Output multiplier from techs for farms (food), lumber camps (wood) and markets (gold). */
-export function outMul(s: GameState, res: 'food' | 'wood' | 'gold'): number {
+export function outMul(s: GameState, res: 'food' | 'gold' | Good): number {
+  if (res === 'stone' || res === 'furniture') return 1;
   return 1 + techBonus(s, res === 'food' ? 'farm' : res === 'wood' ? 'wood' : 'market');
 }
 

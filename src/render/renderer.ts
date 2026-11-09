@@ -5,6 +5,8 @@ import type { GameState } from '../sim/types';
 import { rr } from './draw';
 import { PAL } from './palette';
 import { drawAmbient, drawLights } from './ambient';
+import { drawGoods } from './goods';
+import { siteProgress } from '../sim/logistics';
 import { bedSlots, buildingCanvas, drawPawn, paintGround, paintRoads, paintWorld, R } from './pixel';
 
 // =====================================================================
@@ -122,6 +124,9 @@ export class Renderer {
     }).join(',');
     if (sig !== this.worldSig) { this.worldSig = sig; paintWorld(s, this.worldCv); }
     blit(this.worldCv);
+    // goods you can see (stockpile piles, shelves) and building sites rising
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    drawGoods(c, s, ox, oy, p, { x0: ax0, y0: ay0, x1: ax1, y1: ay1 }, time);
 
     // world transform for vector overlays: 1 unit = 1 tile
     const wt = () => c.setTransform(ppt * d, 0, 0, ppt * d, ox, oy);
@@ -215,6 +220,7 @@ export class Renderer {
     c.textBaseline = 'middle';
     for (const b of s.buildings) {
       const df = def(b.kind);
+      if (b.site) { this.siteBadge(s, c, b, z); continue; }
       if (!df.badge) continue;
       const cap = df.beds ?? df.soldierBeds ?? df.workers ?? df.trainingSlots ?? 0;
       const n = df.beds || df.soldierBeds ? b.residents.length : b.workers.length;
@@ -230,6 +236,24 @@ export class Renderer {
       c.beginPath(); c.arc(x + 11 * z * d, y + h / 2, 4 * z * d, 0, 7); c.fill();
       c.fillStyle = '#262b38'; c.fillText(txt, x + 19 * z * d, y + h / 2 + 0.5 * d);
     }
+  }
+
+  /** Building sites: a grey badge with a hammer and how far along it is. */
+  private siteBadge(s: GameState, c: CanvasRenderingContext2D, b: GameState['buildings'][number], z: number) {
+    const d = this.dpr;
+    const txt = `${Math.floor(siteProgress(s, b) * 100)}%`;
+    const p = this.worldToScreen(b.x + b.w / 2, b.y + 0.05);
+    const tw = c.measureText(txt).width;
+    const h = 22 * z * d, w = tw + 30 * z * d;
+    const x = p.x * d - w / 2, y = p.y * d - h / 2;
+    c.fillStyle = 'rgba(30,40,60,.18)'; rr(c, x + 1 * d, y + 2 * d, w, h, h / 2); c.fill();
+    c.fillStyle = '#fff'; rr(c, x, y, w, h, h / 2); c.fill();
+    c.lineWidth = 2 * d * z; c.strokeStyle = '#8a8478'; c.stroke();
+    // hammer
+    const hx = x + 12 * z * d, hy = y + h / 2;
+    c.strokeStyle = '#8a5c36'; c.lineWidth = 2.2 * z * d; c.beginPath(); c.moveTo(hx - 3 * z * d, hy + 4 * z * d); c.lineTo(hx + 2 * z * d, hy - 2 * z * d); c.stroke();
+    c.fillStyle = '#667086'; c.fillRect(hx - 1 * z * d, hy - 5 * z * d, 6 * z * d, 3.5 * z * d);
+    c.fillStyle = '#262b38'; c.fillText(txt, x + 22 * z * d, y + h / 2 + 0.5 * d);
   }
 
   private ghostLabel(s: GameState, c: CanvasRenderingContext2D, g: Ghost) {

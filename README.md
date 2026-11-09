@@ -171,9 +171,11 @@ Phone portrait. The map is full-bleed. The UI floats over it.
 
 ### 7.1 Colony map (Decided)
 - A **fixed grid map** (not an open build area). Tiles never change type.
-- **Tile types (start with two):**
+- **Map size (Decided): 64×64** (was 40×40). You can zoom out further to see more of it.
+- **Tile types:**
   - **Grassland:** neutral. **Farms get a production bonus on grassland.**
   - **Forest:** holds wood-gathering buildings. Forest tiles stay forest forever.
+  - **Stone deposit (Decided):** grey rocky patches with boulders, about **8 per map** (one always 11–15 tiles from the centre). A **Quarry (2×2) must sit fully on stone**, and a deposit is big enough for **several quarries**. **Deposits never run out.** Rocky ground is a bit slower to walk over.
 - The game **opens with the player placing the Town Hall.**
 - Pan and zoom the map. *(Assumed.)*
 
@@ -202,6 +204,10 @@ Starting building types:
 | **Commerce buildings** (for example **Market**) | Produce gold. | TBD which and how many in v1. |
 | **Barracks** *(Decided)* | Housing for soldiers. | **2×2, holds 30 soldiers.** Soldiers only live in barracks (they leave their house when recruited). You can't recruit without free barracks space. Hall Lv 2. |
 | **Training Grounds** *(Decided)* | Where soldiers "work". | **3×3, 50 soldiers.** Soldiers train here 5 AM–5 PM; in free time they do errands like everyone else. Training here is what raises a squad's rank. Hall Lv 2. |
+| **Stockpile** *(Decided, first draft)* | Stores wood, stone and furniture. | **3×3, holds 800 goods**, **4 haulers**. All goods live in stockpiles (tap one to see exactly what's in it). Its workers are the **haulers** who move everything around (7.4b). The colony starts with one, free, holding the starting wood. |
+| **Wright's Lodge** *(Decided, first draft; name can change)* | Home of the **wrights**, the building specialists. | **2×2, 4 wrights.** Wrights build everything you place, and Town Hall upgrades (7.4b). The colony starts with one, free. ("Wright" is an old word for a builder, as in wheelwright or shipwright.) |
+| **Quarry** *(Decided)* | Produces stone. | **2×2, must be fully on a stone deposit, 4 workers, about 80 stone/day.** Several quarries fit on one deposit. |
+| **Carpenter** *(Decided)* | Makes furniture from wood. | **2×2, 3 workers, about 12 furniture/day, uses 8 wood per piece.** Haulers bring it wood from the stockpiles. No sawmill/planks (Decided: dropped). |
 | **Defensive buildings** | Modify how battles work. | TBD. Not in v1. |
 
 ### 7.3 Population, jobs, and housing (Decided)
@@ -213,18 +219,44 @@ Starting building types:
 - A percentage of the population can be recruited as soldiers (section 9).
 
 ### 7.4 Resources (Decided)
-Three resources to start. More can come later.
+Food, wood, stone, furniture and gold. More can come later.
 
 | Resource | How it works |
 |---|---|
 | **Food** | **(Decided, changed)** A **stockpile in pounds** with a **change per day** (production minus what the population eats). Food is stored in **granary buildings** (500 lb each) plus a little in the Town Hall (150 lb); the total is shown as **% full**. Villagers eat straight from storage (no walking to eat, for now). If the daily change is negative, the stock drains. When empty, the population suffers (exact effects TBD; for now births stop). Tributary colonies add a fixed amount per day. |
-| **Wood** | A normal stockpile. Spent mostly on buildings. |
+| **Wood** | **(Decided, changed)** A real good (7.4b): cut at lumber camps, carried to stockpiles by haulers, carried to building sites to build with. |
+| **Stone** | **(Decided, new)** A real good from quarries. Used for bigger buildings and Town Hall upgrades. |
+| **Furniture** | **(Decided, new)** A real good made by carpenters from wood. Needed for advanced buildings: Longhouse and up, Market, leisure (Tavern, Chapel) and military buildings. Not for hall upgrades. |
 | **Gold** | A normal stockpile. Spent on **buildings, technology, army upkeep, and purchases.** (Full list TBD.) |
 
 **Gold income:** mainly **taxes on villagers**, plus **commerce buildings**, plus **tribute** from conquered colonies.
 
+### 7.4b Goods, haulers and wrights (Decided, first draft built)
+**Everything is real.** Every bit of wood, stone and furniture is always in exactly one place: in a **stockpile**, on a **work building's shelf**, at a **building site**, or in a **hauler's arms**. The top panel shows what's in all your stockpiles (goods still sitting at a lumber camp don't count until they're hauled in).
+
+**Work only while working (Decided):** people only produce while they're actually working at their spot. Walking to work, moving between spots, carrying, eating and sleeping make nothing. (Output numbers are still "per day at full staff on a normal workday".)
+
+**Shelves:** lumber camps, quarries and carpenters put what they make on a small shelf (60 wood / 45 stone / 12 furniture). **When the shelf is full, work stops** until a hauler collects it (an alert tells you). Farms and hunters still carry their own food to granaries (Decided: unchanged for now).
+
+**Building sites (Decided):** placing a building creates a **building site** (gold is paid straight away). Haulers bring the materials from the stockpiles, then **wrights** build it. Wrights can only build as far as the materials that have arrived allow (half the wood delivered = can build half way). Work needed: **1.5 wright-hours per tile** (a house is 6, a farm 13.5). The building rises from the front edge as they work. Cancelling a site gives everything back. You can only place a building if the stockpiles hold its materials (not counting materials already promised to other sites).
+
+**Town Hall upgrades** work the same way: gold now, wood + stone hauled in, wrights do the work (10/16/24/32 wright-hours). The hall keeps working meanwhile.
+
+**How haulers choose a job (prototype, Decided to start with this):** an idle hauler looks at every job and scores it **priority ÷ (trip length in tiles + 8)**. The trip is hauler → pick-up → drop-off, so nearby jobs win unless something far away is more urgent.
+1. **Building sites** (priority 3): materials from the nearest stockpile that has them. A site counts as **1 tile closer for every game hour it has waited**, so old sites never get forgotten.
+2. **Workshop supplies** (priority 2): keeps up to 60 wood at each carpenter (only once it's down by half a load).
+3. **Collecting** (priority 1, rising to 3 as a shelf fills up): takes goods from a shelf to the nearest stockpile with room. Only full loads, unless the shelf is nearly full.
+
+Haulers carry **20 wood, 15 stone or 3 furniture** per trip. Goods already promised to another hauler are left out, so two haulers never go for the same load. After a delivery a hauler picks the next job **from where they are** (no walk back to the stockpile first). Haulers only start trips during work hours, but they always finish a delivery they're carrying. If a drop-off disappears (removed) they take the goods to the nearest stockpile instead.
+
+**How wrights choose a site (prototype):** the nearest site that has materials waiting, with the same "older counts as closer" rule (1 tile per hour waited). At most **½ wright per tile** on one site (2 on a house, 4–5 on a farm or manor). A wright **stays on a site until it's done** or runs out of materials, then moves to the next site (or back to the lodge if there's nothing).
+
+**Removing:** a finished building gives back 50% of its goods cost (into the nearest stockpile); anything stored in it also goes to other stockpiles if there's room (otherwise it's lost).
+
+All of these numbers are in `src/config.ts` (`haul`, `build`, `work`).
+
 ### 7.5 Town hall levels and technology (Decided in outline)
-- **5 Town Hall levels (Decided).** Lv 1 → 2: 150 wood + 120 gold (house limit 6; unlocks Longhouse, Tavern, Barracks, Training Grounds). Lv 3: 300/300 (limit 8; Manor, Chapel). Lv 4: 500/600 (limit 10). Lv 5: 800/1000 (limit 12). Lv 1 limit is 4 houses. Conquered-territory requirements come with the grand map.
+- **5 Town Hall levels (Decided).** Lv 1 → 2: 150 wood + 40 stone + 120 gold (house limit 6; unlocks Longhouse, Tavern, Barracks, Training Grounds). Lv 3: 300 wood + 120 stone + 300 gold (limit 8; Manor, Chapel). Lv 4: 500 + 250 + 600 (limit 10). Lv 5: 800 + 400 + 1000 (limit 12). Upgrades are built by wrights (7.4b). Lv 1 limit is 4 houses. Conquered-territory requirements come with the grand map.
 - **Testing cheat (Decided):** an **Unlock** button on the testing sidebar turns progression off (no level locks, no house limit) so everything can be tested.
 - **Town hall levels are the spine of progression.** Upgrading costs **gold, wood, and conquered territories.**
 - Town hall level **sets how many houses you can place**, and is intended to gate building unlocks, army cap upgrades, and more. (Level count and exact gates TBD.)
@@ -380,22 +412,27 @@ These are only starting points for the first playable. The owner will tune them 
 | Setting | Starting value |
 |---|---|
 | Day length | 5 min real time at 1x |
-| Starting villagers | 12 |
-| Starting resources | 200 wood, 100 gold |
+| Starting villagers | 20 (8 of them start as haulers and wrights) |
+| Starting resources | 250 wood (in a free Stockpile), 100 gold, 150 lb food; a free Wright's Lodge |
 | Villager food need | 4 lb/day each |
 | House capacity | House 10, Longhouse 25, Manor 50 |
-| House costs | House 40 wood, Longhouse 90 wood, Manor 160 wood + 60 gold |
+| House costs | House 40 wood, Longhouse 80 wood + 4 furniture, Manor 120 wood + 40 stone + 10 furniture + 60 gold |
 | Farm | capacity 8, full output 85 lb/day (about 106 on grassland), cost 40 wood, grassland bonus +25%, holds 100 lb before it must be delivered |
 | Granary | 1×2, cost 40 wood, holds 500 lb; 25% of farmers carry, 4 trips per workday each, carrying everything waiting |
 | Town Hall food storage | 150 lb; colony starts with 100 lb |
 | **Food balance target (Decided)** | about **30% of the population farming** feeds everyone (soldiers eat but don't work). Planned split: ~30% farmers, 30–40% soldiers, ~30% everything else. Each farmer makes about 13.3 lb/day on grassland; each villager eats **4 lb/day** (Decided). |
 | Lumber Camp | capacity 6, full output about 130 wood/day, cost 30 wood, forest tile only |
-| Market | capacity 4, about 50 gold/day at full staff, cost 60 wood |
-| Barracks | 2×2, 80 wood, 30 soldiers |
-| Training Grounds | 3×3, 60 wood, 50 soldiers |
-| Tavern / Chapel | 70 wood + 20 gold / 90 wood + 50 gold; chapel radius 7 tiles |
+| Market | capacity 4, about 50 gold/day at full staff, cost 50 wood + 4 furniture |
+| Barracks | 2×2, 70 wood + 20 stone + 6 furniture, 30 soldiers |
+| Training Grounds | 3×3, 50 wood + 3 furniture, 50 soldiers |
+| Tavern / Chapel | 60 wood + 6 furniture + 20 gold / 50 wood + 60 stone + 6 furniture + 50 gold; chapel radius 7 tiles |
 | Hunter's Lodge | 2×2, 50 wood, forest only, 4 workers, about 45 lb/day, holds 60 lb |
-| Well | 1×1, 20 wood, homes within 4 tiles +5 happiness, evening stop |
+| Well | 1×1, 10 wood + 20 stone, homes within 4 tiles +5 happiness, evening stop |
+| Stockpile | 3×3, 20 wood, holds 800 goods, 4 haulers |
+| Wright's Lodge | 2×2, 40 wood, 4 wrights; 1.5 wright-hours of work per building tile |
+| Quarry | 2×2 on stone, 30 wood, 4 workers, about 80 stone/day, shelf 45 |
+| Carpenter | 2×2, 50 wood + 20 stone, 3 workers, about 12 furniture/day from 8 wood each, shelf 12, keeps 60 wood |
+| Lumber Camp shelf | 60 wood |
 | Walking speed | 3 tiles per second |
 | Tax | about 1.5 gold/day per villager |
 | Births | with food going up, food in store, and a free bed: about 1.2 births per day per house with a free bed |
@@ -476,7 +513,7 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **M1 step 1 done:** project setup (Vite + TypeScript + canvas), config file `src/config.ts`, auto-deploy.
 - **M1 steps 2–5 done (first playable):** grass/forest map with pan + pinch zoom; drag-a-card building placement with green/red ghost (or tap a card, then Place); Town Hall first; Hut, House, Farm, Lumber Camp, Market (Cottage/Longhouse unlock at Hall Lv 2, Manor at Lv 3, Defense cards locked); villagers walk home → work → town hall → home on a day schedule; jobs assigned with +/− (building panel or Villagers tab); food rate + granary, wood, gold + taxes; births; worn desire paths; night tint; status panel, speed buttons, alerts, Town Hall chip and upgrade; autosave.
 - **M1 polish:** game starts on a fresh morning; first alert says "Build a Farm"; softer, rounder worn paths; faster drawing (off-screen buildings skipped). Tested: drag-to-place, tap-to-place, tapping buildings, save + reload, 300 villagers (game logic 0.16 ms per step).
-- Defaults chosen (owner OK'd): v1 houses are Hut + House; Town Hall upgrade is a simple button (wood + gold); farms grassland only; empty granary = births stop + alert (nothing worse yet); roads are looks only (speed bonus setting exists, off); map 40×40, random each new game.
+- Defaults chosen (owner OK'd): v1 houses are Hut + House; Town Hall upgrade is a simple button (wood + gold); farms grassland only; empty granary = births stop + alert (nothing worse yet); roads are looks only (speed bonus setting exists, off); map 40×40 (now 64×64), random each new game.
 
 - **Owner playtest 1 feedback (all built):** phone feel good. Food is now a stockpile in lb with a per-day change; granary shown as % full; Births/day row added to the status panel (Villagers tab explains when births are blocked); births faster; day length 5 min with the same real-time pace; villagers walk to the actual doorway (front side) and fade in/out there, walking along building edges to reach it; thin, connected gravel roads with diagonals and curves; dragged building sits under the finger. Old saves from the first version can't be loaded (start a new game).
 - **Granary + clock update (built):** Granary building (1×1, 500 lb); farm food waits at the farm until farmers carry it to the nearest granary 4× per workday (production continues while they're away); Town Hall stores 150 lb; food balanced so ~30% farmers feeds everyone; 24-hour day (5–8 free, 8–17 work, 17–20 free, 20–5 sleep); one combined time + speed panel with a clock dial; "Build a Granary" alert. Villagers no longer cut through buildings when they change plans mid-walk. Old saves can't be loaded (start a new game).
@@ -491,10 +528,11 @@ Art pass, polish, sound, balancing across the 20-hour campaign.
 - **Living town (built):** hearth fires flicker and smoke rises from homes when people are in or cooking; chickens peck by farms and granaries, sheep graze beside farms, flocks of birds fly over; warm firelight glows at night.
 - **New buildings (built):** Hunter's Lodge (food from the forest) and Well (evening gathering spot, small happiness bonus nearby). The starter-town button now builds them too.
 - **Tech tree v1 (built):** 18 techs in the Tech tab (farming, wood, gold, people, military), bought with gold at the Town Hall, one at a time. Old saves keep working.
+- **Goods + bigger map (built, first draft):** map is now 64×64 with stone deposits. New real goods: **stone** (Quarry, on deposits; deposits never run out) and **furniture** (Carpenter, from wood). New **Stockpile** (holds goods, its workers are haulers) and **Wright's Lodge** (wrights build things); you start with one of each, free. Every good is somewhere real and is carried by haulers; placing a building makes a building site that haulers supply and wrights build (it rises as they work); Town Hall upgrades are built the same way. People only produce while actually working; full shelves stop work. Advanced buildings need furniture; bigger ones and hall upgrades need stone. Hauler/wright priorities explained in 7.4b. Tested with a headless simulation (early game from scratch, the big test town for 6 days, hall upgrade, removing a full stockpile) and screenshots. Old saves can't be loaded (start a new game).
 - **Next:** owner tests battles in the Battle Lab; then decide battle control, connect battles to the colony (real squads), grand map + enemy kingdoms + AI. Also still open: tech tree, happiness effects, where people eat.
 - Then: owner playtests again. Then Milestone 2 (town hall levels, tech tree, more buildings). Placement feel ("a tiny bit weird") to revisit later.
 
-- **Testing sidebar (built):** a small vertical bar on the right edge with **10× speed**, **+10 villagers**, **+100 gold**, **+100 wood**. Also **Town** (one tap builds a free starter town: Town Hall if needed, 2 Manors, Longhouse, 2 Houses, 4 Farms, 2 stocked Granaries, 2 Lumber Camps, Market, Tavern, Chapel, Barracks, Training Grounds, ~85 villagers with every job filled and spare idle ones) and **Unlock** (no progression locks). Turn it off with `showTestTools: false` in `src/config.ts` (the fast speed is `testSpeed`).
+- **Testing sidebar (built):** a small vertical bar on the right edge with **10× speed**, **+10 villagers**, **+100 gold**, **+Goods** (100 wood, 50 stone, 10 furniture into the stockpiles). Also **Town** (one tap builds a free starter town: Town Hall if needed, 2 Manors, Longhouse, 2 Houses, 4 Farms, 2 stocked Granaries, 2 Lumber Camps, Market, Tavern, Chapel, Barracks, Training Grounds, ~85 villagers with every job filled and spare idle ones) and **Unlock** (no progression locks). Turn it off with `showTestTools: false` in `src/config.ts` (the fast speed is `testSpeed`).
 
 ### Getting the newest version on the phone
 The game checks for a newer version whenever it's opened (and every 2 minutes). If there is one, a green **"New version: tap to update"** button appears; tapping it saves the game and loads the new version. The Menu (☰) shows the build number.

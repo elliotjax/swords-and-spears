@@ -5,6 +5,9 @@ const svg = (inner: string, size = 18) =>
 export const IC = {
   food: svg('<path d="M12 22V9" stroke="#2f9d58" stroke-width="2.4"/><path d="M12 13c-4 0-6-3-6-6 3 0 6 2 6 6zM12 11c4 0 6-3 6-6-3 0-6 2-6 6z" fill="#2f9d58"/>'),
   wood: svg('<rect x="2" y="8" width="17" height="8" rx="4" fill="#b07a4c" stroke="#3a3342" stroke-width="1.6"/><ellipse cx="19" cy="12" rx="3" ry="4" fill="#e3c093" stroke="#3a3342" stroke-width="1.6"/>'),
+  stone: svg('<path d="M3 17l3-7 5-3 6 2 4 6-2 4H5z" fill="#a8a294" stroke="#3a3342" stroke-width="1.6"/><path d="M11 7l1 6 7 2M6 10l6 3-7 6" stroke="#77726a" stroke-width="1.3"/>'),
+  furniture: svg('<rect x="4" y="9" width="16" height="4" rx="1" fill="#b48a58" stroke="#3a3342" stroke-width="1.6"/><path d="M6 13v7M18 13v7M8 9V4h8v5" stroke="#3a3342" stroke-width="1.8"/>'),
+  hammer: svg('<path d="M5 20l9-9" stroke="#8a5c36" stroke-width="2.8"/><path d="M11 5l4-2 6 6-2 4z" fill="#667086" stroke="#3a3342" stroke-width="1.4"/>'),
   gold: svg('<circle cx="12" cy="12" r="8.5" fill="#f0b93e" stroke="#b8861a" stroke-width="2"/><circle cx="12" cy="12" r="4.5" stroke="#b8861a" stroke-width="1.6"/>'),
   people: svg('<circle cx="12" cy="7.5" r="4" fill="#262b38"/><path d="M4 21c0-5 3.5-7.5 8-7.5s8 2.5 8 7.5z" fill="#262b38"/>'),
   baby: svg('<circle cx="12" cy="9" r="5.5" fill="#f2c79b" stroke="#3a3342" stroke-width="1.6"/><path d="M6 21c0-3.5 2.7-5.5 6-5.5s6 2 6 5.5z" fill="#4f7fc4"/><path d="M9.5 6.2c1.2-1.6 3.8-1.6 5 0" stroke="#6b4426" stroke-width="1.8"/>'),

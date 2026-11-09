@@ -216,3 +216,21 @@ button { font-family: inherit; color: inherit; border: 0; background: none; curs
 .tbusy { flex: none; font-weight: 800; font-size: 12.5px; color: var(--accent); min-width: 64px; text-align: center; }
 .tcount { font-size: 12px; font-weight: 800; color: var(--muted); background: #eef1f5; border-radius: 999px; padding: 2px 8px; }
 .sheetp h4 { margin: 10px 0 2px; font-size: 13px; font-weight: 800; }
+
+/* goods: cost chips, material rows */
+.costs { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.card .costs { display: flex; gap: 0 3px; flex-wrap: wrap; line-height: 1.15; }
+.card .costs .ct { font-size: 11px; }
+.card .ct.stone { color: #77726a; }
+.card .ct.furniture { color: #8e6a40; }
+.sheetp .ct { font-weight: 800; font-size: 12.5px; color: var(--gold); }
+.sheetp .ct.wood { color: var(--wood); }
+.sheetp .ct.stone { color: #77726a; }
+.sheetp .ct.furniture { color: #8e6a40; }
+.sheetp .ct.bad { color: var(--bad); }
+.mrow { display: flex; align-items: center; gap: 7px; min-height: 24px; font-size: 13px; }
+.mrow .ic { width: 18px; height: 18px; flex: none; display: grid; place-items: center; }
+.mrow .lb { font-weight: 700; flex: 1; }
+.mrow .vl { font-weight: 800; white-space: nowrap; }
+.mrow .vl small { font-weight: 700; color: var(--muted); font-size: 11px; margin-left: 4px; }
+.bar.thin { height: 4px; margin: 0 0 4px 25px; }

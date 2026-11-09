@@ -6,9 +6,15 @@
 export type BuildingKind =
   | 'townHall' | 'house' | 'longhouse' | 'manor'
   | 'farm' | 'granary' | 'lumberCamp' | 'market' | 'tavern' | 'chapel' | 'hunter' | 'well'
-  | 'barracks' | 'trainingGrounds' | 'palisade';
+  | 'barracks' | 'trainingGrounds' | 'palisade'
+  | 'stockpile' | 'wrights' | 'quarry' | 'carpenter';
 
-export type Category = 'housing' | 'food' | 'wood' | 'trade' | 'leisure' | 'military';
+export type Category = 'housing' | 'food' | 'industry' | 'town' | 'trade' | 'leisure' | 'military';
+/** Goods: real things that sit somewhere (a stockpile, a work building's shelf, a building site, or someone's arms). */
+export type Good = 'wood' | 'stone' | 'furniture';
+export const GOODS: Good[] = ['wood', 'stone', 'furniture'];
+export type Cost = Partial<Record<Good, number>> & { gold?: number };
+export type TileKind = 'grass' | 'forest' | 'stone';
 export type UnitKind = 'swordsmen' | 'spearmen' | 'archers' | 'cavalry';
 export type BadgeColor = 'green' | 'blue' | 'gold' | 'storage';
 
@@ -16,12 +22,17 @@ export interface BuildingDef {
   name: string;
   category: Category | null;      // null = not in the build menu (town hall)
   w: number; h: number;           // size in tiles
-  cost: { wood: number; gold: number };
-  allowedTiles: ('grass' | 'forest')[];
+  cost: Cost;                      // goods are carried to the building site by haulers; gold is paid at once
+  buildHours?: number;            // wright-hours of work to build (default: tiles x build.hoursPerTile)
+  allowedTiles: TileKind[];
   beds?: number;                  // housing capacity
   workers?: number;               // job capacity
   minWorkers?: number;            // does nothing below this many present
-  output?: { food?: number; wood?: number; gold?: number }; // per day at full staff
+  output?: { food?: number; wood?: number; stone?: number; furniture?: number; gold?: number }; // per day at full staff
+  input?: Partial<Record<Good, number>>; // goods used up per 1 unit of output (carpenter: wood per furniture)
+  inputKeep?: number;             // haulers try to keep this much input stocked here
+  shelf?: number;                 // goods made here wait on a shelf (this many) until haulers collect them; full = work stops
+  storage?: number;               // stockpile: how many goods it holds (all kinds together)
   grassBonus?: number;            // extra output fraction when on grassland
   isHouse?: boolean;              // counts toward the town hall house cap
   foodStorage?: number;           // lb of food this building can store (granary, town hall)
@@ -63,18 +74,56 @@ export const CONFIG = {
   },
 
   map: {
-    width: 40,
-    height: 40,
+    width: 64,
+    height: 64,
     forestAmount: 0.38,       // roughly the share of forest tiles
-    forestScale: 7,           // bigger = larger forest blobs
-    clearRadius: 5,           // grass circle kept clear at the map centre
+    forestScale: 8,           // bigger = larger forest blobs
+    clearRadius: 7,           // grass circle kept clear at the map centre
+    stoneDeposits: 8,         // grey rocky patches; quarries (2x2) go on them. They never run out.
+    depositRadius: [2.6, 4.2] as [number, number], // size range of a deposit (tiles)
+    nearDeposit: [11, 15] as [number, number],     // one deposit is always this far from the centre
+    stoneWalkCost: 1.4,       // rocky ground is a bit slower to walk over
   },
 
   start: {
-    villagers: 12,
-    wood: 200,
+    villagers: 20,
+    wood: 250,                // in the free starting Stockpile
+    stone: 0,
     gold: 100,
-    food: 100,                // lb of food stored in the Town Hall at the start
+    food: 150,                // lb of food stored in the Town Hall at the start
+  },
+
+  // Work: people only make things while they're actually working at their spot
+  // (not while walking to it, between spots, or eating). Output numbers in the
+  // buildings below are "per day at full staff" on an ordinary workday.
+  work: {
+    atSpotMin: 5,             // game seconds a worker works at one spot...
+    atSpotMax: 10,            // ...before moving to another spot in the building
+    busyShare: 0.9,           // roughly the share of a shift spent actually working (the rest is moving between spots)
+  },
+
+  // Haulers (Stockpile workers) move goods around. See README "Haulers and Wrights".
+  haul: {
+    carry: { wood: 20, stone: 15, furniture: 3 } as Record<Good, number>, // most a hauler carries per trip
+    pickupSeconds: 1.2,       // time spent loading up
+    dropSeconds: 1.2,         // time spent unloading
+    thinkSeconds: 1,          // an idle hauler looks for a job this often
+    // priority of each kind of job (bigger = more important). Score = priority / (trip tiles + tripPad)
+    sitePriority: 3,          // building sites
+    inputPriority: 2,         // workshop supplies (wood to the carpenter)
+    collectPriority: 1,       // collecting from shelves...
+    fullShelfPriority: 2,     // ...plus up to this much more as a shelf fills up
+    tripPad: 8,               // softens distance: a far urgent job can still beat a close minor one
+    minLoad: 1,               // only collect from a shelf once there's this share of a full load (or it's nearly full)
+    sitePerHour: 1,           // building sites count as this many tiles closer for every game hour they've waited
+  },
+
+  // Wrights (Wright's Lodge workers) build things once haulers bring the materials.
+  build: {
+    hoursPerTile: 1.5,        // wright-hours of work per tile of building (house 2x2 = 6 wright-hours)
+    wrightsPerTile: 0.5,      // most wrights on one site: this many per tile (at least 2)
+    waitBonus: 1,             // sites count as this many tiles closer for every game hour they've waited
+    thinkSeconds: 1,
   },
 
   // Free time (workEnd to sleepStart): villagers make a route of short errands,
@@ -134,13 +183,14 @@ export const CONFIG = {
 
   townHall: {
     // index 0 = level 1. Unlocks are set on each building (unlockHallLevel).
+    // Upgrades: gold is paid at once; wood and stone are carried to the hall, then wrights work on it.
     levels: [
       { houseCap: 4 },
-      { houseCap: 6, upgradeCost: { wood: 150, gold: 120 } },
-      { houseCap: 8, upgradeCost: { wood: 300, gold: 300 } },
-      { houseCap: 10, upgradeCost: { wood: 500, gold: 600 } },
-      { houseCap: 12, upgradeCost: { wood: 800, gold: 1000 } },
-    ] as { houseCap: number; upgradeCost?: { wood: number; gold: number } }[],
+      { houseCap: 6, upgradeCost: { wood: 150, stone: 40, gold: 120 }, buildHours: 10 },
+      { houseCap: 8, upgradeCost: { wood: 300, stone: 120, gold: 300 }, buildHours: 16 },
+      { houseCap: 10, upgradeCost: { wood: 500, stone: 250, gold: 600 }, buildHours: 24 },
+      { houseCap: 12, upgradeCost: { wood: 800, stone: 400, gold: 1000 }, buildHours: 32 },
+    ] as { houseCap: number; upgradeCost?: Cost; buildHours?: number }[],
   },
 
   // Happiness (shown in the Villagers tab; it doesn't change anything yet)
@@ -269,75 +319,91 @@ export const CONFIG = {
   testSpeed: 10,              // speed of the sidebar's fast button
 
   autoFillWorkers: true,      // new buildings start with idle villagers assigned, up to capacity
-  removeRefund: 0.5,          // share of cost refunded when removing a building
+  removeRefund: 0.5,          // share of cost refunded when removing a finished building (goods go to the nearest stockpile)
 
   buildings: {
     townHall: {
       name: 'Town Hall', category: null, w: 3, h: 3,
-      cost: { wood: 0, gold: 0 }, allowedTiles: ['grass'], foodStorage: 150,
+      cost: {}, allowedTiles: ['grass'], foodStorage: 150,
     },
     house: {
-      name: 'House', category: 'housing', w: 2, h: 2, cost: { wood: 40, gold: 0 },
+      name: 'House', category: 'housing', w: 2, h: 2, cost: { wood: 40 },
       allowedTiles: ['grass'], beds: 10, isHouse: true, badge: 'blue',
     },
     longhouse: {
-      name: 'Longhouse', category: 'housing', w: 3, h: 2, cost: { wood: 90, gold: 0 },
+      name: 'Longhouse', category: 'housing', w: 3, h: 2, cost: { wood: 80, furniture: 4 },
       allowedTiles: ['grass'], beds: 25, isHouse: true, unlockHallLevel: 2, badge: 'blue',
     },
     manor: {
-      name: 'Manor', category: 'housing', w: 3, h: 3, cost: { wood: 160, gold: 60 },
+      name: 'Manor', category: 'housing', w: 3, h: 3, cost: { wood: 120, stone: 40, furniture: 10, gold: 60 },
       allowedTiles: ['grass'], beds: 50, isHouse: true, unlockHallLevel: 3, badge: 'blue',
     },
     farm: {
-      name: 'Farm', category: 'food', w: 3, h: 3, cost: { wood: 40, gold: 0 },
+      name: 'Farm', category: 'food', w: 3, h: 3, cost: { wood: 40 },
       allowedTiles: ['grass'], workers: 8, output: { food: 85 }, grassBonus: 0.25,
       farmStorage: 100, badge: 'green',
     },
     granary: {
-      name: 'Granary', category: 'food', w: 1, h: 2, cost: { wood: 40, gold: 0 },
+      name: 'Granary', category: 'food', w: 1, h: 2, cost: { wood: 40 },
       allowedTiles: ['grass'], foodStorage: 500, workers: 1, badge: 'storage',
     },
     hunter: {
-      name: "Hunter's Lodge", category: 'food', w: 2, h: 2, cost: { wood: 50, gold: 0 },
+      name: "Hunter's Lodge", category: 'food', w: 2, h: 2, cost: { wood: 50 },
       allowedTiles: ['forest'], workers: 4, output: { food: 45 }, farmStorage: 60, badge: 'green',
     },
     well: {
-      name: 'Well', category: 'leisure', w: 1, h: 1, cost: { wood: 20, gold: 0 },
+      name: 'Well', category: 'leisure', w: 1, h: 1, cost: { wood: 10, stone: 20 },
       allowedTiles: ['grass'], leisure: true, nearBonusRadius: 4,
     },
     lumberCamp: {
-      name: 'Lumber Camp', category: 'wood', w: 2, h: 2, cost: { wood: 30, gold: 0 },
-      allowedTiles: ['forest'], workers: 6, output: { wood: 130 }, badge: 'gold',
+      name: 'Lumber Camp', category: 'industry', w: 2, h: 2, cost: { wood: 30 },
+      allowedTiles: ['forest'], workers: 6, output: { wood: 130 }, shelf: 60, badge: 'gold',
     },
     market: {
-      name: 'Market', category: 'trade', w: 2, h: 2, cost: { wood: 60, gold: 0 },
+      name: 'Market', category: 'trade', w: 2, h: 2, cost: { wood: 50, furniture: 4 },
       allowedTiles: ['grass'], workers: 4, output: { gold: 50 }, badge: 'green',
     },
     tavern: {
-      name: 'Tavern', category: 'leisure', w: 2, h: 2, cost: { wood: 70, gold: 20 },
+      name: 'Tavern', category: 'leisure', w: 2, h: 2, cost: { wood: 60, furniture: 6, gold: 20 },
       allowedTiles: ['grass'], leisure: true, unlockHallLevel: 2,
     },
     chapel: {
-      name: 'Chapel', category: 'leisure', w: 2, h: 2, cost: { wood: 90, gold: 50 },
+      name: 'Chapel', category: 'leisure', w: 2, h: 2, cost: { wood: 50, stone: 60, furniture: 6, gold: 50 },
       allowedTiles: ['grass'], leisure: true, happyRadius: 7, unlockHallLevel: 3,
     },
     barracks: {
-      name: 'Barracks', category: 'military', w: 2, h: 2, cost: { wood: 80, gold: 0 },
+      name: 'Barracks', category: 'military', w: 2, h: 2, cost: { wood: 70, stone: 20, furniture: 6 },
       allowedTiles: ['grass'], soldierBeds: 30, unlockHallLevel: 2, badge: 'blue',
     },
     trainingGrounds: {
-      name: 'Training Grounds', category: 'military', w: 3, h: 3, cost: { wood: 60, gold: 0 },
+      name: 'Training Grounds', category: 'military', w: 3, h: 3, cost: { wood: 50, furniture: 3 },
       allowedTiles: ['grass'], trainingSlots: 50, unlockHallLevel: 2, badge: 'gold',
     },
+    stockpile: {
+      name: 'Stockpile', category: 'town', w: 3, h: 3, cost: { wood: 20 },
+      allowedTiles: ['grass'], workers: 4, storage: 800, buildHours: 3, badge: 'storage',
+    },
+    wrights: {
+      name: "Wright's Lodge", category: 'town', w: 2, h: 2, cost: { wood: 40 },
+      allowedTiles: ['grass'], workers: 4, badge: 'gold',
+    },
+    quarry: {
+      name: 'Quarry', category: 'industry', w: 2, h: 2, cost: { wood: 30 },
+      allowedTiles: ['stone'], workers: 4, output: { stone: 80 }, shelf: 45, badge: 'gold',
+    },
+    carpenter: {
+      name: 'Carpenter', category: 'industry', w: 2, h: 2, cost: { wood: 50, stone: 20 },
+      allowedTiles: ['grass'], workers: 3, output: { furniture: 12 }, input: { wood: 8 }, inputKeep: 60, shelf: 12, badge: 'gold',
+    },
     palisade: {
-      name: 'Palisade', category: 'military', w: 1, h: 1, cost: { wood: 10, gold: 0 },
+      name: 'Palisade', category: 'military', w: 1, h: 1, cost: { wood: 10 },
       allowedTiles: ['grass'], comingSoon: true,
     },
   } as Record<BuildingKind, BuildingDef>,
 
   camera: {
     tilePx: 65,               // tile size on screen at default zoom
-    minZoom: 0.35,
+    minZoom: 0.2,
     maxZoom: 1.7,
   },
 };
@@ -348,7 +414,8 @@ export interface TechDef { id: string; group: string; name: string; desc: string
 export const BUILD_MENU: { cat: Category; label: string; kinds: BuildingKind[] }[] = [
   { cat: 'housing', label: 'Housing', kinds: ['house', 'longhouse', 'manor'] },
   { cat: 'food', label: 'Food', kinds: ['farm', 'granary', 'hunter'] },
-  { cat: 'wood', label: 'Wood', kinds: ['lumberCamp'] },
+  { cat: 'town', label: 'Town', kinds: ['stockpile', 'wrights'] },
+  { cat: 'industry', label: 'Industry', kinds: ['lumberCamp', 'quarry', 'carpenter'] },
   { cat: 'trade', label: 'Trade', kinds: ['market'] },
   { cat: 'leisure', label: 'Leisure', kinds: ['well', 'tavern', 'chapel'] },
   { cat: 'military', label: 'Military', kinds: ['barracks', 'trainingGrounds', 'palisade'] },

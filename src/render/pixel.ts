@@ -1,7 +1,7 @@
 import { CONFIG, type BuildingKind } from '../config';
 import { DOORS } from '../sim/doors';
 import { hash } from '../sim/rng';
-import { FOREST, type GameState, type Villager } from '../sim/types';
+import { FOREST, STONE, type GameState, type Villager } from '../sim/types';
 
 // =====================================================================
 //  Roofless pixel art. The world is painted into small canvases at
@@ -16,6 +16,9 @@ type G = CanvasRenderingContext2D;
 export const PX = {
   grass: ['#6f8a4a', '#7d985a', '#62803f', '#86a062', '#5a7638'],
   forestFloor: ['#55703a', '#4c6634', '#5e7a40'],
+  rock: ['#8d877b', '#9d978a', '#7b766b', '#a8a294', '#6e695f'], // stone deposit ground
+  boulder: '#9a958a', boulderHi: '#b8b3a6', boulderDark: '#6f6a60',
+  plank: '#b48a58', plankDark: '#8e6a40',
   flowers: ['#e8d870', '#e8a0b0', '#f0f0e0', '#c8b0e8'],
   dirt: '#a58c62', dirtDark: '#8f7650', dirtLight: '#b8a074',
   gravel: ['#bdb6a4', '#a9a290', '#cfc9b8', '#9a9382'],
@@ -59,6 +62,11 @@ export function paintGround(s: GameState): HTMLCanvasElement {
   for (let ty = 0; ty < s.h; ty++) for (let tx = 0; tx < s.w; tx++) {
     const forest = s.tiles[ty * s.w + tx] === FOREST;
     const x0 = tx * R, y0 = ty * R;
+    if (s.tiles[ty * s.w + tx] === STONE) { // rocky ground: grey grit with cracks
+      rect(g, x0, y0, R, R, PX.rock[0]);
+      for (let i = 0; i < 30; i++) dot(g, x0 + hash(tx * 31 + i, ty * 17, s.seed + 5) * R, y0 + hash(tx, ty * 13 + i, s.seed + 6) * R, PX.rock[1 + Math.floor(hash(tx + i, ty, s.seed + 7) * 4)]);
+      continue;
+    }
     if (forest) rect(g, x0, y0, R, R, PX.forestFloor[0]);
     // speckles
     const n = forest ? 26 : 22;
@@ -313,7 +321,67 @@ export function paintBuilding(g: G, kind: BuildingKind, ox: number, oy: number, 
       for (let i = 0; i < 4; i++) { disc(g, ox + 3 + i * 3, oy + 8, 1, '#8a5c36'); }
       return;
     }
+    case 'stockpile': {
+      // a packed-earth yard with a low fence and three marked bays (wood, stone, furniture)
+      rect(g, ox + 1, oy + 1, W - 2, H - 2, '#a8916a');
+      for (let i = 0; i < 60; i++) dot(g, ox + 2 + hash(i, 21) * (W - 4), oy + 2 + hash(i, 22) * (H - 4), i % 2 ? PX.dirtDark : PX.dirtLight);
+      for (let i = 0; i < W; i += 3) { dot(g, ox + i, oy, '#7a5434'); dot(g, ox + i, oy + H - 1, '#7a5434'); }
+      for (let i = 0; i < H; i += 3) { dot(g, ox, oy + i, '#7a5434'); dot(g, ox + W - 1, oy + i, '#7a5434'); }
+      rect(g, doorX - 4, oy + H - 1, 8, 1, '#a8916a'); // gate
+      for (let k = 0; k < 3; k++) { // bay pallets
+        const bx = ox + 3 + k * 15;
+        rect(g, bx, oy + 3, 13, 33, 'rgba(0,0,0,.08)');
+        for (let yy = oy + 4; yy < oy + 36; yy += 4) rect(g, bx, yy, 13, 1, 'rgba(90,60,30,.25)');
+      }
+      return;
+    }
+    case 'wrights': {
+      // the builders' workshop: sawhorses, a plank stack, a ladder and tools
+      walls(g, ox + 1, oy + 1, W - 2, H - 2, doorX, PX.woodWall, PX.woodWallHi);
+      planks(g, ox + 3, oy + 3, W - 6, H - 6, '#9a7a52', '#86683f');
+      for (let i = 0; i < 4; i++) rect(g, ox + 5, oy + 5 + i * 2, 12, 1, i % 2 ? PX.plankDark : PX.plank); // plank stack
+      rect(g, ox + 20, oy + 6, 7, 1, '#6b4a30'); dot(g, ox + 20, oy + 7, '#6b4a30'); dot(g, ox + 26, oy + 7, '#6b4a30'); // sawhorse
+      rect(g, ox + 21, oy + 5, 5, 1, PX.plank);
+      for (let i = 0; i < 4; i++) rect(g, ox + 5 + i * 3, oy + 16, 1, 1, '#6b4a30'); rect(g, ox + 5, oy + 15, 10, 1, '#7a5434'); rect(g, ox + 5, oy + 17, 10, 1, '#7a5434'); // ladder
+      rect(g, ox + 20, oy + 15, 4, 1, PX.steel); rect(g, ox + 22, oy + 16, 1, 3, '#6b4a30'); // hammer
+      rect(g, ox + 24, oy + 20, 3, 2, PX.stoneDark); barrel(g, ox + 7, oy + 23);
+      return;
+    }
+    case 'quarry': {
+      // a stepped pit cut into the rock, cut blocks, a wooden lifting frame and a pick
+      rect(g, ox + 2, oy + 2, W - 4, H - 4, '#77726a');
+      rect(g, ox + 5, oy + 5, W - 10, H - 10, '#66625b');
+      rect(g, ox + 8, oy + 8, W - 16, H - 16, '#57534d');
+      rect(g, ox + 2, oy + 2, W - 4, 1, PX.rock[3]); rect(g, ox + 5, oy + 5, W - 10, 1, '#8a857a'); rect(g, ox + 8, oy + 8, W - 16, 1, '#77726a');
+      rect(g, doorX - 2, oy + H - 6, 4, 4, '#77726a'); // ramp out of the pit
+      for (const [bx, by] of [[3, 24], [7, 25], [24, 3]]) { rect(g, ox + bx, oy + by, 4, 3, '#c8c2b4'); rect(g, ox + bx, oy + by, 4, 1, '#e0dbcf'); }
+      rect(g, ox + 23, oy + 20, 1, 8, '#6b4a30'); rect(g, ox + 28, oy + 20, 1, 8, '#6b4a30'); rect(g, ox + 23, oy + 20, 6, 1, '#7a5434'); dot(g, ox + 25, oy + 22, '#c8b088'); // frame + rope
+      rect(g, ox + 12, oy + 13, 5, 1, PX.steel); rect(g, ox + 14, oy + 14, 1, 3, '#6b4a30'); // pick
+      return;
+    }
+    case 'carpenter': {
+      // a workshop: a long bench, a lathe, shavings, and a finished chair and table
+      walls(g, ox + 1, oy + 1, W - 2, H - 2, doorX, PX.woodWall, PX.woodWallHi);
+      planks(g, ox + 3, oy + 3, W - 6, H - 6, PX.floor, PX.floorLine);
+      rect(g, ox + 4, oy + 4, W - 8, 3, PX.table); rect(g, ox + 4, oy + 4, W - 8, 1, PX.tableHi); // bench
+      rect(g, ox + 7, oy + 5, 3, 1, PX.steel); rect(g, ox + 15, oy + 5, 4, 1, PX.plank);
+      for (let i = 0; i < 14; i++) dot(g, ox + 5 + hash(i, 31) * (W - 10), oy + 9 + hash(i, 32) * 8, '#d9b48a'); // shavings
+      rect(g, ox + 22, oy + 11, 4, 3, PX.plank); dot(g, ox + 22, oy + 14, PX.plankDark); dot(g, ox + 25, oy + 14, PX.plankDark); // table
+      rect(g, ox + 18, oy + 12, 2, 2, PX.plank); rect(g, ox + 18, oy + 10, 1, 2, PX.plank); // chair
+      return;
+    }
   }
+}
+
+/** A building site: cleared ground, corner stakes and a string line (the building itself rises on top, drawn live). */
+export function paintSite(g: G, kind: BuildingKind, ox: number, oy: number) {
+  const d = CONFIG.buildings[kind];
+  const W = d.w * R, H = d.h * R;
+  rect(g, ox + 1, oy + 1, W - 2, H - 2, '#9c8460');
+  for (let i = 0; i < W * H / 14; i++) dot(g, ox + 2 + hash(i, 41, W) * (W - 4), oy + 2 + hash(i, 42, H) * (H - 4), i % 3 ? PX.dirtDark : PX.dirtLight);
+  for (let i = 1; i < W - 1; i += 2) { dot(g, ox + i, oy + 1, '#e8dcc0'); dot(g, ox + i, oy + H - 2, '#e8dcc0'); }
+  for (let i = 1; i < H - 1; i += 2) { dot(g, ox + 1, oy + i, '#e8dcc0'); dot(g, ox + W - 2, oy + i, '#e8dcc0'); }
+  for (const [sx, sy] of [[0, 0], [W - 2, 0], [0, H - 2], [W - 2, H - 2]]) rect(g, ox + sx, oy + sy, 2, 2, '#6b4a30');
 }
 
 /** Buildings + trees (everything static that sits above the ground and roads). */
@@ -323,7 +391,21 @@ export function paintWorld(s: GameState, cv: HTMLCanvasElement) {
   g.clearRect(0, 0, cv.width, cv.height);
   for (const b of s.buildings) {
     const d = CONFIG.buildings[b.kind];
+    if (b.site && !b.site.upgrade) { paintSite(g, b.kind, b.x * R, b.y * R); continue; }
     paintBuilding(g, b.kind, b.x * R, b.y * R, { fill: d.foodStorage ? b.food / d.foodStorage : 0, level: s.hallLevel });
+  }
+  // boulders on stone deposits
+  for (let ty = 0; ty < s.h; ty++) for (let tx = 0; tx < s.w; tx++) {
+    const i = ty * s.w + tx;
+    if (s.tiles[i] !== STONE || s.occ[i] >= 0) continue;
+    const n = hash(tx, ty, s.seed + 90) < 0.55 ? 1 : 2;
+    for (let k = 0; k < n; k++) {
+      const bx = tx * R + 4 + hash(tx, ty, s.seed + 91 + k) * (R - 8), by = ty * R + 4 + hash(tx, ty, s.seed + 93 + k) * (R - 8);
+      const r = 2 + Math.floor(hash(tx, ty, s.seed + 95 + k) * 2.5);
+      disc(g, bx + 1, by + 1, r, 'rgba(30,25,20,.3)');
+      disc(g, bx, by, r, PX.boulderDark); disc(g, bx - 0.5, by - 0.5, r - 1, PX.boulder);
+      dot(g, bx - r + 1, by - r + 1 + (r > 2 ? 1 : 0), PX.boulderHi); dot(g, bx - 1, by - 1, PX.boulderHi);
+    }
   }
   // trees: canopies of dithered greens, darker shadow to the lower right
   const trees: { x: number; y: number; r: number; k: number }[] = [];
@@ -405,6 +487,8 @@ export function drawPawn(c: CanvasRenderingContext2D, v: Villager, ax: number, a
   // carried goods, at the hand
   const hx = flip ? x0 - 1 : x0 + w;
   if (v.carry === 'basket') { P(hx, -2, '#a07840'); P(hx, -3, PX.crops[0]); }
-  else if (v.carry === 'logs') { P(hx, -3, '#8a5c36'); P(hx, -2, '#8a5c36'); }
+  else if (v.carry === 'logs' || v.carry === 'wood') { P(hx, -3, '#8a5c36'); P(hx, -2, '#8a5c36'); P(hx + (flip ? -1 : 1), -3, '#d9b48a'); }
+  else if (v.carry === 'stone') { P(hx, -3, '#c8c2b4'); P(hx, -2, '#9a958a'); P(hx + (flip ? -1 : 1), -2, '#9a958a'); }
+  else if (v.carry === 'furniture') { P(hx, -4, PX.plank); P(hx, -3, PX.plank); P(hx + (flip ? -1 : 1), -3, PX.plank); P(hx + (flip ? -1 : 1), -2, PX.plankDark); }
   else if (v.carry === 'coins') P(hx, -2, PX.gold);
 }

@@ -1,7 +1,8 @@
-import type { BuildingKind, UnitKind } from '../config';
+import type { BuildingKind, Good, UnitKind } from '../config';
 
 export const GRASS = 0;
 export const FOREST = 1;
+export const STONE = 2;   // rocky stone deposit (quarries go here)
 
 export interface Building {
   id: number;
@@ -10,10 +11,27 @@ export interface Building {
   workers: number[];    // villager ids assigned to work here
   residents: number[];  // villager ids living here
   food: number;         // lb stored here (farm waiting to be delivered, granary, town hall)
+  goods: Partial<Record<Good, number>>; // stockpile: what's stored; work building: its shelf (and inputs); site: materials delivered
+  site: Site | null;    // still being built (or the Town Hall being upgraded); null = finished
+}
+
+export interface Site {
+  work: number;         // wright-hours of work done so far
+  since: number;        // tick the site was started (older sites go first)
+  upgrade?: boolean;    // Town Hall upgrade: the hall keeps working meanwhile
+}
+
+/** A hauler's current trip: fetch goods at `from`, carry them to `to`. */
+export interface Haul {
+  from: number; to: number; good: Good;
+  amt: number;          // planned amount
+  got: number;          // amount actually picked up
+  stage: 'fetch' | 'carry';
+  kind: 'site' | 'input' | 'collect';
 }
 
 export type Mode = 'inside' | 'walk' | 'work' | 'idle';
-export type Carry = 'basket' | 'logs' | 'coins' | null;
+export type Carry = 'basket' | 'logs' | 'coins' | 'wood' | 'stone' | 'furniture' | null;
 export interface Pt { x: number; y: number }
 
 export interface Villager {
@@ -26,7 +44,7 @@ export interface Villager {
   inside: number | null;     // building id while inside (or entering)
   goalKey: string;           // what the villager is currently trying to do
   goalB: number | null;      // goal building id
-  goalKind: 'home' | 'job' | 'hall' | 'wander' | 'deliver' | 'errand';
+  goalKind: 'home' | 'job' | 'hall' | 'wander' | 'deliver' | 'errand' | 'fetch' | 'drop' | 'site';
   errandB: number | null;    // free time: the place currently being visited
   lastErrand: number | null; // the place just visited (don't go twice in a row)
   errandDay: number;         // day the evening route was finished
@@ -39,6 +57,9 @@ export interface Villager {
   unit: UnitKind | null;     // soldier type (for drawing)
   trained: boolean;          // trained at the training grounds today
   task: { to: number; lb: number } | null; // carrying food to a granary
+  haul: Haul | null;         // hauler: the trip they're on
+  site: number | null;       // wright: the building site they're working on
+  think: number;             // seconds until an idle hauler/wright looks for something to do
   deliveries: number;        // food deliveries made today
   deliveryDay: number;
   way: Pt[];                 // free-walk points (around a building, to/from its door)
@@ -84,8 +105,7 @@ export interface GameState {
   villagers: Villager[];
   nextId: number;
   tick: number;
-  wood: number;
-  gold: number;
+  gold: number;              // (wood, stone and furniture are real goods: see Building.goods)
   // (food is stored in buildings: see Building.food)
   hallLevel: number;         // 1-based
   hallId: number | null;

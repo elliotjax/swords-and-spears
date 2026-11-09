@@ -19,4 +19,8 @@ export const DOORS: Record<BuildingKind, { x: number; y: number }> = {
   barracks: { x: 1, y: 1.8 },
   trainingGrounds: { x: 1.5, y: 2.94 },
   palisade: { x: 0.5, y: 0.9 },
+  stockpile: { x: 1.5, y: 2.94 },  // the yard gate
+  wrights: { x: 1, y: 1.8 },
+  quarry: { x: 1, y: 1.9 },
+  carpenter: { x: 1, y: 1.8 },
 };
