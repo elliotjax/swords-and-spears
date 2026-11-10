@@ -287,7 +287,7 @@ function damageOf(b: BattleState, att: BSoldier, attSq: BSquad, def: BSoldier, d
 
 let moraleResist: [number, number] = [0, 0];
 function loseMorale(q: BSquad, amount: number) {
-  q.morale -= amount * (1 - CONFIG.battle.morale.rankResist * q.rank) * (1 - moraleResist[q.side]);
+  q.morale -= amount * (1 - CONFIG.battle.morale.rankResist * q.rank) * (1 - moraleResist[q.side]) / (stats(q.unit).courage ?? 1);
 }
 
 // ---------- the tick ----------

@@ -455,12 +455,12 @@ export const CONFIG = {
     // cooldown = seconds between swings (archers: between arrows). block = chance to parry/block a blow from the front.
     // Soldiers swing often but most frontal blows are parried: kills come from flanks, ganging up and catching people off balance.
       swordsmen: { damage: 7.5, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, block: 0.55, strongVs: ['spearmen'] },
-      // heavy swordsmen: swordsmen with 1.75x the hit, 1.45x the health and plate armour that turns away 10% of every blow
-      heavy: { damage: 7.5 * 1.75, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, armor: 0.1, hp: 100 * 1.45, block: 0.55, strongVs: ['spearmen'] },
+      // heavy swordsmen: swordsmen with 1.75x the hit, 1.45x the health, plate armour that turns away 10% of every blow and twice the courage (takes twice the pressure to break; `courage` divides all morale loss)
+      heavy: { damage: 7.5 * 1.75, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, armor: 0.1, courage: 2, hp: 100 * 1.45, block: 0.55, strongVs: ['spearmen'] },
       spearmen: { damage: 6.5, cooldown: 2.8, reach: 0.85, speed: 0.65, defense: 0.15, block: 0.42, strongVs: ['cavalry'] },
       archers: { damage: 20, cooldown: 4.0, meleeCooldown: 2.8, reach: 0.5, speed: 0.7, defense: 0.05, block: 0.15, range: 7, meleeDamage: 4, strongVs: ['spearmen'] },
       cavalry: { damage: 8, cooldown: 2.8, reach: 0.65, speed: 1.7, defense: 0.12, block: 0.3, chargeBonus: 4.5, strongVs: ['archers'] },
-    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; block: number; armor?: number; hp?: number; range?: number; meleeDamage?: number; meleeCooldown?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
+    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; block: number; armor?: number; courage?: number; hp?: number; range?: number; meleeDamage?: number; meleeCooldown?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
   },
 
   // Tech tree: researched at the Town Hall with gold, one at a time, takes a few days.
