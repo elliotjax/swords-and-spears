@@ -15,7 +15,7 @@ import type { GameState } from '../sim/types';
 // =====================================================================
 
 const UNITS: UnitKind[] = ['swordsmen', 'heavy', 'spearmen', 'archers', 'cavalry'];
-const TEAM = ['#c0392b', '#3a62b8'], TEAM_DARK = ['#8e2a23', '#27457f'], TEAM_LIGHT = ['#ef9a90', '#93b2ee'];
+const TEAM = ['#e6402e', '#3f78ee'], TEAM_DARK = ['#a62d22', '#2a54ad'], TEAM_LIGHT = ['#f5a79c', '#9fc0ff']; // (bright, so armies are easy to tell apart from far away)
 const SIDE_NAME = ['You (red)', 'Enemy (blue)'];
 
 const PRESETS: { name: string; a: Partial<Record<UnitKind, number>>; b: Partial<Record<UnitKind, number>> }[] = [
@@ -39,6 +39,7 @@ export class BattleLab {
   private counts: [Record<UnitKind, number>, Record<UnitKind, number>];
   private ranks: [number, number] = [1, 1];
   private speed = 1;
+  private cine = false;                  // cinematic view: no badges, words or squad blocks (and no panel) while fighting
   private seed = 1;
   private ground: HTMLCanvasElement | null = null;
   private cam = { x: 0, y: 0, zoom: 1 }; // in shown (maybe turned) tiles
@@ -86,6 +87,7 @@ export class BattleLab {
         <div class="labspd">
           <button data-ls="0" aria-label="Pause">${IC.pause}</button><button data-ls="1">1×</button><button data-ls="2">2×</button><button data-ls="3">3×</button><button data-ls="10">10×</button>
         </div>
+        <button class="x" data-lab="cine" aria-label="Cinematic view" id="labCine">🎬</button>
         <button class="x" data-lab="cam" aria-label="Auto camera" id="labCam">🎯</button>
         <button class="x" data-lab="close" aria-label="Close">✕</button>
       </div>
@@ -246,6 +248,7 @@ export class BattleLab {
     switch (act) {
       case 'close': this.close(); return;
       case 'cam': this.autoCam = true; this.renderTop(); return;
+      case 'cine': this.cine = !this.cine; this.renderTop(); return;
       case 'add': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 1); this.rebuildArmy(side === 1); break;
       case 'add5': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 5); this.rebuildArmy(side === 1); break;
       case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.rebuildArmy(side === 1); break;
@@ -316,6 +319,8 @@ export class BattleLab {
   private renderTop() {
     this.root.querySelectorAll<HTMLButtonElement>('[data-ls]').forEach(b => b.classList.toggle('on', Number(b.dataset.ls) === this.speed));
     this.root.querySelector('#labCam')?.classList.toggle('on', this.autoCam);
+    this.root.querySelector('#labCine')?.classList.toggle('on', this.cine);
+    this.panel.style.display = this.cine && this.view === 'fight' ? 'none' : '';
   }
 
   private renderPanel() {
@@ -490,6 +495,7 @@ export class BattleLab {
     }
     this.drawOrders(b, S, d);
     // squad badges: unit symbol, filled from the bottom by the squad's average HP
+    if (this.cine && this.view !== 'setup') return;
     c.textAlign = 'center'; c.textBaseline = 'top';
     c.font = `800 ${9.5 * d}px Nunito, system-ui, sans-serif`;
     const words = ppt >= 24; // zoomed far out (big battles): just the badges, no words
@@ -556,7 +562,7 @@ export class BattleLab {
    * ahead of them; bracing squads a bar along their front; squads not in a fight are faint.
    */
   private drawFootprints(b: BattleState, S: (x: number, y: number) => Pt, d: number, alpha: number) {
-    if (this.view === 'setup') return;
+    if (this.view === 'setup' || this.cine) return;
     const c = this.ctx;
     for (const q of b.squads) {
       if (q.gone || q.fleeing) continue;
