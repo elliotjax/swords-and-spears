@@ -74,6 +74,7 @@ export interface BSquad {
   viaEdge: boolean; 
   lull: boolean;              // infantry: stepped back a pace to catch its breath between bouts (surges and lulls)
   lullAt: number;             // when the lull started
+  chargeAt: number;           // infantry: when our charge last hit home (momentum for a few seconds)
   boutEnd: number;            // when this bout of fighting ends (-1 = not fighting a bout)
   cohesion: number;           // 0..1: how well the squad keeps together (drops in long fights, flank attacks and pushes; recovers in lulls)
           // a raider riding along its wing's edge to get round the enemy line (stays on it until level with its target)
@@ -219,7 +220,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         cx: fx, cy: y, ang: face, mx: fx, my: y, homeY: y, state: 'march', target: -1, retarget: 0, flankSide: 0,
         broken: false, brokenAt: 0, fleeing: false, gone: false, brokeBy: '',
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
-        viaEdge: false, lull: false, lullAt: -9, boutEnd: -1, cohesion: 1, withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
+        viaEdge: false, lull: false, lullAt: -9, chargeAt: -9, boutEnd: -1, cohesion: 1, withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
         order: led ? 'free' : q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
         fatigue: 0, pushSince: -1, pushing: false, bracing: false, mission: null, guard: !led && !!q.guard, arrowsTaken: 0, support: 0, role: '', waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
         path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
@@ -635,6 +636,8 @@ export function stepBattle(b: BattleState) {
       // (a lull is over at once if someone keeps hitting us: we fight back)
       const struck = q.lull && Object.values(q.hitBy).some(t => t > q.lullAt + 0.8 && b.t - t < 0.3);
       if ((!q.lull && Math.hypot(gx - q.cx, gy - q.cy) < 0.6) || b.t > q.withdrawUntil || struck) {
+        // a line charge: friends beside us who have had their breather come back in with us
+        if (q.lull && !struck) for (const o of b.squads) if (o !== q && o.side === q.side && o.lull && o.state === 'withdraw' && b.t - o.lullAt > B.lull.joinAfter && Math.hypot(o.mx - q.mx, o.my - q.my) < B.lull.joinRange) o.withdrawUntil = b.t;
         q.state = 'march'; q.meleeSince = -1; q.lull = false;
         for (const id of q.members) so(id).charge = true; // ready to charge again
       }
@@ -735,7 +738,9 @@ export function stepBattle(b: BattleState) {
           // (never bouncing back), and the squad being pushed can't step forward again
           if (q.pushing) step = pusherOf.get(tq.id) === q && dE < PU.shoveRange ? U.speed * (tq.bracing ? PU.braceGiveSpeed : PU.giveSpeed) * DT : Math.max(step, 0);
           else if (pushedBy) step = Math.min(step, 0);
-          else if (tq.lull) step = Math.min(step, 0); // they stepped back to catch their breath: so do we (no chasing into their line)
+          // they stepped back to catch their breath: so do we (no chasing into their line)... unless we're fresh and our commander
+          // is an aggressive one: then we go straight at them while they rest
+          else if (tq.lull && !(q.cohesion > B.lull.pounceCohesion && q.fatigue < B.lull.pounceFatigue && (b.cmd[q.side]?.temper?.aggr ?? 0) > B.lull.pounceAggr)) step = Math.min(step, 0);
           else if (!isCav) {
             // the squad beside us is being driven back: bend back with it (still fighting), so the line bends instead of snapping
             for (const o of b.squads) {
@@ -946,12 +951,14 @@ export function stepBattle(b: BattleState) {
           let dmg = damageOf(b, s, q, t, sq(t.squad), meleeNow);
           let charged = false, kb = 0, heavy = false;
           if (brace) { dmg *= C.braceBonus; s.charge = false; }
-          else if (meleeNow && s.charge && s.moved > 1.5) { // charge impact (spearmen brace against horses)
+          else if (meleeNow && s.charge && s.moved > (isCav ? 1.5 : C.infantryRun)) { // charge impact (spearmen brace against horses)
             charged = true;
             if (isCav) { if (t.unit !== 'spearmen') { dmg *= (U.chargeBonus ?? 1) * (1 + (b.bonus[s.side].charge ?? 0)); kb = C.cavKnockback; } }
-            else { dmg *= C.infantryBonus; kb = C.knockback; }
+            else { dmg *= C.infantryBonus * (1 + (b.bonus[s.side].charge ?? 0)); kb = C.knockback; q.chargeAt = b.t; } // (the squad's momentum: see below)
             s.charge = false;
           }
+          const momentum = !isCav && b.t - q.chargeAt < C.momentumSeconds; // just charged in: the rush carries the first moments of the fight
+          if (momentum && !charged) dmg *= 1 + C.momentumDamage;
           // every blow is different: glancing, ordinary or heavy
           const roll = rand(b);
           if (roll < SO.glanceChance) dmg *= SO.glance;
@@ -980,7 +987,7 @@ export function stepBattle(b: BattleState) {
               }
             }
             else if (rand(b) < 0.35) b.fx.push({ x: (s.x + t.x) / 2, y: (s.y + t.y) / 2 - 0.2, t: 0, kind: 'clash' }); // missed or blocked: sparks
-            s.cd = (U.meleeCooldown ?? U.cooldown) * B.tempo * (0.8 + rand(b) * 0.4) / (0.9 + s.skill * 0.1) / (q.pushing ? 1 + B.push.attackSpeed : 1); // men in a push strike faster
+            s.cd = (U.meleeCooldown ?? U.cooldown) * B.tempo * (0.8 + rand(b) * 0.4) / (0.9 + s.skill * 0.1) / (q.pushing ? 1 + B.push.attackSpeed : 1) / (momentum ? 1 + C.momentumSpeed : 1); // men in a push (or a fresh charge) strike faster
           } else {
             const dur = d / B.arrowSpeed, spread = 0.15 + d * 0.04;
             const hit = rand(b) < B.arrowHitChance * (0.85 + s.skill * 0.15);
@@ -1036,6 +1043,7 @@ export function stepBattle(b: BattleState) {
     if (h.heavy) t.stagger = Math.max(t.stagger, SO.heavyStagger); // a heavy blow knocks them off balance
     if (h.charge) {
       loseMorale(tq, M.chargedLoss * (h.flank ? 1 : M.supportFront[tq.support])); // a charge into a solid line shakes it less
+      tq.cohesion = Math.max(0, tq.cohesion - C.cohesionHit); // and knocks the ranks about
       t.stagger = C.stagger;
       if (h.kb) { const a = Math.atan2(t.y - h.by.y, t.x - h.by.x); t.x += Math.cos(a) * h.kb; t.y = Math.max(0.3, Math.min(b.H - 0.3, t.y + Math.sin(a) * h.kb)); }
     }

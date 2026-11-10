@@ -471,6 +471,11 @@ export const CONFIG = {
       bout: [7, 15] as [number, number], // seconds of fighting in a bout (longer for squads with good cohesion)
       rest: [3, 5] as [number, number],  // seconds of standing back (3 s or more restores the charge)
       back: 1.3,                // tiles stepped back
+      joinAfter: 2,             // when a squad surges back in, friends beside it that have rested this long come too (a line charge)
+      joinRange: 3.5,
+      pounceAggr: 0.6,          // a squad of an aggressive commander (aggression above this)...
+      pounceCohesion: 0.7,      // ...that is still in good order...
+      pounceFatigue: 0.4,       // ...and fresh, doesn't take a breather when its enemy does: it goes straight at them
     },
     // Every soldier is a little different, and fights a little differently each time.
     soldier: {
@@ -490,8 +495,13 @@ export const CONFIG = {
     },
     charge: {
       distance: 5,              // squads charge when this close to their target
-      infantryBonus: 3,         // first hit of an infantry charge
-      knockback: 0.3,           // tiles an infantry charge shoves the enemy
+      infantryBonus: 4.5,       // first hit of an infantry charge (can't be parried)
+      infantryRun: 1.0,         // tiles an infantryman must run before the hit to count as a charge
+      knockback: 0.45,          // tiles an infantry charge shoves the enemy
+      momentumSeconds: 4,       // after an infantry charge hits home, for this long the chargers...
+      momentumDamage: 0.25,     // ...hit this much harder...
+      momentumSpeed: 0.3,       // ...and this much faster
+      cohesionHit: 0.015,       // every charge hit knocks this much off the enemy squad's cohesion
       cavKnockback: 0.6,
       stagger: 0.6,             // seconds a charged soldier is knocked off balance
       braceBonus: 5,            // spearmen get a free strike at this bonus on a charging horse
