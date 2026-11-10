@@ -70,8 +70,8 @@ export interface Temper { aggr: number; cav: number; patience: number }
 export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0 });
 
 /** Kinds of battle plan (doctrines). */
-export type PlanKind = 'envelop' | 'double' | 'centre' | 'defend' | 'feint' | 'hook';
-export const PLAN_NAME: Record<PlanKind, string> = { envelop: 'Envelop a wing', double: 'Double envelopment', centre: 'Hammer the centre', defend: 'Hold, then counter', feint: 'Feint, then switch', hook: 'Cavalry hook' };
+export type PlanKind = 'envelop' | 'double' | 'centre' | 'defend' | 'feint' | 'hook' | 'refuse';
+export const PLAN_NAME: Record<PlanKind, string> = { envelop: 'Envelop a wing', double: 'Double envelopment', centre: 'Hammer the centre', defend: 'Hold, then counter', feint: 'Feint, then switch', hook: 'Cavalry hook', refuse: 'Refuse a flank' };
 /**
  * The commander's battle plan: where to strike (-1 = the low-y wing, 1 = the high-y wing, 0 = the centre, 2 = both wings) or to defend first.
  * kind: the doctrine; tempo: timing of reserves and pushes (below 1 = faster); keep: reserves held back for a crisis;
@@ -185,6 +185,7 @@ export function commanderThink(b: BattleState, c: Commander) {
       centre: D.centre * (mid > Math.max(lo, hi) + K.centreEdge ? 2.5 : 1) * (myInf.length >= 6 ? 1.3 : 1) * (0.6 + T.aggr * 0.8),
       defend: D.defend * (ratio < K.defendBelow ? 5 : ratio < 1 ? 1.5 : 0.6) * (0.4 + T.patience * 1.2),
       feint: D.feint * (myInf.length >= 4 ? 1 : 0.2) * (0.6 + T.patience * 0.8),
+      refuse: D.refuse * (myInf.length >= 4 ? 1 : 0) * (0.5 + T.patience) * (Math.abs(lo - hi) > K.centreEdge * 0.5 ? 1.6 : 1),
       hook: D.hook * (ourCav >= 2 ? Math.max(0.3, 1 + (ourCav - theirCav) * 0.25) : 0) * (0.4 + T.cav * 1.2),
     };
     const total = Object.values(wt).reduce((a, x) => a + x, 0);
@@ -199,6 +200,7 @@ export function commanderThink(b: BattleState, c: Commander) {
         return mk(kind, -w as -1 | 1, `plan: a feint on the ${wingName(-w)}, then the real blow on the ${wingName(w)}`, w, after);
       }
       case 'hook': return mk(kind, w, `plan: cavalry hook round their ${wingName(w)}`);
+      case 'refuse': return mk(kind, w, `plan: strike hard on the ${wingName(w)}, our ${wingName(-w)} hangs back`);
       default: return mk('envelop', w, `plan: envelop their ${wingName(w)}, hold the ${wingName(-w)}`);
     }
   };

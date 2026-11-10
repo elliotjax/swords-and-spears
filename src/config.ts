@@ -311,10 +311,11 @@ export const CONFIG = {
         defend: 0.7,            // hold, wear them down, then counter-attack with everything at once
         feint: 0.9,             // strike one wing early, then switch: reserves and cavalry hit the other wing
         hook: 0.9,              // cavalry ride round one wing before the lines meet, reserves follow
+        refuse: 0.8,            // strike one wing, hold the other wing back (it stands its ground until they come to it)
         surprise: 0.25,         // chance of striking the "wrong" (stronger) enemy wing, to keep the enemy guessing
         feintAfter: [14, 26] as [number, number], // seconds after contact when a feint switches wings
         tempo: [0.6, 1.4] as [number, number],   // reserve/push timing multiplier (aggressive commanders are fast)
-        reserveShare: { envelop: 0.3, double: 0.2, centre: 0.25, defend: 0.4, feint: 0.35, hook: 0.3 } as Record<string, number>, // share of the infantry kept back as the reserve (the rest of the rear rows become a second line)
+        reserveShare: { envelop: 0.3, double: 0.2, centre: 0.25, defend: 0.4, feint: 0.35, hook: 0.3, refuse: 0.3 } as Record<string, number>, // share of the infantry kept back as the reserve (the rest of the rear rows become a second line)
       },
       // ---- initiative: squads with nothing to do find something ----
       shoreAfter: 8,            // seconds after contact before the commander shores up a losing part of its line...

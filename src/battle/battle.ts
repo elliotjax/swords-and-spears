@@ -776,7 +776,10 @@ export function stepBattle(b: BattleState) {
           gx = (armyF[q.side] + 0.6 - q.lineDepth) * q.fwd; gy = q.homeY;
           speed = isFinite(marchPace[q.side]) ? marchPace[q.side] : U.speed * 0.7;
           // the commander's plan is to hold and let them come: the line stands its ground (it still meets them when they're close)
-          if (ms?.kind === 'advance' && b.cmd[q.side]?.plan?.defend && b.t > 3) { gx = q.cx; gy = q.cy; }
+          // (a plan that refuses a flank: that wing's squads stand while the other wing goes forward)
+          const pl = b.cmd[q.side]?.plan, Ln = b.line[q.side], third = Math.max(1, Ln.hi - Ln.lo) / 3;
+          const refused = pl?.kind === 'refuse' && (pl.strike < 0 ? q.my > Ln.hi - third : q.my < Ln.lo + third);
+          if (ms?.kind === 'advance' && (pl?.defend || refused) && b.t > 3) { gx = q.cx; gy = q.cy; }
           faceTo = q.fwd > 0 ? 0 : Math.PI; turnRate = 2;
         } else {
           // close to the enemy: square up to them (ranks closing, weapons ready), then charge
