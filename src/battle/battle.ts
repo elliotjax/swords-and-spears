@@ -1,4 +1,5 @@
 import { CONFIG, type UnitKind } from '../config';
+import { commanderThink, newCommander, postOf, type Commander, type Mission } from './commander';
 
 // =====================================================================
 //  Battle simulation v3. Left side (0) = you, right side (1) = enemy.
@@ -28,6 +29,7 @@ export type SideBonus = Partial<Record<'damage' | 'armour' | 'range' | 'charge' 
 /** orders[side] = true: the player commanded this side (squads with no arrow hold their ground). */
 export interface BattleSetup {
   sides: [SquadSetup[], SquadSetup[]]; bonus?: [SideBonus, SideBonus]; orders?: [boolean, boolean];
+  commander?: [boolean, boolean]; // true: that side is led by the army commander (its squads' orders are ignored: the commander gives missions)
   field?: { W: number; H: number }; // fixed field size (deployment screen), instead of fitting the armies
 }
 /** free = the battle AI decides; hold = stand your ground and fight what comes; path = follow the drawn arrow, then free. */
@@ -76,6 +78,7 @@ export interface BSquad {
   commit: number;             // on a path but caught in a real fight: finish this enemy squad first (-1 = none)
   commitX: number; commitY: number; // where we left the path (don't chase too far from it)
   guard: boolean; arrowsTaken: number; // 'hold' squads on guard join the fight when a friend nearby is fighting or after taking this many arrow hits
+  mission: Mission | null;    // what the army commander told this squad to do, and why (null = no commander)
   support: number;            // friendly squads close beside us (0, 1 or 2 sides): friends beside you steady you
   role: '' | 'guard' | 'raid'; // cavalry: guard our flank against enemy cavalry, or raid (archers, rear of the enemy line)
   waiting: boolean;           // in reserve right now: standing behind a friendly squad that's fighting, ready to step in
@@ -99,6 +102,8 @@ export interface BattleState {
   firstContact: number;       // when the first blow of the battle landed (-1 = not yet)
   home: [number, number];     // x of each side's own edge (where they flee to)
   bonus: [SideBonus, SideBonus];
+  cmd: [Commander | null, Commander | null]; // each side's army commander (null = squads follow their own orders)
+  line: { front: number; lo: number; hi: number }[]; // each side's infantry line right now: how far forward, and its two ends (y)
   stats: { hits: [number, number]; flankHits: [number, number] }; // melee hits TAKEN by each side, and how many came from the flank/rear (for tools/battle-check)
 }
 
@@ -128,7 +133,7 @@ function slotWorld(q: BSquad, i: number) {
   return { x: q.cx + c * o.f - s * r, y: q.cy + s * o.f + c * r, file: o.file, rank: o.rank };
 }
 /** Half the width of a squad's front (tiles). */
-const halfFront = (u: UnitKind) => CONFIG.battle.spacing * (u === 'cavalry' ? 3.2 : 2.2);
+export const halfFront = (u: UnitKind) => CONFIG.battle.spacing * (u === 'cavalry' ? 3.2 : 2.2);
 
 // ---------- setup ----------
 
@@ -172,6 +177,8 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
     t: 0, rng: seed, W, H, soldiers: [], squads: [], arrows: [], fx: [], marks: [],
     over: false, winner: -1, decidedAt: -1, firstContact: -1, home: [-3, W + 3],
     bonus: setup.bonus ?? [{}, {}],
+    cmd: [setup.commander?.[0] ? newCommander(0) : null, setup.commander?.[1] ? newCommander(1) : null],
+    line: [{ front: -Infinity, lo: 0, hi: 0 }, { front: -Infinity, lo: 0, hi: 0 }],
     stats: { hits: [0, 0], flankHits: [0, 0] },
   };
   if (swapSides) b.home = [W + 3, -3];
@@ -181,7 +188,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
     const nums: Partial<Record<UnitKind, number>> = {};
     const onLeft = (side === 0) !== swapSides;
     const face = onLeft ? 0 : Math.PI;
-    const ordered = !!setup.orders?.[side];
+    const ordered = !!setup.orders?.[side], led = !!setup.commander?.[side];
     const mx = (x: number) => onLeft ? x : b.W - x;
     const place = (q: SquadSetup, src: number, x: number, y: number) => {
       const fx = mx(x);
@@ -192,8 +199,8 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         broken: false, brokenAt: 0, fleeing: false, gone: false, brokeBy: '',
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
         withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
-        order: q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
-        guard: !!q.guard, arrowsTaken: 0, support: 0, role: '', waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
+        order: led ? 'free' : q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
+        mission: null, guard: !led && !!q.guard, arrowsTaken: 0, support: 0, role: '', waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
         path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
       };
       for (let i = 0; i < unitSize(q.unit); i++) {
@@ -221,6 +228,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
   for (const side of [0, 1] as Side[]) {
     const cav = b.squads.filter(q => q.side === side && q.unit === 'cavalry');
     const enemyCav = b.squads.filter(q => q.side !== side && q.unit === 'cavalry').length;
+    if (b.cmd[side]) continue; // commander-led: cavalry get missions instead of fixed roles
     for (const q of cav) q.role = 'raid';
     if (!enemyCav || !cav.length) continue;
     if (cav.length === 1) { if (enemyCav >= 2) cav[0].role = 'guard'; continue; }
@@ -244,9 +252,9 @@ export const squadHp = (b: BattleState, q: BSquad) => {
   return hp / (q.members.length * CONFIG.battle.soldierHp);
 };
 export const squadAlive = (b: BattleState, q: BSquad) => q.members.filter(id => fights(b.soldiers[id - 1])).length;
-const active = (q: BSquad) => !q.gone && !q.fleeing;
+export const active = (q: BSquad) => !q.gone && !q.fleeing;
 /** Archers with arrows left shoot; out of arrows they fight like (weak) infantry. */
-const shooter = (q: BSquad) => q.unit === 'archers' && q.ammo > 0;
+export const shooter = (q: BSquad) => q.unit === 'archers' && q.ammo > 0;
 export const wavering = (q: BSquad) => !q.broken && q.morale < CONFIG.battle.morale.waverAt;
 
 /** Is the attacker at (ax, ay) hitting this squad from the side or behind? */
@@ -400,6 +408,10 @@ export function stepBattle(b: BattleState) {
     fwdOf[q.side] = q.fwd;
     if (active(q) && !q.broken && q.unit !== 'cavalry' && !shooter(q)) sideFront[q.side] = Math.max(sideFront[q.side], q.mx * q.fwd);
   }
+  for (const sd of [0, 1]) { const L = b.line[sd]; L.front = sideFront[sd]; L.lo = Infinity; L.hi = -Infinity; }
+  for (const q of b.squads) if (active(q) && !q.broken && q.unit !== 'cavalry' && !shooter(q)) { const L = b.line[q.side]; L.lo = Math.min(L.lo, q.my); L.hi = Math.max(L.hi, q.my); }
+  // the army commanders think (every few seconds; the order flips so neither side goes first)
+  for (const sd of Math.round(b.t * BATTLE_TPS) % 2 ? [0, 1] : [1, 0]) { const c = b.cmd[sd]; if (c) commanderThink(b, c); }
   const behindLine = (side: Side, x: number) => isFinite(sideFront[side]) && x * fwdOf[side] < sideFront[side] - 0.5;
   const enemyCavLeft = [0, 1].map(sd => b.squads.some(q => q.side !== sd && q.unit === 'cavalry' && active(q) && !q.broken));
 
@@ -415,13 +427,44 @@ export function stepBattle(b: BattleState) {
       if (!join) for (const o of b.squads) if (o !== q && o.side === q.side && active(o) && o.state === 'melee' && Math.hypot(o.mx - q.mx, o.my - q.my) < A.guardJoinRange) { join = true; break; }
       if (join) q.order = 'free';
     }
+    const K = B.commander;
+    // riding round to hit something (a raider, or a commander's raid / shock / flank mission): don't stop for their cavalry on the way
+    const raiding = isCav && (b.cmd[q.side] ? !!q.mission && (q.mission.kind === 'raid' || q.mission.kind === 'shock' || q.mission.kind === 'flank') : q.role === 'raid');
     // cavalry may run down routing enemies; everyone else ignores them
     const targetable = (e: BSquad) => !e.gone && (!e.fleeing || isCav);
 
     if (q.role === 'guard' && !enemyCavLeft[q.side]) q.role = 'raid'; // enemy cavalry beaten: go raiding
     q.retarget -= DT;
     let tq = q.target > 0 ? sq(q.target) : null;
-    if (!tq || !targetable(tq) || (q.retarget <= 0 && !fighting && q.state !== 'withdraw')) {
+    // ---- the commander's mission: the squad works out HOW ----
+    const ms = b.cmd[q.side] ? q.mission : null;
+    let fixed = false, posted = false;
+    if (ms && !q.broken) {
+      const mt = ms.target > 0 ? sq(ms.target) : null;
+      if (mt && !mt.gone && (!mt.fleeing || ms.kind === 'pursue')) {
+        // a mission against one enemy squad: that's our target (from the side or rear for flank / shock missions)
+        tq = mt; q.target = mt.id; fixed = true; q.inLine = false;
+        if (ms.kind === 'flank' || ms.kind === 'shock') q.flankSide = -(q.mx - mt.mx) * Math.sin(mt.ang) + (q.my - mt.my) * Math.cos(mt.ang) >= 0 ? 1 : -1;
+        else if (q.retarget <= 0) q.flankSide = 0;
+      } else if (ms.kind === 'reserve' || ms.kind === 'screen' || ms.kind === 'disengage') {
+        // posted: stay at our post, but deal with anything that comes close (bounded initiative)
+        posted = true; fixed = true; tq = null;
+        if (ms.kind === 'disengage') {
+          if (q.state === 'melee') { const p = postOf(b, q); q.state = 'withdraw'; q.withdrawUntil = ms.until; q.wx = p.x; q.wy = p.y; }
+        } else {
+          const R = ms.kind === 'screen' ? K.screenRange : K.reserveRange;
+          let bd = R;
+          for (const e of b.squads) {
+            if (e.side === q.side || !active(e) || e.broken) continue;
+            if (isCav && e.unit === 'spearmen' && e.state !== 'melee' && e.target !== q.id) continue; // cavalry don't go head-on into fresh spears
+            const d = Math.hypot(e.mx - q.mx, e.my - q.my) - (b.t - (q.hitBy[e.id] ?? -99) < A.threatMemory ? 3 : 0);
+            if (d < bd) { bd = d; tq = e; }
+          }
+          if (tq) { posted = false; q.target = tq.id; q.inLine = false; }
+        }
+      }
+    }
+    if (!fixed && (!tq || !targetable(tq) || (q.retarget <= 0 && !fighting && q.state !== 'withdraw'))) {
       q.retarget = 1 + rand(b) * 0.5;
       let best: BSquad | null = null, bd = Infinity;
       for (const e of b.squads) {
@@ -486,7 +529,7 @@ export function stepBattle(b: BattleState) {
     if (!q.broken && q.state !== 'withdraw' && !shooter(q)) {
       let th: BSquad | null = null, tt = b.t - A.threatMemory;
       for (const k in q.hitBy) if (q.hitBy[k] > tt) { const e = sq(Number(k)); if (e && targetable(e) && !shooter(e)) { th = e; tt = q.hitBy[k]; } }
-      const raidOn = isCav && q.role === 'raid' && th?.unit === 'cavalry' && tq?.unit !== 'cavalry'; // raiders don't turn to duel cavalry
+      const raidOn = raiding && th?.unit === 'cavalry' && tq?.unit !== 'cavalry'; // raiders don't turn to duel cavalry
       if (th && tq && th !== tq && !raidOn && !(b.t - (q.hitBy[tq.id] ?? -99) < A.threatMemory) && Math.hypot(tq.mx - q.mx, tq.my - q.my) > A.engagedDist) {
         tq = th; q.target = th.id; q.flankSide = 0; q.retarget = 2;
       }
@@ -500,8 +543,14 @@ export function stepBattle(b: BattleState) {
       const c = sq(q.commit);
       if (c && !c.gone && !c.broken && !c.fleeing) { tq = c; q.target = c.id; }
     }
-    let station = false;
-    if (!tq && q.role === 'guard' && q.order === 'free') {
+    let station = false, post: Pt | null = null;
+    if (posted) {
+      // nobody to deal with: stand at our post (facing the nearest enemy), still marching with the army until it's close
+      let nd = Infinity;
+      for (const e of b.squads) if (e.side !== q.side && active(e)) { const d = Math.hypot(e.mx - q.mx, e.my - q.my); if (d < nd) { nd = d; tq = e; } }
+      station = !!tq && !q.inLine && q.state !== 'withdraw';
+      if (station) post = postOf(b, q);
+    } else if (!tq && q.role === 'guard' && q.order === 'free') {
       // a guard with nothing to do: keep marching with the army, then wait on our wing level with our infantry front
       let nd = Infinity;
       for (const e of b.squads) if (e.side !== q.side && active(e)) { const d = Math.hypot(e.mx - q.mx, e.my - q.my) + (e.unit === 'cavalry' ? 0 : 100); if (d < nd) { nd = d; tq = e; } }
@@ -561,7 +610,7 @@ export function stepBattle(b: BattleState) {
       if (isCav && tq.unit === 'archers' && dE > 4) ay += (tq.my > b.H / 2 ? 1 : -1) * 2; // ride round the outer edge
       gx = ax; gy = ay;
       // raiders don't ride through the enemy line: if enemy foot is in the way, go round by our wing's edge first
-      if (isCav && q.role === 'raid' && dE > 4) {
+      if (raiding && dE > 4) {
         const wy = q.homeY < b.H / 2 ? 1.2 : b.H - 1.2;
         if (Math.abs(q.my - wy) > 1.6) {
           let blocked = false;
@@ -574,8 +623,9 @@ export function stepBattle(b: BattleState) {
           if (blocked) { gx = q.mx + (ax - q.mx) * 0.5; gy = wy; }
         }
       }
-      if (station) { // guard waiting on its wing
-        gx = isFinite(sideFront[q.side]) ? (sideFront[q.side] - 0.5) * q.fwd : q.cx; gy = q.homeY;
+      if (station) { // waiting at a post (a commander's reserve or screen, or an old-style guard on its wing)
+        if (post) { gx = post.x; gy = post.y; }
+        else { gx = isFinite(sideFront[q.side]) ? (sideFront[q.side] - 0.5) * q.fwd : q.cx; gy = q.homeY; }
       }
       // a friendly squad is already fighting right in front of us: wait just behind it, ready to step in
       // (unless it's getting worn down: then push up and join the fight)
@@ -596,7 +646,7 @@ export function stepBattle(b: BattleState) {
       // is the enemy right in front of our line? (forward gap from our front rank)
       let gap = Infinity;
       const band = halfFront(q.unit) + 0.35, rx = -fwdY, ry = fwdX;
-      const passing = isCav && q.role === 'raid' && tq.unit !== 'cavalry'; // raiders ride past enemy cavalry on the way to their target
+      const passing = raiding && tq.unit !== 'cavalry'; // raiders ride past enemy cavalry on the way to their target
       nearby(q.cx, q.cy, 2.5, e => {
         if (e.side === q.side) return;
         if (passing && e.unit === 'cavalry') return;
@@ -633,7 +683,7 @@ export function stepBattle(b: BattleState) {
           q.wy = Math.max(1, Math.min(b.H - 1, q.my + Math.sin(back) * C.withdrawDist));
         }
       } else if (station) {
-        q.meleeSince = -1; q.state = 'march'; speed = U.speed * 0.6;
+        q.meleeSince = -1; q.state = 'march'; speed = post && Math.hypot(gx - q.cx, gy - q.cy) > 1.5 ? U.speed : U.speed * 0.6;
         faceTo = q.fwd > 0 ? 0 : Math.PI; turnRate = 2;
       } else if (!isCav && q.order !== 'hold' && tq.unit === 'cavalry' && dE < A.braceDist && (tq.target === q.id || tq.state === 'charge')) {
         // cavalry coming at us: stop, close ranks and face the charge (spearmen brace)

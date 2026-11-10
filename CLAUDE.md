@@ -2,8 +2,8 @@
 
 **README.md is the single source of truth.** Read it first (section 1 has the owner's rules). Keep it updated with every decision and add to the progress log (section 15).
 
-## CURRENT TASK
-**Read `COMMANDER_TASK.md` first: it is the one task the owner has authorized right now (army commander, first version).** `PROJECT_COLLABORATION.md` is the wider design brief written with ChatGPT; don't build anything from it that isn't in the task file.
+## Status
+The army commander (first version) is built: see README section 10 "Army commander" and `COMMANDER_TASK.md` (the brief it was built from, with a status note at the top). `PROJECT_COLLABORATION.md` is the wider design brief written with ChatGPT: only build from it what the owner authorizes.
 
 ## The owner
 - Doesn't code, plays on an iPhone. Explain things in short, plain language.
@@ -22,13 +22,14 @@
 - `src/render/` map drawing, `src/ui/` menus.
 
 ## Testing battles
-- `npm run battle:check` prints who wins each matchup (unit counters, fairness between the two sides), battle length, idle/reserve time, flank hits and speed. Lines marked `<-- CHECK` need a look. `-- quick` runs fewer battles, `-- map` prints ASCII pictures of one battle every 10 s.
+- `npm run battle:check` (commanders on both sides; add `-- legacy` for the old no-commander AI) prints who wins each matchup (unit counters, fairness between the two sides), battle length, idle/reserve time, flank hits and speed. Lines marked `<-- CHECK` need a look. `-- quick` runs fewer battles, `-- map` prints ASCII pictures of one battle every 10 s.
 - Run it before and after any battle change. Small samples swing a lot: confirm fairness with the full run.
 - You can't watch battles move: use the numbers, the ASCII map, and Playwright screenshots (`npx vite --port 5173`, then `window.game.lab`).
 
 ## Battle AI: how it fits together (see README section 10 for the rules)
-- Every squad has an order: `free` (battle AI; "Advance" in the Lab), `hold`, or `path` (an arrow: infantry leave it near the enemy, archers stop to shoot, cavalry keep to it; free at the end). Both sides use the same code; the enemy's orders come from its plan (`PLANS` in `lab.ts`).
+- **Three levels:** commander (`src/battle/commander.ts`: every 2.5 s gives each squad a `mission` with a reason; `CONFIG.battle.commander`) → squad step in `battle.ts` (carries the mission out: fixed-target missions set the target, posted missions (reserve/screen) stand at `postOf` and deal with close enemies, `advance` uses the free AI below) → soldier step. A side is commander-led when `setup.commander[side]` is true (then its orders are ignored).
+- Without a commander, every squad has an order: `free` (battle AI; "Advance" in the Lab), `hold`, or `path` (an arrow: infantry leave it near the enemy, archers stop to shoot, cavalry keep to it; free at the end). Both sides use the same code; the enemy's orders come from its plan (`PLANS` in `lab.ts`).
 - Squad step in `stepBattle`: pick a target (scoring in tiles, bonuses in `CONFIG.battle.ai`), then one of: archers / withdraw / melee / hold / path / marching in the army line / form up and charge.
 - Courage: `q.support` (friendly squads beside it) softens front/charge/outnumbered losses (`morale.supportFront`). Cavalry `q.role`: guard or raid, set in `createBattle`.
 - Soldier step: each soldier picks their own opponent near their formation slot; blows, parries and morale follow.
-- Ideas not built yet: explicit army structure (centre, wings, reserve with a commander deciding when to commit), squads wheeling to face several attackers, one-on-one duel animations, saved formations.
+- Ideas not built yet: a commander that plans ahead (an intent per wing, refusing a flank, timing a combined attack), fog of war (`observe`), difficulty and personalities, squads wheeling to face several attackers, one-on-one duel animations, saved formations.

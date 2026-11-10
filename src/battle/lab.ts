@@ -70,6 +70,7 @@ export class BattleLab {
   } | null = null;
   private placedIdx: number[] = [];       // army index of each squad in the current battle setup
   private plan = 0;                        // the enemy's battle plan (index into PLANS)
+  private commandMe = false;               // false: the army commander leads your army (your arrows and holds are ignored); true: you give the orders
   private planAuto = true;                 // the enemy chose its plan from the two armies (false after 🎲)
   private enemy: SquadSetup[] = [];       // the enemy's squads: where they stand and their orders (left-side coordinates)
 
@@ -129,7 +130,7 @@ export class BattleLab {
     this.placedIdx = [];
     const mine: SquadSetup[] = [];
     this.army.forEach((a, i) => { if (a.placed) { this.placedIdx.push(i); mine.push({ unit: a.unit, rank: a.rank, x: a.x, y: a.y, path: a.path, ...(a.advance && !a.path?.length ? { order: 'free' as const } : {}) }); } });
-    return { sides: [mine, this.enemy], bonus: [this.colonyBonus(), {}], orders: [true, true], field: this.field };
+    return { sides: [mine, this.enemy], bonus: [this.colonyBonus(), {}], orders: [true, true], commander: [!this.commandMe, true], field: this.field };
   }
 
   /** The enemy picks a plan from the two armies (it can't see your arrows). */
@@ -252,6 +253,7 @@ export class BattleLab {
       // deployment
       case 'auto': for (const a of this.army) { a.x = a.ax; a.y = a.ay; a.placed = true; a.path = undefined; } this.sel = []; this.preview(); break;
       case 'clear': for (const a of this.army) { a.placed = false; a.path = undefined; } this.sel = []; this.preview(); break;
+      case 'who': this.commandMe = !this.commandMe; this.preview(); break;
       case 'plan': this.planAuto = false; this.plan = (this.plan + 1 + Math.floor(Math.random() * (PLANS.length - 1))) % PLANS.length; this.makeEnemy(); this.preview(); break;
       case 'selall': this.sel = this.army.map((a, i) => a.placed ? i : -1).filter(i => i >= 0); break;
       case 'desel': this.sel = []; break;
@@ -325,7 +327,8 @@ export class BattleLab {
       this.panel.innerHTML = `${selRow || `<div class="labsel"><p class="labhint">Tap squads to select them (as many as you like), then drag the <b>➜</b> to draw their path. Drag a selected squad to move the group. <b>No arrow = hold ground</b> (or tap <b>Advance all</b>).</p><button class="mini" data-lab="selall">Select all</button></div>`}
         ${tray ? `<div class="labtray">${tray}</div>` : ''}
         <div class="labtools"><button class="mini" data-lab="page">⚙ Armies</button><button class="mini" data-lab="auto">Auto</button><button class="mini" data-lab="clear">Clear</button><button class="mini" data-lab="forward">${this.army.some(a => a.placed && !a.path?.length) && this.army.filter(a => a.placed && !a.path?.length).every(a => a.advance) ? 'All hold' : 'Advance all'}</button></div>
-        <div class="labplan"><span>Enemy plan: <b style="color:${TEAM[1]}">${PLANS[this.plan].name}</b> <small>${PLANS[this.plan].desc}${this.planAuto ? ' (its pick for these armies)' : ''}</small></span><button class="mini" data-lab="plan">🎲 New plan</button></div>
+        <div class="labplan"><span>Your army is led by: <b style="color:${TEAM[0]}">${this.commandMe ? 'You' : 'The commander'}</b> <small>${this.commandMe ? 'your arrows, holds and Advance are the orders' : 'it gives every squad a mission; you can still move squads before the fight'}</small></span><button class="mini" data-lab="who">${this.commandMe ? 'Use commander' : 'Command myself'}</button></div>
+        <div class="labplan"><span>Enemy formation: <b style="color:${TEAM[1]}">${PLANS[this.plan].name}</b> <small>led by its commander${this.planAuto ? ' (its pick for these armies)' : ''}</small></span><button class="mini" data-lab="plan">🎲 New</button></div>
         <div class="labbtns"><button class="btn" data-lab="fight" ${placed ? '' : 'disabled'}>▶ Fight</button><button class="btn ghost" data-lab="batch">Run 50 battles</button></div>
         ${this.batchHtml()}`;
     } else if (this.view === 'setup') {
@@ -499,6 +502,14 @@ export class BattleLab {
       c.fillRect(bx, by + size - fh, size, fh);                                     // HP fill
       c.strokeStyle = edge; c.lineWidth = 2 * d; c.strokeRect(bx + d, by + d, size - 2 * d, size - 2 * d);
       drawGlyph(c, q.unit, bx + size / 2, by + size / 2, Math.max(1, Math.floor(size / 9)), TEAM_DARK[q.side]); // the weapon symbol in team colour: always tells friend from foe
+      // the commander's mission for this squad (short word under the badge)
+      const mw = this.view !== 'setup' && words && !shaky && !q.broken && q.mission ? MISSION_WORD[q.mission.kind] : '';
+      if (mw) {
+        c.font = `800 ${8.5 * d}px Nunito, system-ui, sans-serif`;
+        c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.6)'; c.fillStyle = q.side === 0 ? '#ffd9d4' : '#d6e4ff';
+        c.strokeText(mw, bx + size / 2, by + size + 2 * d); c.fillText(mw, bx + size / 2, by + size + 2 * d);
+        c.font = `800 ${9.5 * d}px Nunito, system-ui, sans-serif`;
+      }
       if (shaky && words) {
         c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.65)'; c.fillStyle = '#ffe680';
         c.strokeText('Wavering', bx + size / 2, by + size + 2 * d); c.fillText('Wavering', bx + size / 2, by + size + 2 * d);
@@ -947,6 +958,8 @@ const PLANS: Plan[] = [
   },
 ];
 
+/** Short mission words shown under squad badges during a fight ('' = nothing: the ordinary jobs). */
+const MISSION_WORD: Record<string, string> = { advance: '', support: '', attack: 'attack', flank: 'flank', reinforce: 'help', intercept: 'intercept', reserve: 'reserve', screen: 'screen', raid: 'raid', shock: 'charge', pursue: 'pursue', disengage: 'rally' };
 const SHORT: Record<UnitKind, string> = { swordsmen: 'Swords', spearmen: 'Spears', archers: 'Archers', cavalry: 'Horse' };
 const MAX_SQUADS = 50; // per unit type, per side
 /** Closest zoom: about 7 tiles across the screen. */

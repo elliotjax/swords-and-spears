@@ -1,5 +1,7 @@
 # TASK: Army commander, first version (authorized by the owner, 2026-11-10)
 
+> **Status: built (first version).** Results, limits and next steps are in README section 10 "Army commander, first version". Not done from this brief: a measured "time to answer a flank threat" in `battle:check`; using the Lab's plans for more than the enemy's starting formation.
+
 This is the one authorized task. Do **not** build anything from `PROJECT_COLLABORATION.md` that isn't listed here (no fog of war, no difficulty levels, no personalities, no learning between battles, no art/readability work).
 
 Read first: `README.md` (section 1 rules and the Battle AI notes in section 10), `CLAUDE.md`, then `PROJECT_COLLABORATION.md` sections 4, 5 and 9 (the three layers, cavalry missions, tests). Then the code: `src/battle/battle.ts` (`createBattle`, `stepBattle`: squad step and soldier step), `src/battle/lab.ts` (`PLANS`, deployment, `pickPlan`), `CONFIG.battle.ai` / `.orders` / `.morale` in `src/config.ts`, `tools/battle-check.ts`.

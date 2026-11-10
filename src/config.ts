@@ -250,6 +250,31 @@ export const CONFIG = {
       cavEngage: 9,             // ...cavalry escort the wings until an enemy is this close, or the infantry are fighting
       formUp: 2.5,              // in the last stretch before charging (this many tiles before charge distance) infantry square up and close ranks
     },
+    // The army commander (one per side, same rules for both): gives every squad a mission and a reason. See src/battle/commander.ts.
+    commander: {
+      thinkSeconds: 2.5,        // the commander re-thinks this often
+      commitSeconds: 8,         // a mission is kept at least this long (unless it becomes impossible): no flip-flopping
+      contactDist: 7,           // "the lines have met" when the two infantry bodies are this close
+      reserveDepth: 1,          // infantry starting more than this far behind the front row start as the reserve
+      reserveBack: 2.2,         // the reserve waits this far behind the front (tiles)
+      reserveHold: 12,          // seconds after the lines meet before any reserve still waiting is committed to turn a flank
+      reserveRange: 2,          // a waiting reserve deals with any enemy that comes this close by itself
+      relieveHp: 0.55,          // a front squad below this strength (or wavering) gets a reserve sent to help
+      answerRange: 9,           // a reserve is only sent to a threat or a friend within this distance
+      reserveChaseShare: 0.5,   // at most this share of the reserve is sent after flank threats (the rest stays to relieve the line)
+      behindBy: 1.5,            // an enemy this far behind our nearest infantry is "behind our line"
+      wrapMargin: 1.2,          // an enemy this far outside the end of our line...
+      wrapDepth: 5,             // ...and no more than this far in front of it is "coming round our flank"
+      closingBy: 0.4,           // ...that has come this much closer since the commander last looked (or is charging) is a threat
+      maxPerTarget: 2,          // squads the commander sends against one enemy squad
+      screenOut: 1.6,           // screening cavalry stand this far outside the end of our line
+      screenRange: 7,           // ...and go for anything that comes this close (infantry or cavalry)
+      raidWhenGap: 13,          // cavalry raids and rear charges start when the infantry lines are this close
+      badFightSeconds: 5,       // cavalry stuck this long on spearmen who aren't breaking are pulled out
+      disengageHp: 0.4,         // cavalry below this strength are pulled out to rally
+      rallySeconds: 7,          // ...for this long
+      rallyBack: 4,             // ...this far behind our line
+    },
     // Squad decisions (the battle AI every free squad uses, yours and the enemy's). Bonuses are in tiles: "counts as this much closer".
     ai: {
       fightingLatch: 3.5,       // a squad counts as "in a fight" this long after its last blow
