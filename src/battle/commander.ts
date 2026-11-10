@@ -37,6 +37,7 @@ export interface Mission {
   why: string;        // the commander's reason, in plain words (shown in the Battle Lab)
   since: number;      // battle time it was given
   until: number;      // the commander won't change it before this time (unless it becomes impossible)
+  push?: boolean;     // advance only: drive forward into the enemy in front (the squad pushes while it has the strength)
 }
 
 export interface Commander {
@@ -46,9 +47,19 @@ export interface Commander {
   changes: number;    // missions changed so far (for tools/battle-check)
   commits: number;    // reserves committed so far
   seen: Map<number, { x: number; y: number }>; // where each enemy squad was at the last think (to tell who is closing in)
+  plan: Plan | null;  // the battle plan (chosen when the armies are close, reviewed now and then)
+  nextCommit: number; // when the next waiting reserve may be sent in (they go one at a time)
+  planChanges: number;
+  pushes: number;     // push orders given so far
+  rallied: Set<number>; // cavalry squads already pulled out once for being badly hurt (they aren't pulled out again)
 }
 
-export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map() });
+export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, rallied: new Set() });
+
+/** The commander's battle plan: where to strike (-1 = the low-y wing, 1 = the high-y wing, 0 = the centre, 2 = both wings) or to defend first. */
+export interface Plan { strike: -1 | 0 | 1 | 2; defend: boolean; why: string; since: number; reviewAt: number }
+/** A repeatable 0..1 number (so the same battle seed gives the same plans). */
+const hash01 = (a: number, b: number) => { let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
 /** What a commander can see of the enemy. (Everything, for now: fog of war would go here.) */
 export const observe = (b: BattleState, side: Side): BSquad[] => b.squads.filter(q => q.side !== side && active(q));
@@ -115,6 +126,44 @@ export function commanderThink(b: BattleState, c: Commander) {
   });
   for (const e of foes) c.seen.set(e.id, { x: e.mx, y: e.my });
 
+  // ---- the plan: where to strike ----
+  // sectors of the field across our line: -1 low-y wing, 0 centre, 1 high-y wing
+  const span = Math.max(1, L.hi - L.lo), sector = (y: number): -1 | 0 | 1 => (y < L.lo + span / 3 ? -1 : y > L.hi - span / 3 ? 1 : 0);
+  const power = (q: BSquad) => squadHp(b, q) * (0.5 + q.morale / 200) * (1 - 0.4 * q.fatigue) * (q.unit === 'cavalry' ? 0.6 : q.unit === 'archers' ? 0.5 : 1);
+  const balance = { '-1': 0, '0': 0, '1': 0 } as Record<string, number>; // ours minus theirs in each sector
+  let ourPower = 0, theirPower = 0;
+  if (haveLine) {
+    for (const q of mine) { const p = power(q); balance[sector(q.my)] += p; ourPower += p; }
+    for (const e of foes) if (!e.broken) { const p = power(e); balance[sector(e.my)] -= p; theirPower += p; }
+  }
+  const wingName = (w: number) => (w * fwd < 0 ? 'left' : 'right'); // as seen from behind our own army
+  const choosePlan = (first: boolean): Plan => {
+    const ratio = ourPower / Math.max(0.1, theirPower), jit = (k: number) => (first ? hash01(b.rng + side * 7919, k) * K.planJitter : 0);
+    const lo = balance['-1'] + jit(1), hi = balance['1'] + jit(2), mid = balance['0'] + jit(3);
+    const mk = (strike: Plan['strike'], defend: boolean, why: string): Plan => ({ strike, defend, why, since: b.t, reviewAt: b.t + K.replanSeconds });
+    if (ratio < K.defendBelow) return mk(lo >= hi ? -1 : 1, true, `outnumbered: holding the line, ready to counter on the ${wingName(lo >= hi ? -1 : 1)}`);
+    if (ratio > K.envelopAbove) return mk(2, false, 'stronger: going round both of their flanks');
+    if (mid > lo + K.centreEdge && mid > hi + K.centreEdge) return mk(0, false, 'breaking through their centre');
+    const w = lo >= hi ? -1 : 1;
+    return mk(w, false, first ? `striking on the ${wingName(w)}, holding the ${wingName(-w)}` : `shifting the attack to the ${wingName(w)}`);
+  };
+  if (haveLine && foeInf.length) {
+    if (!c.plan && gap < K.planWhenGap) { c.plan = choosePlan(true); c.nextCommit = Infinity; }
+    else if (c.plan && engaged && b.t >= c.plan.reviewAt) {
+      // review: keep the plan unless the strike is failing and somewhere else looks clearly better
+      const p = c.plan, cur = p.strike === 2 ? Math.min(balance['-1'], balance['1']) : balance[p.strike];
+      const next = choosePlan(false);
+      const alt = next.strike === 2 ? Math.min(balance['-1'], balance['1']) : balance[next.strike];
+      // (a defender goes over to the attack once it has held long enough)
+      if (p.defend && sinceContact > K.counterAfter && ourPower >= theirPower * K.defendBelow) { c.plan = { ...p, defend: false, why: `counter-attacking on the ${wingName(p.strike)}`, since: b.t, reviewAt: b.t + K.replanSeconds }; c.planChanges++; }
+      else if (!p.defend && !next.defend && next.strike !== p.strike && cur < -K.failingBalance && alt > cur + K.replanEdge) { c.plan = next; c.planChanges++; }
+      else p.reviewAt = b.t + K.replanSeconds;
+    }
+  }
+  const plan = c.plan;
+  if (engaged && c.nextCommit === Infinity) c.nextCommit = c.contactAt + K.firstCommit;
+  const striking = (y: number) => !!plan && !plan.defend && (plan.strike === 2 ? sector(y) !== 0 : sector(y) === plan.strike);
+
   // ---- archers: shoot ----
   for (const q of mine) if (q.unit === 'archers' && open(q)) {
     if (shooter(q)) give(q, 'support', 'shooting from behind our line');
@@ -149,6 +198,16 @@ export function commanderThink(b: BattleState, c: Commander) {
   // the weaker end of the enemy line (where late reserves go)
   const endSquad = (w: -1 | 1) => foeInf.slice().sort((a, z) => (a.my - z.my) * w)[foeInf.length - 1];
   const strength = (e?: BSquad) => (e ? squadHp(b, e) * (0.5 + e.morale / 200) : 9);
+  // tired front squads are relieved while there's a reserve to take over (they pull back to rest and become the reserve)
+  for (const f of myInf) {
+    if (f.mission?.kind !== 'advance' || f.state !== 'melee' || f.fatigue < K.tiredAt || f.target <= 0 || !valid(b, f.target)) continue;
+    let best: BSquad | null = null, bd = K.answerRange;
+    for (const q of myInf) if (q.mission?.kind === 'reserve' && q.state !== 'melee' && q.fatigue < K.restedAt) { const d = dist(q, f); if (d < bd) { bd = d; best = q; } }
+    if (!best) continue;
+    give(best, 'reinforce', `taking over from our tired ${NAME[f.unit]}`, f.target);
+    give(f, 'disengage', 'exhausted: pulling back to rest', 0, wingOf(f), K.rallySeconds);
+  }
+  const waiting = myInf.filter(q => q.mission?.kind === 'reserve' && q.fatigue < K.restedAt);
   for (const q of myInf) {
     const m = q.mission;
     if (!m) { // opening orders: front rows advance, rows behind are the reserve
@@ -157,17 +216,44 @@ export function commanderThink(b: BattleState, c: Commander) {
       continue;
     }
     if (m.kind === 'reserve') {
-      // no point keeping a reserve once the fight is well under way: turn their flank at the weaker end
-      if (engaged && sinceContact > K.reserveHold && foeInf.length) {
-        const lo = endSquad(-1), hi = endSquad(1);
-        let t = strength(lo) + Math.abs(q.my - lo.my) * 0.03 <= strength(hi) + Math.abs(q.my - hi.my) * 0.03 ? lo : hi;
-        if (sentAt(t.id) >= K.maxPerTarget) t = t === lo ? hi : lo;
-        give(q, sentAt(t.id) ? 'flank' : 'attack', `committed: ${t.state === 'melee' ? 'turning the end of their line' : 'attacking the end of their line'}`, t.id);
-      } else if (engaged && !foeInf.length && foes.length) give(q, 'advance', 'committed: finishing them off');
+      if (engaged && !foeInf.length && foes.length) { give(q, 'advance', 'committed: finishing them off'); continue; }
+      if (q.fatigue >= K.restedAt) { m.why = 'resting behind the line'; continue; }
+      // reserves go in one at a time, round the flank the plan strikes at; the last one is kept back for a crisis until late
+      const keep = sinceContact < K.lastReserveAfter ? K.keepReserve : 0;
+      if (!engaged || b.t < c.nextCommit || !foeInf.length || waiting.length <= keep || !plan || plan.defend && sinceContact < K.counterAfter) continue;
+      const w: -1 | 1 = plan.strike === 2 ? (wingOf(q) as -1 | 1) : plan.strike === 0 ? (balance['-1'] <= balance['1'] ? 1 : -1) : plan.strike;
+      // the waiting reserve nearest that wing goes
+      const pick = waiting.slice().sort((a, z) => (a.my - z.my) * -w)[0];
+      if (pick !== q) continue;
+      let t = endSquad(w);
+      if (sentAt(t.id) >= K.maxPerTarget) t = foeInf.slice().sort((a, z) => dist(q, a) - dist(q, z)).find(e => sentAt(e.id) < K.maxPerTarget) ?? t;
+      give(q, 'flank', `sent round their ${wingName(w) === 'left' ? 'right' : 'left'} flank`, t.id);
+      waiting.splice(waiting.indexOf(q), 1);
+      c.nextCommit = b.t + K.commitEvery;
+      continue;
+    }
+    if (m.kind === 'advance' || m.kind === 'reinforce' || m.kind === 'attack' || m.kind === 'flank') {
+      // push orders: the wing the plan strikes at keeps driving forward with whoever is fresh enough; elsewhere a squad
+      // pushes when the enemy in front is more tired, wavering, or clearly weaker. Fresh squads sent in push too.
+      const e = q.state === 'melee' && q.target > 0 && valid(b, q.target) ? b.squads[q.target - 1] : null;
+      const strike = striking(q.my) || m.kind !== 'advance';
+      const edge = !!e && (wavering(e) || e.fatigue - q.fatigue > K.pushEdge || squadHp(b, q) - squadHp(b, e) > K.pushHpEdge);
+      const was = !!m.push;
+      m.push = !!e && (was ? q.fatigue < K.pushStop : q.fatigue < K.pushStart) && (strike || edge) && !(plan?.defend && sinceContact < K.counterAfter);
+      if (m.push && !was) c.pushes++;
+      if (m.kind !== 'advance') continue;
+      if (m.push) m.why = edge ? 'pushing: they are giving way in front of us' : 'pushing: this is where we strike';
+      else if (m.why.startsWith('pushing')) m.why = 'holding the line';
+      // nobody left in front of us: turn and roll up their line
+      if (engaged && sinceContact > K.rollAfter && q.state !== 'melee' && foeInf.length && open(q) && !foeInf.some(x => Math.abs(x.my - q.my) < K.rollLateral && Math.abs(x.mx - q.mx) < K.rollDepth)) {
+        const t = foeInf.filter(x => sentAt(x.id) < K.maxPerTarget).sort((a, z) => dist(q, a) - dist(q, z))[0];
+        if (t) give(q, 'flank', 'nobody left in front: rolling up their line', t.id);
+      }
       continue;
     }
     if (!open(q)) continue;
-    if (m.kind !== 'advance') give(q, 'advance', 'back to the line: fighting the enemy in front');
+    if (m.kind === 'disengage' && q.fatigue >= K.restedAt && waiting.length + 1 <= myInf.length / 2) { give(q, 'reserve', 'resting behind the line', 0, wingOf(q), 0); continue; }
+    give(q, 'advance', 'back to the line: fighting the enemy in front');
   }
 
   // ---- cavalry ----
@@ -187,8 +273,10 @@ export function commanderThink(b: BattleState, c: Commander) {
     // pull out of a bad fight: stuck on spearmen who aren't breaking, or badly hurt
     if (q.state === 'melee' && m?.kind !== 'disengage' && q.target > 0 && valid(b, q.target)) {
       const e = b.squads[q.target - 1], hp = squadHp(b, q);
-      if (!wavering(e) && !e.broken && ((e.unit === 'spearmen' && q.meleeSince >= 0 && b.t - q.meleeSince > K.badFightSeconds) || hp < K.disengageHp)) {
-        give(q, 'disengage', hp < K.disengageHp ? 'badly hurt: pulling back to rally' : 'pulling out of a fight with spearmen', 0, w, K.rallySeconds);
+      const hurt = hp < K.disengageHp && !c.rallied.has(q.id);
+      if (!wavering(e) && !e.broken && ((e.unit === 'spearmen' && q.meleeSince >= 0 && b.t - q.meleeSince > K.badFightSeconds) || hurt)) {
+        if (hurt) c.rallied.add(q.id);
+        give(q, 'disengage', hurt ? 'badly hurt: pulling back to rally' : 'pulling out of a fight with spearmen', 0, w, K.rallySeconds);
         continue;
       }
     }
@@ -203,13 +291,13 @@ export function commanderThink(b: BattleState, c: Commander) {
     }
     if (screens.has(q)) consider(6, 'screen', 'guarding our flank against their cavalry');
     if (gap < K.raidWhenGap) {
-      for (const a of foeArch) if (sentAt(a.id, q) < K.maxPerTarget) consider(5.5 - dist(q, a) / 8 - sentAt(a.id, q) * 2.5, 'raid', 'riding round to hit their archers', a.id);
+      for (const a of foeArch) if (sentAt(a.id, q) < K.maxPerTarget) consider(5.5 + (striking(a.my) ? 0.8 : 0) - dist(q, a) / 8 - sentAt(a.id, q) * 2.5, 'raid', 'riding round to hit their archers', a.id);
       for (const e of foeInf) if (e.state === 'melee' && sentAt(e.id, q) < K.maxPerTarget)
-        consider(4.5 + (wavering(e) ? 1.5 : 0) - (e.unit === 'spearmen' ? 0.8 : 0) - dist(q, e) / 8 - sentAt(e.id, q), 'shock', `charging their ${NAME[e.unit]} from behind`, e.id);
+        consider(4.5 + (wavering(e) ? 1.5 : 0) + (striking(e.my) ? 1 : 0) + e.fatigue - (e.unit === 'spearmen' ? 0.8 : 0) - dist(q, e) / 8 - sentAt(e.id, q), 'shock', `charging their ${NAME[e.unit]} from behind`, e.id);
       if (!screens.has(q)) for (const e of foeCav) consider(3 - dist(q, e) / 8 - sentAt(e.id, q), 'attack', 'taking on their cavalry', e.id);
     }
     // nothing better and the fight is on: charge the nearest enemy that isn't fresh spearmen (any enemy if that's all there is)
-    if (gap < K.raidWhenGap && (!myInf.length || sinceContact > K.reserveHold)) for (const e of foes) if (!e.broken)
+    if (gap < K.raidWhenGap && (!myInf.length || sinceContact > K.commitEvery)) for (const e of foes) if (!e.broken)
       consider(1.8 - dist(q, e) / 12 - (e.unit === 'spearmen' ? 0.6 : 0) - sentAt(e.id, q) * 0.3, 'attack', `charging their ${NAME[e.unit]}`, e.id);
     for (const e of foes) if (e.broken && sentAt(e.id, q) < 1) consider(2 - dist(q, e) / 10, 'pursue', `running down broken ${NAME[e.unit]}`, e.id);
     if (!foes.some(e => !e.broken) && foes.length) consider(2.5, 'pursue', 'running them down', foes[0].id);

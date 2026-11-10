@@ -240,7 +240,7 @@ export const CONFIG = {
     arrowSpeed: 9,              // tiles per second
     counterBonus: 1.5,
     flankBonus: 1.4,            // melee damage multiplier when hitting a squad from the side or behind
-    deadliness: 0.8,            // multiplies all damage (smaller = longer battles, same amount of fighting)
+    deadliness: 0.55,           // multiplies all damage (smaller = longer battles, same amount of fighting)
     // Player orders (set on the deployment screen). Squads with no arrow hold their ground.
     orders: {
       commitAfter: 4,           // a squad on an arrow that's been in melee this long stays to finish that enemy squad...
@@ -250,6 +250,31 @@ export const CONFIG = {
       cavEngage: 9,             // ...cavalry escort the wings until an enemy is this close, or the infantry are fighting
       formUp: 2.5,              // in the last stretch before charging (this many tiles before charge distance) infantry square up and close ranks
     },
+    // Tiredness (0 fresh .. 1 exhausted). Shown on each squad's badge as a green / yellow / red dot.
+    fatigue: {
+      meleePerSec: 0.007,       // gained per second of fighting (a bit over two minutes of steady fighting to exhaustion)
+      pushMul: 3,               // pushing is this many times as tiring
+      braceMul: 1.6,              // bracing against a push
+      restPerSec: 0.02,         // lost per second while out of the fight
+      damage: 0.35,             // an exhausted squad hits this much softer
+      parry: 0.5,               // ...parries this much worse
+      slow: 0.25,               // ...and moves this much slower
+      yellowAt: 0.35, redAt: 0.7, // badge dot colours
+    },
+    // Pushes: a squad drives forward into the enemy, shoving them back. The enemy can brace (stand firm) while it has the legs for it.
+    push: {
+      lean: 0.6,                // how hard a pushing squad presses in (tiles past normal fighting distance)
+      give: 0.5,                // how far a squad being pushed (and not bracing) backs off
+      speed: 0.7,               // a push advances at this share of walking speed
+      giveSpeed: 0.6,           // ...and the pushed squad backs off at up to this share
+      weight: 2.5,              // in the shoving, a pushing soldier counts as this heavy (ordinary = 1)
+      braceWeight: 2.5,         // ...and so does a braced one
+      maxFatigue: 0.8,          // too tired to push beyond this
+      braceMaxFatigue: 0.65,    // too tired to brace beyond this: then you get driven back
+      pushedMoralePerSec: 2.5,  // courage lost per second while being driven back
+      exhaustedAt: 0.9,         // a squad this tired that's still fighting...
+      exhaustedMoralePerSec: 0.8, // ...loses courage every second: exhausted men break (this is what ends a long slog)
+    },
     // The army commander (one per side, same rules for both): gives every squad a mission and a reason. See src/battle/commander.ts.
     commander: {
       thinkSeconds: 2.5,        // the commander re-thinks this often
@@ -257,7 +282,31 @@ export const CONFIG = {
       contactDist: 7,           // "the lines have met" when the two infantry bodies are this close
       reserveDepth: 1,          // infantry starting more than this far behind the front row start as the reserve
       reserveBack: 2.2,         // the reserve waits this far behind the front (tiles)
-      reserveHold: 12,          // seconds after the lines meet before any reserve still waiting is committed to turn a flank
+      // the plan
+      planWhenGap: 16,          // the commander picks its plan when the infantry lines are this close
+      planJitter: 0.6,          // how much chance there is in the choice (so battles differ)
+      defendBelow: 0.8,         // weaker than this share of the enemy: defend first, counter later
+      envelopAbove: 1.25,       // stronger than this: go round both flanks
+      centreEdge: 0.8,          // strike the centre only if it's this much better than both wings
+      replanSeconds: 12,        // the plan is reviewed this often once the fight is on
+      replanEdge: 1.2,          // ...and only changed if somewhere else looks this much better
+      counterAfter: 25,         // a defending commander starts pushing and committing reserves this long after contact
+      // reserves go in one at a time
+      firstCommit: 6,           // seconds after the lines meet before the first waiting reserve goes round the flank
+      commitEvery: 9,           // seconds between reserves
+      keepReserve: 1,           // this many are kept back for a crisis...
+      lastReserveAfter: 50,     // ...until this long after contact
+      // tiredness and pushes
+      tiredAt: 0.72,            // a front squad this tired is relieved if a reserve can take over
+      restedAt: 0.4,            // a resting squad counts as fresh again below this
+      pushEdge: 0.15,           // a squad pushes when the enemy in front is this much more tired (or wavering)...
+      pushHpEdge: 0.25,         // ...or this much weaker in numbers; on the wing the plan strikes at, fresh squads always push
+      pushStart: 0.5,           // a squad more tired than this isn't told to start a push
+      pushStop: 0.75,           // ...and one that's pushing is told to stop at this
+      rollAfter: 15,            // (not before the fight has gone on this long)
+      failingBalance: 0.8,      // the strike is "failing" when we're this much weaker than them there
+      rollLateral: 2.5,         // "nobody in front": no enemy infantry within this sideways...
+      rollDepth: 5,             // ...and this far ahead: then turn and roll up their line
       reserveRange: 2,          // a waiting reserve deals with any enemy that comes this close by itself
       relieveHp: 0.55,          // a front squad below this strength (or wavering) gets a reserve sent to help
       answerRange: 9,           // a reserve is only sent to a threat or a friend within this distance
@@ -384,7 +433,7 @@ export const CONFIG = {
     // Soldiers swing often but most frontal blows are parried: kills come from flanks, ganging up and catching people off balance.
       swordsmen: { damage: 7.5, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, block: 0.55, strongVs: ['spearmen'] },
       spearmen: { damage: 6.5, cooldown: 2.8, reach: 0.85, speed: 0.65, defense: 0.15, block: 0.42, strongVs: ['cavalry'] },
-      archers: { damage: 14, cooldown: 4.0, meleeCooldown: 2.8, reach: 0.5, speed: 0.7, defense: 0.05, block: 0.15, range: 7, meleeDamage: 4, strongVs: ['spearmen'] },
+      archers: { damage: 20, cooldown: 4.0, meleeCooldown: 2.8, reach: 0.5, speed: 0.7, defense: 0.05, block: 0.15, range: 7, meleeDamage: 4, strongVs: ['spearmen'] },
       cavalry: { damage: 8, cooldown: 2.8, reach: 0.65, speed: 1.7, defense: 0.12, block: 0.3, chargeBonus: 4.5, strongVs: ['archers'] },
     } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; block: number; range?: number; meleeDamage?: number; meleeCooldown?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
   },

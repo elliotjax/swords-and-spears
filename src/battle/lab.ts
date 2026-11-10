@@ -342,7 +342,7 @@ export class BattleLab {
         <p style="font-size:12px">Changing the armies puts your squads back in the automatic formation.</p>
         <div class="labbtns"><button class="btn" data-lab="page">Done: deploy ➜</button></div>`;
     } else if (this.view === 'fight') {
-      this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div><button class="btn ghost" data-lab="stop">Stop</button></div>`;
+      this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div><button class="btn ghost" data-lab="stop">Stop</button></div><div class="labplans">${this.plansHtml()}</div>`;
     } else {
       const b = this.b!;
       const title = b.winner === 0 ? '🏆 You win!' : b.winner === 1 ? 'Defeat' : 'Draw';
@@ -362,6 +362,13 @@ export class BattleLab {
     const bt = this.batch;
     return bt ? (bt.done < bt.total ? `<p>Running ${bt.done}/${bt.total} battles…</p>`
       : `<p><b>${bt.total} battles:</b> <b style="color:${TEAM[0]}">You win ${Math.round(bt.wins[0] / bt.total * 100)}%</b> · <b style="color:${TEAM[1]}">Enemy ${Math.round(bt.wins[1] / bt.total * 100)}%</b> · Draw ${Math.round(bt.wins[2] / bt.total * 100)}% · avg ${fmtTime(bt.time / bt.total)}</p>`) : '';
+  }
+
+  /** What each commander is trying to do right now. */
+  private plansHtml() {
+    const b = this.b; if (!b) return '';
+    const line = (sd: Side) => b.cmd[sd] ? `<div><b style="color:${TEAM[sd]}">${sd === 0 ? 'Your' : 'Enemy'} commander:</b> ${b.cmd[sd]!.plan?.why ?? 'advancing'}</div>` : '';
+    return line(0) + line(1);
   }
 
   private scoreHtml() {
@@ -387,6 +394,7 @@ export class BattleLab {
       if (b.over) { this.view = 'result'; this.renderPanel(); }
       else if (Math.floor(b.t * 2) !== Math.floor((b.t - n / BATTLE_TPS) * 2)) {
         const sc = this.panel.querySelector('.labscore'); if (sc) sc.innerHTML = this.scoreHtml();
+        const pl = this.panel.querySelector('.labplans'); if (pl) { const h = this.plansHtml(); if (pl.innerHTML !== h) pl.innerHTML = h; }
       }
     }
     const t = this.root.querySelector('#labTime')!;
@@ -502,8 +510,15 @@ export class BattleLab {
       c.fillRect(bx, by + size - fh, size, fh);                                     // HP fill
       c.strokeStyle = edge; c.lineWidth = 2 * d; c.strokeRect(bx + d, by + d, size - 2 * d, size - 2 * d);
       drawGlyph(c, q.unit, bx + size / 2, by + size / 2, Math.max(1, Math.floor(size / 9)), TEAM_DARK[q.side]); // the weapon symbol in team colour: always tells friend from foe
+      // tiredness: a small dot on the badge's corner (green fresh, yellow tiring, red exhausted)
+      if (this.view !== 'setup') {
+        const F = CONFIG.battle.fatigue, r = Math.max(3, size * 0.17);
+        c.fillStyle = q.fatigue >= F.redAt ? '#d6453d' : q.fatigue >= F.yellowAt ? '#f2c230' : '#3fae5a';
+        c.beginPath(); c.arc(bx + size - r * 0.4, by + r * 0.4, r, 0, 7); c.fill();
+        c.lineWidth = 1.2 * d; c.strokeStyle = '#ffffff'; c.stroke();
+      }
       // the commander's mission for this squad (short word under the badge)
-      const mw = this.view !== 'setup' && words && !shaky && !q.broken && q.mission ? MISSION_WORD[q.mission.kind] : '';
+      const mw = this.view !== 'setup' && words && !shaky && !q.broken ? (q.pushing ? 'PUSH' : q.bracing ? 'brace' : q.mission ? MISSION_WORD[q.mission.kind] : '') : '';
       if (mw) {
         c.font = `800 ${8.5 * d}px Nunito, system-ui, sans-serif`;
         c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.6)'; c.fillStyle = q.side === 0 ? '#ffd9d4' : '#d6e4ff';

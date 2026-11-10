@@ -58,6 +58,8 @@ if (args.includes('map')) {
   for (let t = 0; !b.over; t += 10) {
     while (b.t < t && !b.over) stepBattle(b);
     console.log(`\n--- ${t}s ---\n` + asciiMap(b));
+    if (b.cmd[0]?.plan) console.log(`red plan: ${b.cmd[0].plan.why}   | blue plan: ${b.cmd[1]?.plan?.why}`);
+    if (b.cmd[0]) console.log('red tiredness: ' + b.squads.filter(q => q.side === 0 && !q.gone && !q.fleeing).map(q => `${q.unit.slice(0, 2)}${q.num} ${(q.fatigue * 100).toFixed(0)}${q.pushing ? ' PUSH' : q.bracing ? ' brace' : ''}`).join(', '));
     if (b.cmd[0]) console.log('red missions: ' + b.squads.filter(q => q.side === 0 && !q.gone && !q.fleeing).map(q => `${q.unit.slice(0, 2)}${q.num} ${q.mission?.kind ?? '-'}${q.mission?.target ? '>' + b.squads[q.mission.target - 1].unit.slice(0, 2) + b.squads[q.mission.target - 1].num : ''}`).join(', '));
   }
   if (b.cmd[0]) console.log('red reasons at the end: ' + [...new Set(b.squads.filter(q => q.side === 0 && q.mission).map(q => q.mission!.why))].join(' | '));
