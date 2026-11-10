@@ -451,6 +451,7 @@ export class BattleLab {
       drawP(ax, ay, m.k < 0.5 ? '#6e1f1a' : '#55201b');
       if (m.k > 0.35) drawP(ax + (m.k > 0.7 ? 1 : -1), ay, '#7d2620');
     }
+    this.drawFootprints(b, S, d, alpha);
     // fallen soldiers (each lies a little differently, weapon dropped beside them)
     for (const s of b.soldiers) if (s.dead && onScreen(s.x, s.y)) { const [ax, ay] = A(s.x, s.y); drawCorpse(drawP, s, ax, ay); }
     // living soldiers, back to front (as shown)
@@ -547,6 +548,62 @@ export class BattleLab {
       }
     }
     if (this.view === 'setup') this.drawHandles(d);
+  }
+
+  /**
+   * Each squad's footprint: a soft block in team colour under its soldiers, so you can read who stands where,
+   * where the line has gaps and which squads are fighting. Pushing squads get a strong block and chevrons
+   * ahead of them; bracing squads a bar along their front; squads not in a fight are faint.
+   */
+  private drawFootprints(b: BattleState, S: (x: number, y: number) => Pt, d: number, alpha: number) {
+    if (this.view === 'setup') return;
+    const c = this.ctx;
+    for (const q of b.squads) {
+      if (q.gone || q.fleeing) continue;
+      const pts: Pt[] = []; let mx = 0, my = 0;
+      for (const id of q.members) {
+        const so = b.soldiers[id - 1];
+        if (so.dead || so.fled) continue;
+        const x = so.px + (so.x - so.px) * alpha, y = so.py + (so.y - so.py) * alpha;
+        pts.push({ x, y }); mx += x; my += y;
+      }
+      if (pts.length < 2) continue;
+      mx /= pts.length; my /= pts.length;
+      const fx = Math.cos(q.ang), fy = Math.sin(q.ang), nx = -fy, ny = fx;
+      let f0 = 1e9, f1 = -1e9, n0 = 1e9, n1 = -1e9;
+      for (const v of pts) {
+        if (Math.hypot(v.x - mx, v.y - my) > 3.4) continue; // stragglers don't stretch the block
+        const f = (v.x - mx) * fx + (v.y - my) * fy, n = (v.x - mx) * nx + (v.y - my) * ny;
+        f0 = Math.min(f0, f); f1 = Math.max(f1, f); n0 = Math.min(n0, n); n1 = Math.max(n1, n);
+      }
+      if (f0 > f1) continue;
+      const m = 0.28; f0 -= m; f1 += m; n0 -= m; n1 += m;
+      const P = (f: number, n: number) => S(mx + fx * f + nx * n, my + fy * f + ny * n);
+      const col = q.broken ? '#a0a0a0' : TEAM[q.side];
+      const k = q.broken ? 0.1 : q.pushing ? 0.34 : q.state === 'melee' ? 0.2 : 0.1;
+      const corners = [P(f0, n0), P(f1, n0), P(f1, n1), P(f0, n1)];
+      c.beginPath(); corners.forEach((v, i) => (i ? c.lineTo(v.x, v.y) : c.moveTo(v.x, v.y))); c.closePath();
+      c.globalAlpha = k; c.fillStyle = col; c.fill();
+      c.globalAlpha = q.pushing ? 0.95 : q.state === 'melee' ? 0.6 : 0.35; c.strokeStyle = col; c.lineWidth = (q.pushing ? 3 : 1.6) * d; c.stroke();
+      if (q.bracing) { // a solid bar along the front edge: braced against the push
+        const a = P(f1, n0), z = P(f1, n1);
+        c.globalAlpha = 0.95; c.strokeStyle = '#ffffff'; c.lineWidth = 3.4 * d; c.lineCap = 'butt';
+        c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(z.x, z.y); c.stroke();
+        c.strokeStyle = TEAM_DARK[q.side]; c.lineWidth = 1.4 * d; c.stroke();
+      }
+      if (q.pushing) { // chevrons marching ahead of the block
+        const ph = (b.t * 1.6) % 1;
+        c.strokeStyle = TEAM_LIGHT[q.side]; c.lineCap = 'round'; c.lineJoin = 'round'; c.lineWidth = 2.6 * d;
+        const half = Math.min(1.1, (n1 - n0) / 2);
+        for (let i = 0; i < 3; i++) {
+          const f = f1 + 0.35 + (i + ph) * 0.55;
+          c.globalAlpha = 0.9 * (1 - (i + ph) / 3);
+          const l = P(f - 0.3, (n0 + n1) / 2 - half), t = P(f, (n0 + n1) / 2), r = P(f - 0.3, (n0 + n1) / 2 + half);
+          c.beginPath(); c.moveTo(l.x, l.y); c.lineTo(t.x, t.y); c.lineTo(r.x, r.y); c.stroke();
+        }
+      }
+      c.globalAlpha = 1;
+    }
   }
 
   /** Arrows (paths) on the field: all of them while deploying, the rest of each path during the fight. */
