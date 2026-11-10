@@ -238,6 +238,7 @@ export function commanderThink(b: BattleState, c: Commander) {
     const y = c.breach.y, pick = waiting.slice().sort((a, z) => Math.abs(a.my - y) - Math.abs(z.my - y))[0];
     give(pick, 'attack', 'sent in at the weak spot', c.breach.target); waiting.splice(waiting.indexOf(pick), 1); c.breach.fed = true;
   }
+  let pushingNow = myInf.filter(q => q.mission?.push).length; // squads in the push group right now
   for (const q of myInf) {
     const m = q.mission;
     if (!m) { // opening orders: front rows advance, rows behind are the reserve
@@ -263,13 +264,16 @@ export function commanderThink(b: BattleState, c: Commander) {
       continue;
     }
     if (m.kind === 'advance' || m.kind === 'reinforce' || m.kind === 'attack' || m.kind === 'flank') {
-      // push orders: the wing the plan strikes at keeps driving forward with whoever is fresh enough; elsewhere a squad
-      // pushes when the enemy in front is more tired, wavering, or clearly weaker. Fresh squads sent in push too.
+      // push orders. A push is ONE concentrated effort: a group of a few squads side by side at the commander's chosen
+      // spot (the weak spot it is breaking through, otherwise the wing the plan strikes at). Elsewhere squads only push
+      // to finish an enemy that's about to break. Nobody is told to push into a squad that's already pushing them.
       const e = q.state === 'melee' && q.target > 0 && valid(b, q.target) ? b.squads[q.target - 1] : null;
-      const strike = striking(q.my) || m.kind !== 'advance' || atBreach(q.my);
-      const edge = !!e && (wavering(e) || e.fatigue - q.fatigue > K.pushEdge || squadHp(b, q) - squadHp(b, e) > K.pushHpEdge);
+      const here = atBreach(q.my), wingPush = !c.breach && striking(q.my), finish = !!e && wavering(e);
       const was = !!m.push;
-      m.push = !!e && (was || atBreach(q.my) ? q.fatigue < K.pushStop : q.fatigue < K.pushStart) && (strike || edge) && !(plan?.defend && sinceContact < K.counterAfter);
+      const want = !!e && (here || wingPush || finish) && !(!was && e.pushing && e.target === q.id) && !(plan?.defend && sinceContact < K.counterAfter);
+      m.push = want && (was ? q.fatigue < K.pushStop : q.fatigue < K.pushStart && (finish || pushingNow < K.pushGroup));
+      if (m.push && !was && !finish) pushingNow++;
+      const edge = finish;
       if (m.push && !was) c.pushes++;
       if (m.kind !== 'advance') continue;
       if (m.push) m.why = atBreach(q.my) ? 'pushing: breaking through their line' : edge ? 'pushing: they are giving way in front of us' : 'pushing: this is where we strike';
@@ -328,7 +332,7 @@ export function commanderThink(b: BattleState, c: Commander) {
     }
     if (screens.has(q)) consider(6, 'screen', 'guarding our flank against their cavalry');
     if (gap < K.raidWhenGap) {
-      for (const a of foeArch) if (sentAt(a.id, q) < K.maxPerTarget) consider(5.5 + (striking(a.my) ? 0.8 : 0) - dist(q, a) / 8 - sentAt(a.id, q) * 2.5, 'raid', 'riding round to hit their archers', a.id);
+      for (const a of foeArch) if (sentAt(a.id, q) < K.maxPerTarget) consider((sentAt(a.id, q) ? 3 : K.raidScore) + (striking(a.my) ? 0.8 : 0) - dist(q, a) / 8, 'raid', 'riding round to hit their archers', a.id);
       for (const e of foeInf) if (e.state === 'melee' && sentAt(e.id, q) < K.maxPerTarget)
         consider(4.5 + (wavering(e) ? 1.5 : 0) + (striking(e.my) ? 1 : 0) + e.fatigue - (e.unit === 'spearmen' ? 0.8 : 0) - dist(q, e) / 8 - sentAt(e.id, q), 'shock', `charging their ${NAME[e.unit]} from behind`, e.id);
       if (c.breach && valid(b, c.breach.target) && sentAt(c.breach.target, q) < 2) consider(6.2 - dist(q, b.squads[c.breach.target - 1]) / 10, 'shock', 'charging the weak spot in their line', c.breach.target);

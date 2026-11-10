@@ -264,9 +264,12 @@ export const CONFIG = {
     // Pushes: a squad drives forward into the enemy, shoving them back. The enemy can brace (stand firm) while it has the legs for it.
     push: {
       lean: 0.6,                // how hard a pushing squad presses in (tiles past normal fighting distance)
-      give: 0.5,                // how far a squad being pushed (and not bracing) backs off
+      braceGiveSpeed: 0.15,     // a braced squad is still driven back, at this share of the pushers' walking speed (a slow grind)...
+      shoveRange: 2.4,          // (a push drives back the squad it's aimed at while the two are this close)
+      attackSpeed: 0.15,        // men in a push strike this much faster...
+      exposedParry: 0.6,        // ...but are exposed: they parry only this well
       speed: 0.7,               // a push advances at this share of walking speed
-      giveSpeed: 0.6,           // ...and the pushed squad backs off at up to this share
+      giveSpeed: 0.55,          // ...and an unbraced squad is driven back at this share of the pushers' walking speed
       weight: 2.5,              // in the shoving, a pushing soldier counts as this heavy (ordinary = 1)
       braceWeight: 2.5,         // ...and so does a braced one
       maxFatigue: 0.8,          // too tired to push beyond this
@@ -301,8 +304,8 @@ export const CONFIG = {
       // tiredness and pushes
       tiredAt: 0.72,            // a front squad this tired is relieved if a reserve can take over
       restedAt: 0.4,            // a resting squad counts as fresh again below this
-      pushEdge: 0.15,           // a squad pushes when the enemy in front is this much more tired (or wavering)...
-      pushHpEdge: 0.25,         // ...or this much weaker in numbers; on the wing the plan strikes at, fresh squads always push
+      pushGroup: 3,             // a push is one group of at most this many squads at the chosen spot (plus anyone finishing off a wavering enemy)
+      raidScore: 7.5,           // how much the commander wants the first cavalry squad on each enemy archer squad (rear charges score about 4.5 to 8)
       pushStart: 0.5,           // a squad more tired than this isn't told to start a push
       pushStop: 0.75,           // ...and one that's pushing is told to stop at this
       rollAfter: 15,            // (not before the fight has gone on this long)

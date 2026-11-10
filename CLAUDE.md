@@ -23,6 +23,7 @@ The army commander (first version) is built: see README section 10 "Army command
 
 ## Testing battles
 - `npm run battle:check` (commanders on both sides; add `-- legacy` for the old no-commander AI) prints who wins each matchup (unit counters, fairness between the two sides), battle length, idle/reserve time, flank hits and speed. Lines marked `<-- CHECK` need a look. `-- quick` runs fewer battles, `-- map` prints ASCII pictures of one battle every 10 s.
+- `tools/battle-main.ts` measures only the main part of the battle (first 75 s after contact): what cavalry fight, whether they reach the archers, how far pushes move the line. Whole-battle averages hide this.
 - Run it before and after any battle change. Small samples swing a lot: confirm fairness with the full run.
 - You can't watch battles move: use the numbers, the ASCII map, and Playwright screenshots (`npx vite --port 5173`, then `window.game.lab`).
 

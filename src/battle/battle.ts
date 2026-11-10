@@ -79,6 +79,7 @@ export interface BSquad {
   commitX: number; commitY: number; // where we left the path (don't chase too far from it)
   guard: boolean; arrowsTaken: number; // 'hold' squads on guard join the fight when a friend nearby is fighting or after taking this many arrow hits
   fatigue: number;            // 0 fresh .. 1 exhausted: rises while fighting (fast while pushing), falls while resting; tired squads hit softer, parry worse, move slower
+  pushSince: number;          // when the current push began (-1 = not pushing): if two squads push each other, the one that started first keeps going
   pushing: boolean;           // driving forward into the enemy right now (shoving them back; very tiring)
   bracing: boolean;           // standing firm against a push (tiring; no ground given)
   mission: Mission | null;    // what the army commander told this squad to do, and why (null = no commander)
@@ -203,7 +204,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
         withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
         order: led ? 'free' : q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
-        fatigue: 0, pushing: false, bracing: false, mission: null, guard: !led && !!q.guard, arrowsTaken: 0, support: 0, role: '', waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
+        fatigue: 0, pushSince: -1, pushing: false, bracing: false, mission: null, guard: !led && !!q.guard, arrowsTaken: 0, support: 0, role: '', waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
         path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
       };
       for (let i = 0; i < unitSize(q.unit); i++) {
@@ -417,6 +418,10 @@ export function stepBattle(b: BattleState) {
   for (const sd of Math.floor(b.t / B.commander.thinkSeconds) % 2 ? [0, 1] : [1, 0]) { const c = b.cmd[sd]; if (c) commanderThink(b, c); } // (they take turns thinking first)
   const behindLine = (side: Side, x: number) => isFinite(sideFront[side]) && x * fwdOf[side] < sideFront[side] - 0.5;
   const enemyCavLeft = [0, 1].map(sd => b.squads.some(q => q.side !== sd && q.unit === 'cavalry' && active(q) && !q.broken));
+
+  // who is being pushed by whom (from the last step)
+  const pusherOf = new Map<number, BSquad>();
+  for (const q of b.squads) if (q.pushing && active(q) && q.target > 0) pusherOf.set(q.target, q);
 
   // ---- squads: choose a target and move the formation (order flips each step: fair to both sides) ----
   const order = Math.round(b.t * BATTLE_TPS) % 2 ? b.squads : [...b.squads].reverse();
@@ -677,15 +682,29 @@ export function stepBattle(b: BattleState) {
         const adv = Math.max(-1, Math.min(1, (ours - theirs) * 2));
         // a push: drive forward into them (ordered by the commander; needs the strength for it). The enemy either braces
         // (stands firm, if it still has the legs and the nerve) or is shoved back.
-        const PU = B.push, pushedBy = tq.pushing && tq.target === q.id;
-        q.pushing = !isCav && !!ms?.push && !q.broken && !wavering(q) && q.fatigue < PU.maxFatigue;
+        const PU = B.push, pb = pusherOf.get(q.id) ?? null, pushedBy = !!pb;
+        let push = !isCav && !!ms?.push && !q.broken && !wavering(q) && q.fatigue < PU.maxFatigue;
+        // two squads can't both push each other: whoever started first keeps going (same moment: the stronger one), the other must brace or give way
+        if (push && pushedBy) push = q.pushSince >= 0 && (pb!.pushSince < 0 || q.pushSince < pb!.pushSince || (q.pushSince === pb!.pushSince && (ours > theirs || (ours === theirs && (hash01(Math.min(q.id, pb!.id) * 7919 + Math.max(q.id, pb!.id), Math.round(q.pushSince * 20)) < 0.5) === (q.id < pb!.id)))));
+        q.pushing = push; q.pushSince = push ? (q.pushSince >= 0 ? q.pushSince : b.t) : -1;
         q.bracing = pushedBy && !q.pushing && !q.broken && !wavering(q) && q.fatigue < PU.braceMaxFatigue;
-        const lean = q.pushing ? PU.lean : pushedBy && !q.bracing ? -PU.give : adv * B.melee.pressGap;
+        // a braced squad still gives ground, slowly; an unbraced one is driven back fast
+        const lean = q.pushing ? PU.lean : pushedBy ? 0 : adv * B.melee.pressGap;
+        // being pushed: the whole squad is driven back, away from the pushers (slowly if braced, fast if not)
+        if (pb && !q.pushing) {
+          const dx = q.mx - pb.mx, dy = q.my - pb.my, dd = Math.hypot(dx, dy) || 1;
+          if (dd < PU.shoveRange) { const v = stats(pb.unit).speed * (q.bracing ? PU.braceGiveSpeed : PU.giveSpeed) * DT; q.cx += dx / dd * v; q.cy = Math.max(0.4, Math.min(b.H - 0.4, q.cy + dy / dd * v)); }
+        }
+        if (q.pushing && rand(b) < 0.25) b.fx.push({ x: q.cx + (rand(b) - 0.5) * 1.6, y: q.cy + (rand(b) - 0.5) * 1.6, t: 0, kind: 'dust' }); // feet churning the ground
         if (pushedBy && !q.bracing && !q.pushing) loseMorale(q, PU.pushedMoralePerSec * M.supportFront[q.support] * DT); // being driven back is frightening
         const want = U.reach * (isCav ? 0.55 : 0.8) - lean;
         if (gap < Infinity) {
           const err = gap - want;
-          const step = err > 0 ? Math.min(err, U.speed * (q.pushing ? PU.speed : 0.5) * DT) : Math.max(err * 0.5, -U.speed * (pushedBy && !q.bracing ? PU.giveSpeed : 0.35) * DT);
+          let step = err > 0 ? Math.min(err, U.speed * (q.pushing ? PU.speed : 0.5) * DT) : Math.max(err * 0.5, -U.speed * 0.35 * DT);
+          // a push locks the two squads together: the pushers drive forward exactly as fast as the enemy is forced back
+          // (never bouncing back), and the squad being pushed can't step forward again
+          if (q.pushing) step = pusherOf.get(tq.id) === q && dE < PU.shoveRange ? U.speed * (tq.bracing ? PU.braceGiveSpeed : PU.giveSpeed) * DT : Math.max(step, 0);
+          else if (pushedBy) step = Math.min(step, 0);
           gx = q.cx + fwdX * step / DT; gy = q.cy + fwdY * step / DT; // move along our facing
           speed = Math.abs(step) / DT;
         } else {
@@ -890,10 +909,10 @@ export function stepBattle(b: BattleState) {
             const facing = Math.cos(angDiff(t.dir, Math.atan2(s.y - t.y, s.x - t.x))) > 0.3;
             // parrying: only blows from the front, not while off balance or mid-swing; much harder if they're busy fighting someone else
             const busy = t.target !== s.id ? SO.busyParry : 1;
-            const blockP = facing && t.stagger <= 0 && t.lunge <= 0 && !brace && !charged ? stats(t.unit).block * t.skill * busy * (1 - B.fatigue.parry * sq(t.squad).fatigue) / (1 + SO.ganged * Math.max(0, t.foes - 1)) : 0;
+            const blockP = facing && t.stagger <= 0 && t.lunge <= 0 && !brace && !charged ? stats(t.unit).block * t.skill * busy * (1 - B.fatigue.parry * sq(t.squad).fatigue) * (sq(t.squad).pushing ? B.push.exposedParry : 1) / (1 + SO.ganged * Math.max(0, t.foes - 1)) : 0;
             if (rand(b) < hitP && rand(b) >= blockP) hits.push({ t, dmg, by: s, charge: charged, flank: fromFlank(sq(t.squad), t, s.x, s.y), kb, heavy });
             else if (rand(b) < 0.35) b.fx.push({ x: (s.x + t.x) / 2, y: (s.y + t.y) / 2 - 0.2, t: 0, kind: 'clash' }); // missed or blocked: sparks
-            s.cd = (U.meleeCooldown ?? U.cooldown) * B.tempo * (0.8 + rand(b) * 0.4) / (0.9 + s.skill * 0.1);
+            s.cd = (U.meleeCooldown ?? U.cooldown) * B.tempo * (0.8 + rand(b) * 0.4) / (0.9 + s.skill * 0.1) / (q.pushing ? 1 + B.push.attackSpeed : 1); // men in a push strike faster
           } else {
             const dur = d / B.arrowSpeed, spread = 0.15 + d * 0.04;
             const hit = rand(b) < B.arrowHitChance * (0.85 + s.skill * 0.15);
