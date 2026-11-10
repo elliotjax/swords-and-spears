@@ -299,7 +299,33 @@ export const CONFIG = {
       centreEdge: 0.8,          // strike the centre only if it's this much better than both wings
       replanSeconds: 12,        // the plan is reviewed this often once the fight is on
       replanEdge: 1.2,          // ...and only changed if somewhere else looks this much better
+      defendWait: 12,           // a defending commander whose enemy doesn't come within this many seconds advances after all
       counterAfter: 25,         // a defending commander starts pushing and committing reserves this long after contact
+      // ---- battle plans (doctrines): each commander picks one by weighted chance from the situation, and its own temperament ----
+      // weights before temperament; a commander's temperament (aggression, cavalry boldness, patience: 0..1 each, by chance per battle)
+      // scales them, so no two battles go the same way, but the plan still fits the armies.
+      doctrine: {
+        envelop: 2,             // strike one wing: reserves round its end, cavalry on that side
+        double: 0.8,            // both wings at once (more likely when stronger)
+        centre: 1,              // hammer the centre: pushes and reserves go into the middle
+        defend: 0.7,            // hold, wear them down, then counter-attack with everything at once
+        feint: 0.9,             // strike one wing early, then switch: reserves and cavalry hit the other wing
+        hook: 0.9,              // cavalry ride round one wing before the lines meet, reserves follow
+        surprise: 0.25,         // chance of striking the "wrong" (stronger) enemy wing, to keep the enemy guessing
+        feintAfter: [14, 26] as [number, number], // seconds after contact when a feint switches wings
+        tempo: [0.6, 1.4] as [number, number],   // reserve/push timing multiplier (aggressive commanders are fast)
+        reserveShare: { envelop: 0.3, double: 0.2, centre: 0.25, defend: 0.4, feint: 0.35, hook: 0.3 } as Record<string, number>, // share of the infantry kept back as the reserve (the rest of the rear rows become a second line)
+      },
+      // ---- initiative: squads with nothing to do find something ----
+      shoreAfter: 8,            // seconds after contact before the commander shores up a losing part of its line...
+      shoreBelow: 0.6,          // ...one where we're this much weaker than them (and not where we strike)...
+      shoreEvery: 8,            // ...one reserve at a time, this often
+      idleSeconds: 4,           // an infantry squad not fighting this long (once the lines have met) is given a new job
+      busyReach: 1.6,           // a soldier with an enemy this close is busy fighting (a quarter of a squad busy = the squad is busy)
+      gapMin: 1.4,              // a hole this wide (tiles of open ground) between two enemy squads is a gap to go through
+      exploitRange: 12,         // idle squads this close to a gap or the end of their line go for it
+      exploitGroup: 3,          // at most this many squads sent to one opening at a time
+      cavJoin: 9,               // a free cavalry squad this close joins an infantry attack through a gap (a combined attack)
       // reserves go in one at a time
       firstCommit: 6,           // seconds after the lines meet before the first waiting reserve goes round the flank
       commitEvery: 9,           // seconds between reserves

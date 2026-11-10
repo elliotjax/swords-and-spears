@@ -773,6 +773,8 @@ export function stepBattle(b: BattleState) {
           q.state = 'march';
           gx = (armyF[q.side] + 0.6 - q.lineDepth) * q.fwd; gy = q.homeY;
           speed = isFinite(marchPace[q.side]) ? marchPace[q.side] : U.speed * 0.7;
+          // the commander's plan is to hold and let them come: the line stands its ground (it still meets them when they're close)
+          if (ms?.kind === 'advance' && b.cmd[q.side]?.plan?.defend && b.t > 3) { gx = q.cx; gy = q.cy; }
           faceTo = q.fwd > 0 ? 0 : Math.PI; turnRate = 2;
         } else {
           // close to the enemy: square up to them (ranks closing, weapons ready), then charge

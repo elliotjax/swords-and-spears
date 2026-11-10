@@ -8,6 +8,7 @@ import {
   type BattleSetup, type BattleState, type BSoldier, type Pt, type Side, type SideBonus, type SquadSetup,
 } from './battle';
 import type { GameState } from '../sim/types';
+import { PLAN_NAME } from './commander';
 
 // =====================================================================
 //  Battle Lab: a test screen to set up two armies, watch them fight,
@@ -382,7 +383,11 @@ export class BattleLab {
   /** What each commander is trying to do right now. */
   private plansHtml() {
     const b = this.b; if (!b) return '';
-    const line = (sd: Side) => b.cmd[sd] ? `<div><b style="color:${TEAM[sd]}">${sd === 0 ? 'Your' : 'Enemy'} commander:</b> ${b.cmd[sd]!.plan?.why ?? 'advancing'}</div>` : '';
+    const line = (sd: Side) => {
+      const c = b.cmd[sd]; if (!c) return '';
+      const p = c.plan, plan = p ? `<i>${PLAN_NAME[p.kind]}${p.kind === 'feint' && p.switched ? ' (switched)' : ''}</i> · ` : '';
+      return `<div><b style="color:${TEAM[sd]}">${sd === 0 ? 'Your' : 'Enemy'} commander:</b> ${plan}${(p?.why ?? 'advancing').replace(/^plan: /, '')}</div>`;
+    };
     return line(0) + line(1);
   }
 
