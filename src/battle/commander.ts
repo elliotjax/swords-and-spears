@@ -374,8 +374,9 @@ export function commanderThink(b: BattleState, c: Commander) {
       if (t.unit === 'spearmen' && t.state !== 'melee') continue; // not head-on into fresh spears
       const d = dist(q, t);
       // one chaser per threat (never the whole team after one squad): the wing's screen first; a striker only if it's right there
-      if (sentAt(t.id, q) >= 1) continue;
-      if (screens.has(q) ? d < K.answerRange * 1.5 : d < K.strikerAnswer) consider((screens.has(q) ? 9 : 4) - d / 4, 'intercept', `stopping enemy ${NAME[t.unit]} ${t.unit === 'cavalry' ? 'raiding' : 'coming'} round our flank`, t.id);
+      const raider = t.unit === 'cavalry'; // enemy cavalry behind our line: every nearby horse answers it (up to cavAnswerers at once)
+      if (sentAt(t.id, q) >= (raider ? K.cavAnswerers : 1)) continue;
+      if (screens.has(q) ? d < K.answerRange * 1.5 : d < (raider ? K.cavAnswerRange : K.strikerAnswer)) consider((screens.has(q) ? 9 : raider ? 9.5 : 4) - d / (raider ? 3 : 4), 'intercept', `stopping enemy ${NAME[t.unit]} ${t.unit === 'cavalry' ? 'raiding' : 'coming'} round our flank`, t.id);
     }
     if (screens.has(q)) consider(6, 'screen', 'guarding our flank against their cavalry');
     if (gap < K.raidWhenGap) {

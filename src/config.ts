@@ -333,6 +333,8 @@ export const CONFIG = {
       maxPerTarget: 2,          // squads the commander sends against one enemy squad
       screenBack: 1.5,          // ...and this far behind our front
       screenClose: 2.5,         // a screen goes for an enemy that's charging or fighting nearby, or any enemy this close (not one standing guard opposite)
+      cavAnswerRange: 16,       // enemy cavalry behind our line are answered by any of our cavalry this close...
+      cavAnswerers: 2,          // ...up to this many horse squads per raider
       strikerAnswer: 5,         // cavalry with another job only break off for a flank threat this close (the screen is the one that chases)
       // breakthrough
       breachAfter: 12,          // seconds after the lines meet before the commander looks for a weak spot
@@ -372,6 +374,7 @@ export const CONFIG = {
       guardRange: 12,           // cavalry guards go for enemy cavalry within this range (or attacking a friend); else wait on their wing
       raidCavAvoid: 8,          // cavalry raiders leave enemy cavalry alone (unless it attacks them)
       raidArcherBonus: 3,       // raiders love archers
+      raidTurnIn: 3.5,            // a raider riding round the enemy line along the edge turns in once it is this close (sideways of the field) to its target
       raidClearance: 2.2,       // raiders ride round enemy foot that's within this distance of their route
       rearCavRange: 7,          // infantry not fighting turn to meet enemy cavalry behind our line within this range
       rearCavBonus: 5,          // (spearmen +2)

@@ -71,6 +71,7 @@ export interface BSquad {
   firstFight: number;         // when the squad first fought (-1 = not yet)
   meleeSince: number;         // when the current melee started (-1 = not in melee)
   withdrawUntil: number; wx: number; wy: number;
+  viaEdge: boolean;           // a raider riding along its wing's edge to get round the enemy line (stays on it until level with its target)
   ammo: number; volley: number; // archers: arrows left (whole squad); volley unused
   hold: boolean;              // archers: standing still and shooting (only move again if the enemy gets well out of range)
   order: Order;               // the player's order (see Order)
@@ -213,7 +214,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         cx: fx, cy: y, ang: face, mx: fx, my: y, homeY: y, state: 'march', target: -1, retarget: 0, flankSide: 0,
         broken: false, brokenAt: 0, fleeing: false, gone: false, brokeBy: '',
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
-        withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
+        viaEdge: false, withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
         order: led ? 'free' : q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
         fatigue: 0, pushSince: -1, pushing: false, bracing: false, mission: null, guard: !led && !!q.guard, arrowsTaken: 0, support: 0, role: '', waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
         path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
@@ -641,7 +642,10 @@ export function stepBattle(b: BattleState) {
       // raiders don't ride through the enemy line: if enemy foot is in the way, go round by our wing's edge first
       if (raiding && dE > 4) {
         const wy = q.homeY < b.H / 2 ? 1.2 : b.H - 1.2;
-        if (Math.abs(q.my - wy) > 1.6) {
+        if (q.viaEdge) { // keep riding along the edge until level with the target (no dithering at the edge of the "blocked" test)
+          if (Math.abs(q.mx - ax) < A.raidTurnIn || Math.abs(q.my - wy) > b.H) q.viaEdge = false;
+          else { gx = ax; gy = wy; }
+        } else if (Math.abs(q.my - wy) > 1.6 && Math.abs(q.mx - ax) >= A.raidTurnIn) { // (once level with the target there is nothing more to ride round: go in)
           let blocked = false;
           const sx = ax - q.mx, sy2 = ay - q.my, L2 = sx * sx + sy2 * sy2 || 1;
           for (const e of b.squads) {
@@ -649,9 +653,9 @@ export function stepBattle(b: BattleState) {
             const k = Math.max(0, Math.min(1, ((e.mx - q.mx) * sx + (e.my - q.my) * sy2) / L2));
             if (Math.hypot(q.mx + sx * k - e.mx, q.my + sy2 * k - e.my) < A.raidClearance) { blocked = true; break; }
           }
-          if (blocked) { gx = q.mx + (ax - q.mx) * 0.5; gy = wy; }
+          if (blocked) { q.viaEdge = true; gx = ax; gy = wy; }
         }
-      }
+      } else q.viaEdge = false;
       if (station) { // waiting at a post (a commander's reserve or screen, or an old-style guard on its wing)
         if (post) { gx = post.x; gy = post.y; }
         else { gx = isFinite(sideFront[q.side]) ? (sideFront[q.side] - 0.5) * q.fwd : q.cx; gy = q.homeY; }
