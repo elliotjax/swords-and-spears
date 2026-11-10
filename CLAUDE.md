@@ -2,6 +2,9 @@
 
 **README.md is the single source of truth.** Read it first (section 1 has the owner's rules). Keep it updated with every decision and add to the progress log (section 15).
 
+## CURRENT TASK
+**Read `COMMANDER_TASK.md` first: it is the one task the owner has authorized right now (army commander, first version).** `PROJECT_COLLABORATION.md` is the wider design brief written with ChatGPT; don't build anything from it that isn't in the task file.
+
 ## The owner
 - Doesn't code, plays on an iPhone. Explain things in short, plain language.
 - Don't start building until they say "go" (unless they've given you freedom for a task).
