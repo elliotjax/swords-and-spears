@@ -51,10 +51,13 @@ export interface Commander {
   nextCommit: number; // when the next waiting reserve may be sent in (they go one at a time)
   planChanges: number;
   pushes: number;     // push orders given so far
+  breach: { target: number; y: number; fed: boolean } | null; // the weak spot in their line we're breaking through right now
+  through: { y: number; until: number } | null;                 // we broke through here: the squads there roll up their line
+  nextBreach: number; breaches: number;
   rallied: Set<number>; // cavalry squads already pulled out once for being badly hurt (they aren't pulled out again)
 }
 
-export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, rallied: new Set() });
+export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set() });
 
 /** The commander's battle plan: where to strike (-1 = the low-y wing, 1 = the high-y wing, 0 = the centre, 2 = both wings) or to defend first. */
 export interface Plan { strike: -1 | 0 | 1 | 2; defend: boolean; why: string; since: number; reviewAt: number }
@@ -208,6 +211,33 @@ export function commanderThink(b: BattleState, c: Commander) {
     give(f, 'disengage', 'exhausted: pulling back to rest', 0, wingOf(f), K.rallySeconds);
   }
   const waiting = myInf.filter(q => q.mission?.kind === 'reserve' && q.fatigue < K.restedAt);
+  // ---- breakthrough: find a weak spot in their line, drive through it, then roll the line up from there ----
+  if (c.breach) {
+    const t = b.squads[c.breach.target - 1];
+    if (!valid(b, c.breach.target) || t.broken) { // through!
+      c.through = { y: c.breach.y, until: b.t + K.rollUpSeconds }; c.breach = null;
+      if (plan) plan.why = 'broke through their line: rolling it up';
+    } else c.breach.y = t.my;
+  }
+  if (c.through && b.t > c.through.until) c.through = null;
+  if (!c.breach && engaged && plan && !(plan.defend && sinceContact < K.counterAfter) && sinceContact > K.breachAfter && b.t >= c.nextBreach) {
+    let best: BSquad | null = null, bs = K.breachScore;
+    for (const e of foeInf) {
+      if (e.state !== 'melee') continue;
+      const backed = foeInf.some(x => x !== e && Math.abs(x.my - e.my) < 2.2 && (x.mx - e.mx) * fwd > 0.8 && (x.mx - e.mx) * fwd < 5); // someone standing behind it
+      const sc = (1 - power(e)) + (backed ? 0 : 0.25) + (wavering(e) ? 0.3 : 0) + (e.support === 0 ? 0.15 : 0);
+      if (sc > bs && myInf.some(q => q.target === e.id && q.state === 'melee')) { bs = sc; best = e; }
+    }
+    if (best) {
+      c.breach = { target: best.id, y: best.my, fed: false }; c.breaches++; c.nextBreach = b.t + K.breachEvery;
+      plan.why = `breaking through a weak spot (their ${NAME[best.unit]})`;
+    }
+  }
+  const atBreach = (y: number) => !!c.breach && Math.abs(y - c.breach.y) < K.breachWidth;
+  if (c.breach && !c.breach.fed && waiting.length) { // one fresh reserve goes straight in at the weak spot
+    const y = c.breach.y, pick = waiting.slice().sort((a, z) => Math.abs(a.my - y) - Math.abs(z.my - y))[0];
+    give(pick, 'attack', 'sent in at the weak spot', c.breach.target); waiting.splice(waiting.indexOf(pick), 1); c.breach.fed = true;
+  }
   for (const q of myInf) {
     const m = q.mission;
     if (!m) { // opening orders: front rows advance, rows behind are the reserve
@@ -236,13 +266,18 @@ export function commanderThink(b: BattleState, c: Commander) {
       // push orders: the wing the plan strikes at keeps driving forward with whoever is fresh enough; elsewhere a squad
       // pushes when the enemy in front is more tired, wavering, or clearly weaker. Fresh squads sent in push too.
       const e = q.state === 'melee' && q.target > 0 && valid(b, q.target) ? b.squads[q.target - 1] : null;
-      const strike = striking(q.my) || m.kind !== 'advance';
+      const strike = striking(q.my) || m.kind !== 'advance' || atBreach(q.my);
       const edge = !!e && (wavering(e) || e.fatigue - q.fatigue > K.pushEdge || squadHp(b, q) - squadHp(b, e) > K.pushHpEdge);
       const was = !!m.push;
-      m.push = !!e && (was ? q.fatigue < K.pushStop : q.fatigue < K.pushStart) && (strike || edge) && !(plan?.defend && sinceContact < K.counterAfter);
+      m.push = !!e && (was || atBreach(q.my) ? q.fatigue < K.pushStop : q.fatigue < K.pushStart) && (strike || edge) && !(plan?.defend && sinceContact < K.counterAfter);
       if (m.push && !was) c.pushes++;
       if (m.kind !== 'advance') continue;
-      if (m.push) m.why = edge ? 'pushing: they are giving way in front of us' : 'pushing: this is where we strike';
+      if (m.push) m.why = atBreach(q.my) ? 'pushing: breaking through their line' : edge ? 'pushing: they are giving way in front of us' : 'pushing: this is where we strike';
+      // we broke through here: turn up and down their line straight away
+      if (c.through && Math.abs(q.my - c.through.y) < K.breachWidth && q.state !== 'melee' && foeInf.length) {
+        const t = foeInf.filter(x => sentAt(x.id) < K.maxPerTarget).sort((a, z) => dist(q, a) - dist(q, z))[0];
+        if (t) { give(q, 'flank', 'through their line: rolling it up', t.id); continue; }
+      }
       else if (m.why.startsWith('pushing')) m.why = 'holding the line';
       // nobody left in front of us: turn and roll up their line
       if (engaged && sinceContact > K.rollAfter && q.state !== 'melee' && foeInf.length && open(q) && !foeInf.some(x => Math.abs(x.my - q.my) < K.rollLateral && Math.abs(x.mx - q.mx) < K.rollDepth)) {
@@ -287,14 +322,17 @@ export function commanderThink(b: BattleState, c: Commander) {
     for (const t of threats) {
       if (t.unit === 'spearmen' && t.state !== 'melee') continue; // not head-on into fresh spears
       const d = dist(q, t);
-      if (d < K.answerRange * 1.5 && sentAt(t.id, q) < K.maxPerTarget) consider(9 - d / 4 - sentAt(t.id, q) * 2, 'intercept', `stopping enemy ${NAME[t.unit]} ${t.unit === 'cavalry' ? 'raiding' : 'coming'} round our flank`, t.id);
+      // one chaser per threat (never the whole team after one squad): the wing's screen first; a striker only if it's right there
+      if (sentAt(t.id, q) >= 1) continue;
+      if (screens.has(q) ? d < K.answerRange * 1.5 : d < K.strikerAnswer) consider((screens.has(q) ? 9 : 4) - d / 4, 'intercept', `stopping enemy ${NAME[t.unit]} ${t.unit === 'cavalry' ? 'raiding' : 'coming'} round our flank`, t.id);
     }
     if (screens.has(q)) consider(6, 'screen', 'guarding our flank against their cavalry');
     if (gap < K.raidWhenGap) {
       for (const a of foeArch) if (sentAt(a.id, q) < K.maxPerTarget) consider(5.5 + (striking(a.my) ? 0.8 : 0) - dist(q, a) / 8 - sentAt(a.id, q) * 2.5, 'raid', 'riding round to hit their archers', a.id);
       for (const e of foeInf) if (e.state === 'melee' && sentAt(e.id, q) < K.maxPerTarget)
         consider(4.5 + (wavering(e) ? 1.5 : 0) + (striking(e.my) ? 1 : 0) + e.fatigue - (e.unit === 'spearmen' ? 0.8 : 0) - dist(q, e) / 8 - sentAt(e.id, q), 'shock', `charging their ${NAME[e.unit]} from behind`, e.id);
-      if (!screens.has(q)) for (const e of foeCav) consider(3 - dist(q, e) / 8 - sentAt(e.id, q), 'attack', 'taking on their cavalry', e.id);
+      if (c.breach && valid(b, c.breach.target) && sentAt(c.breach.target, q) < 2) consider(6.2 - dist(q, b.squads[c.breach.target - 1]) / 10, 'shock', 'charging the weak spot in their line', c.breach.target);
+      if (!screens.has(q)) for (const e of foeCav) consider(2 - dist(q, e) / 8 - sentAt(e.id, q), 'attack', 'taking on their cavalry', e.id);
     }
     // nothing better and the fight is on: charge the nearest enemy that isn't fresh spearmen (any enemy if that's all there is)
     if (gap < K.raidWhenGap && (!myInf.length || sinceContact > K.commitEvery)) for (const e of foes) if (!e.broken)
@@ -313,7 +351,7 @@ export function postOf(b: BattleState, q: BSquad): { x: number; y: number } {
   const out = halfFront(q.unit) + K.screenOut;
   if (q.unit === 'cavalry') {
     const y = clampY(m.wing < 0 ? L.lo - out : L.hi + out);
-    const back = m.kind === 'screen' ? 0.5 : m.kind === 'disengage' ? K.rallyBack : 2;
+    const back = m.kind === 'screen' ? K.screenBack : m.kind === 'disengage' ? K.rallyBack : 2;
     return { x: (L.front - back) * q.fwd, y };
   }
   return { x: (L.front - Math.max(K.reserveBack, Math.min(q.lineDepth, 4))) * q.fwd, y: clampY(q.homeY) };

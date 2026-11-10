@@ -272,6 +272,8 @@ export const CONFIG = {
       maxFatigue: 0.8,          // too tired to push beyond this
       braceMaxFatigue: 0.65,    // too tired to brace beyond this: then you get driven back
       pushedMoralePerSec: 2.5,  // courage lost per second while being driven back
+      staggerChance: 0.04,      // each step, a soldier being shoved by a heavier one may be knocked off balance...
+      staggerSeconds: 0.25,     // ...for this long (he can't strike or parry)
       exhaustedAt: 0.9,         // a squad this tired that's still fighting...
       exhaustedMoralePerSec: 0.8, // ...loses courage every second: exhausted men break (this is what ends a long slog)
     },
@@ -316,6 +318,15 @@ export const CONFIG = {
       wrapDepth: 5,             // ...and no more than this far in front of it is "coming round our flank"
       closingBy: 0.4,           // ...that has come this much closer since the commander last looked (or is charging) is a threat
       maxPerTarget: 2,          // squads the commander sends against one enemy squad
+      screenBack: 1.5,          // ...and this far behind our front
+      screenClose: 2.5,         // a screen goes for an enemy that's charging or fighting nearby, or any enemy this close (not one standing guard opposite)
+      strikerAnswer: 5,         // cavalry with another job only break off for a flank threat this close (the screen is the one that chases)
+      // breakthrough
+      breachAfter: 12,          // seconds after the lines meet before the commander looks for a weak spot
+      breachScore: 0.55,        // how weak a spot must be (weak, tired or wavering squad, nobody behind it, no friends beside it)
+      breachWidth: 3,           // our squads within this far (sideways) of the weak spot push through it
+      breachEvery: 20,          // seconds between breakthrough attempts
+      rollUpSeconds: 20,        // after breaking through, the squads there roll up their line for this long
       screenOut: 1.6,           // screening cavalry stand this far outside the end of our line
       screenRange: 7,           // ...and go for anything that comes this close (infantry or cavalry)
       raidWhenGap: 13,          // cavalry raids and rear charges start when the infantry lines are this close

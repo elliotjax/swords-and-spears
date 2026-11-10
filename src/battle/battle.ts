@@ -414,7 +414,7 @@ export function stepBattle(b: BattleState) {
   for (const sd of [0, 1]) { const L = b.line[sd]; L.front = sideFront[sd]; L.lo = Infinity; L.hi = -Infinity; }
   for (const q of b.squads) if (active(q) && !q.broken && q.unit !== 'cavalry' && !shooter(q)) { const L = b.line[q.side]; L.lo = Math.min(L.lo, q.my); L.hi = Math.max(L.hi, q.my); }
   // the army commanders think (every few seconds; the order flips so neither side goes first)
-  for (const sd of Math.round(b.t * BATTLE_TPS) % 2 ? [0, 1] : [1, 0]) { const c = b.cmd[sd]; if (c) commanderThink(b, c); }
+  for (const sd of Math.floor(b.t / B.commander.thinkSeconds) % 2 ? [0, 1] : [1, 0]) { const c = b.cmd[sd]; if (c) commanderThink(b, c); } // (they take turns thinking first)
   const behindLine = (side: Side, x: number) => isFinite(sideFront[side]) && x * fwdOf[side] < sideFront[side] - 0.5;
   const enemyCavLeft = [0, 1].map(sd => b.squads.some(q => q.side !== sd && q.unit === 'cavalry' && active(q) && !q.broken));
 
@@ -467,6 +467,8 @@ export function stepBattle(b: BattleState) {
           for (const e of b.squads) {
             if (e.side === q.side || !active(e) || e.broken) continue;
             if (isCav && e.unit === 'spearmen' && e.state !== 'melee' && e.target !== q.id) continue; // cavalry don't go head-on into fresh spears
+            // a screen holds its wing: it only goes for enemies that are coming at us (charging, fighting, or very close), not ones standing guard opposite
+            if (ms.kind === 'screen' && !(e.state === 'charge' || e.state === 'melee' || e.target === q.id && e.state !== 'march' || Math.hypot(e.mx - q.mx, e.my - q.my) < K.screenClose)) continue;
             const d = Math.hypot(e.mx - q.mx, e.my - q.my) - (b.t - (q.hitBy[e.id] ?? -99) < A.threatMemory ? 3 : 0);
             if (d < bd) { bd = d; tq = e; }
           }
@@ -971,7 +973,7 @@ export function stepBattle(b: BattleState) {
       // enemies shove each other harder than friends do: two fighting lines press against each other instead of mixing
       const foe = e.side !== s.side;
       let wgt = 1; // how much of the shove this soldier takes (pushing or braced men give less; men being driven back give more)
-      if (foe) { const we = weightOf(e), ws = weightOf(s); wgt = 2 * we / (we + ws); }
+      if (foe) { const we = weightOf(e), ws = weightOf(s); wgt = 2 * we / (we + ws); if (wgt > 1.3 && d < 0.36 && s.stagger <= 0 && rand(b) < B.push.staggerChance) s.stagger = B.push.staggerSeconds; }
       if (foe && d < 0.75) close = true;
       const min = (e.unit === 'cavalry' || s.unit === 'cavalry' ? 0.4 : 0.26) + (foe ? 0.12 : 0);
       if (d > 0.001 && d < min - 0.02) { const k = (min - 0.02 - d) * (foe ? 0.4 * wgt : 0.2); px += (dx / d) * k; py += (dy / d) * k; } // (a little give, so nobody jitters)
