@@ -598,7 +598,7 @@ export class UI {
     const line = (u: UnitKind, label: string) => `<div class="fline">${of(u).map(tok).join('') || `<span class="fempty">${label}</span>`}</div>`;
     if (!s.squads.length) return `<div class="field"><span class="fempty" style="margin:auto">No squads yet</span></div>`;
     return `<div class="field"><div class="fflank">${left.map(tok).join('')}</div>
-      <div class="fcenter"><div class="fenemy">▲ enemy</div>${line('swordsmen', 'Swordsmen')}${line('spearmen', 'Spearmen')}${line('archers', 'Archers')}</div>
+      <div class="fcenter"><div class="fenemy">▲ enemy</div>${line('heavy', 'Heavy')}${line('swordsmen', 'Swordsmen')}${line('spearmen', 'Spearmen')}${line('archers', 'Archers')}</div>
       <div class="fflank">${right.map(tok).join('')}</div></div>
       <p style="font-size:11.5px;margin-top:4px">Faded squads are still recruits (not battle-ready). Arranging comes later.</p>`;
   }

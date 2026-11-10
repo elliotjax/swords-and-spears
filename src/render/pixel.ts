@@ -449,13 +449,14 @@ export function buildingCanvas(kind: BuildingKind): HTMLCanvasElement {
 export const SPRITES: Record<string, string[]> = {
   civ: ['.h.', '.s.', 'TTT', '.T.', 'l.l'],
   swordsmen: ['.g.', '.s.', 'SRw', 'SRw', 'l.l'],
+  heavy: ['.G.', '.s.', 'SKw', 'SRw', 'L.L'],
   spearmen: ['..p', '.g|', '.s|', 'RR|', '.R|', 'l.l'],
   archers: ['.H.', '.s.', 'bRq', 'bR.', 'l.l'],
   cavalry: ['.g...', '.s...', 'RRR..', 'nnnnm', 'nnnn.', 'N..N.'],
 };
 export const SP_COL: Record<string, string> = {
   l: '#3e3028', g: '#b4bcc8', R: '#c0392b', S: '#8a6440', w: '#e6eaf0', p: '#d0d6de', '|': '#7a5434',
-  H: '#4f8a3a', b: '#8a5c36', q: '#6b4a30', n: '#8a5a3a', N: '#5a3824', m: '#3e2a1c',
+  G: '#6d7685', K: '#575e6b', L: '#4a4f5a', H: '#4f8a3a', b: '#8a5c36', q: '#6b4a30', n: '#8a5a3a', N: '#5a3824', m: '#3e2a1c',
 };
 
 /**

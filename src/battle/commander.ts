@@ -72,7 +72,7 @@ export const observe = (b: BattleState, side: Side): BSquad[] => b.squads.filter
 const isInf = (q: BSquad) => q.unit !== 'cavalry' && !shooter(q);
 const dist = (a: BSquad, z: BSquad) => Math.hypot(a.mx - z.mx, a.my - z.my);
 const valid = (b: BattleState, id: number) => { const e = b.squads[id - 1]; return !!e && active(e); };
-const NAME: Record<string, string> = { swordsmen: 'swordsmen', spearmen: 'spearmen', archers: 'archers', cavalry: 'cavalry' };
+const NAME: Record<string, string> = { swordsmen: 'swordsmen', heavy: 'heavy swordsmen', spearmen: 'spearmen', archers: 'archers', cavalry: 'cavalry' };
 
 /** Missions that mean "stay at a post until something comes" (deliberate waiting). */
 export const POSTED: MissionKind[] = ['reserve', 'screen'];

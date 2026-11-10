@@ -122,6 +122,8 @@ function rand(b: BattleState) {
 const hash01 = (a: number, b: number) => { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 const unitSize = (u: UnitKind) => CONFIG.military.units[u].size;
 const stats = (u: UnitKind) => CONFIG.battle.units[u];
+/** A soldier's full health. */
+const maxHp = (u: UnitKind) => stats(u).hp ?? CONFIG.battle.soldierHp;
 const angDiff = (a: number, b: number) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
 
 /** Formation slot i of a squad: (forward, right) offsets from the anchor, in tiles. */
@@ -148,13 +150,17 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
   const cavGap = halfFront('cavalry') * 2 + 0.6;
   type Spot = { q: SquadSetup; i: number; depth: number; off: number }; // depth: tiles behind the front line; off: sideways from the middle
   const layouts = ([0, 1] as Side[]).map(side => {
-    const by: Record<string, { q: SquadSetup; i: number }[]> = { swordsmen: [], spearmen: [], archers: [], cavalry: [] };
+    const by: Record<string, { q: SquadSetup; i: number }[]> = { swordsmen: [], heavy: [], spearmen: [], archers: [], cavalry: [] };
     setup.sides[side].forEach((q, i) => by[q.unit].push({ q, i }));
     const spots: Spot[] = [];
     let row = 0, widest = 0;
+    // the front row: heavy swordsmen in the middle, plain swordsmen either side of them
+    const sw = by.swordsmen, hv = by.heavy, half = Math.ceil(sw.length / 2);
+    const front = [...sw.slice(0, half), ...hv, ...sw.slice(half)];
     for (const u of ['swordsmen', 'spearmen', 'archers'] as UnitKind[]) {
-      for (let i = 0; i < by[u].length; i += B.maxRow) {
-        const chunk = by[u].slice(i, i + B.maxRow);
+      const list = u === 'swordsmen' ? front : by[u];
+      for (let i = 0; i < list.length; i += B.maxRow) {
+        const chunk = list.slice(i, i + B.maxRow);
         widest = Math.max(widest, chunk.length);
         chunk.forEach((e, k) => spots.push({ ...e, depth: row * B.rowGap, off: (k - (chunk.length - 1) / 2) * gap }));
         row++;
@@ -212,7 +218,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         const s: BSoldier = {
           id: sid++, side, squad: sq.id, unit: q.unit, slot: i,
           x: p.x + (rand(b) - 0.5) * 0.06 * (onLeft ? 1 : -1), y: p.y + (rand(b) - 0.5) * 0.06, px: 0, py: 0,
-          hp: B.soldierHp, cd: rand(b) * 1.5, target: -1, retarget: rand(b) * 0.3,
+          hp: stats(q.unit).hp ?? B.soldierHp, cd: rand(b) * 1.5, target: -1, retarget: rand(b) * 0.3,
           dir: face, step: 0, flash: 0, lunge: 0, lungeDir: 0, dead: false, fled: false, charge: true, moved: 0,
           stagger: 0, diedAt: -1,
           skill: pick(S.skill), nerve: rand(b), pace: pick(S.pace), foes: 0, hurtBy: 0, hurtAt: -9, routing: false, inMelee: false,
@@ -253,7 +259,7 @@ const fights = (s: BSoldier) => !s.dead && !s.fled && !s.routing;
 export const squadHp = (b: BattleState, q: BSquad) => {
   let hp = 0;
   for (const id of q.members) { const s = b.soldiers[id - 1]; if (fights(s)) hp += s.hp; }
-  return hp / (q.members.length * CONFIG.battle.soldierHp);
+  return hp / (q.members.length * maxHp(q.unit));
 };
 export const squadAlive = (b: BattleState, q: BSquad) => q.members.filter(id => fights(b.soldiers[id - 1])).length;
 export const active = (q: BSquad) => !q.gone && !q.fleeing;
@@ -273,6 +279,7 @@ function damageOf(b: BattleState, att: BSoldier, attSq: BSquad, def: BSoldier, d
   dmg *= 1 + B.rankDamage * attSq.rank;
   if (A.strongVs.includes(def.unit)) dmg *= B.counterBonus;
   dmg *= 1 - Math.min(0.6, D.defense + B.rankDefense * defSq.rank);
+  dmg *= 1 - (D.armor ?? 0); // plate armour: turns away a share of every blow, on top of defense
   // hitting a squad from the side or behind hurts more (it can't face everyone)
   if (melee && fromFlank(defSq, def, att.x, att.y)) dmg *= B.flankBonus;
   return dmg;
@@ -823,7 +830,7 @@ export function stepBattle(b: BattleState) {
       continue;
     }
     // badly hurt in a shaken squad, a soldier may lose their nerve and run on their own (brave ones rarely do)
-    if (!q.broken && !isCav && s.hp < B.soldierHp * SO.panicHp && q.morale < M.waverAt + 25 &&
+    if (!q.broken && !isCav && s.hp < maxHp(s.unit) * SO.panicHp && q.morale < M.waverAt + 25 &&
         rand(b) < SO.panicPerSec * DT * (1 - s.nerve) * 2) {
       s.routing = true; s.target = -1;
       loseMorale(q, M.deathLoss / q.members.length * 0.5);

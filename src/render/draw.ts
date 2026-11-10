@@ -463,13 +463,15 @@ function soldier(c: C, v: Villager, skin: string, swing: number, walking: boolea
     c.beginPath(); c.moveTo(0.15, -0.28); c.lineTo(0.15, -0.06); c.stroke();
   } else { // swordsmen: sword at the right, round shield on the left
     c.strokeStyle = steel; c.lineWidth = 0.035; c.lineCap = 'round';
-    c.beginPath(); c.moveTo(0.02, 0.17); c.lineTo(0.3 + swing, 0.2); c.stroke();
+    if (v.unit === 'heavy') c.lineWidth = 0.05;
+    c.beginPath(); c.moveTo(0.02, 0.17); c.lineTo((v.unit === 'heavy' ? 0.38 : 0.3) + swing, 0.2); c.stroke();
   }
   circle(c, swing, -0.15, 0.04, skin, PAL.outline, LW * 0.6);
   circle(c, -swing, 0.15, 0.04, skin, PAL.outline, LW * 0.6);
   c.beginPath(); c.ellipse(0, 0, 0.1, 0.16, 0, 0, 7);
   c.fillStyle = tunic; c.fill(); stroke(c, PAL.outline, LW * 0.8);
-  if (v.unit === 'swordsmen') {
+  if (v.unit === 'heavy') { c.beginPath(); c.ellipse(0, 0, 0.115, 0.18, 0, 0, 7); c.fillStyle = '#6a7180'; c.fill(); stroke(c, PAL.outline, LW * 0.8); c.fillStyle = tunic; c.fillRect(-0.03, -0.1, 0.06, 0.2); } // plate over the tunic
+  if (v.unit === 'swordsmen' || v.unit === 'heavy') {
     circle(c, 0.04, -0.17, 0.09, '#b07a4c', PAL.outline, LW * 0.7);
     circle(c, 0.04, -0.17, 0.035, steel);
   }

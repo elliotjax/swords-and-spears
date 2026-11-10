@@ -14,7 +14,7 @@ import type { GameState } from '../sim/types';
 //  and run many battles in the background to check the balance.
 // =====================================================================
 
-const UNITS: UnitKind[] = ['swordsmen', 'spearmen', 'archers', 'cavalry'];
+const UNITS: UnitKind[] = ['swordsmen', 'heavy', 'spearmen', 'archers', 'cavalry'];
 const TEAM = ['#c0392b', '#3a62b8'], TEAM_DARK = ['#8e2a23', '#27457f'], TEAM_LIGHT = ['#ef9a90', '#93b2ee'];
 const SIDE_NAME = ['You (red)', 'Enemy (blue)'];
 
@@ -75,7 +75,7 @@ export class BattleLab {
   private enemy: SquadSetup[] = [];       // the enemy's squads: where they stand and their orders (left-side coordinates)
 
   constructor(private onClose: () => void, private getState?: () => GameState) {
-    this.counts = [{ swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }];
+    this.counts = [{ swordsmen: 2, heavy: 0, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, heavy: 0, spearmen: 2, archers: 2, cavalry: 2 }];
     this.root = document.createElement('div');
     this.root.id = 'lab';
     this.root.className = 'hidden';
@@ -136,7 +136,7 @@ export class BattleLab {
   /** The enemy picks a plan from the two armies (it can't see your arrows). */
   private pickPlan(): number {
     const men = (i: 0 | 1) => this.men(i), c = this.counts, r = hashRand(this.seed * 13 + 5)();
-    const inf = (i: 0 | 1) => c[i].swordsmen + c[i].spearmen;
+    const inf = (i: 0 | 1) => c[i].swordsmen + c[i].heavy + c[i].spearmen;
     if (men(1) < men(0) * 0.75) return 3;                                   // outnumbered: Defensive
     if (c[1].cavalry >= 2 && c[1].cavalry >= c[0].cavalry + 2) return r < 0.5 ? 4 : 2; // more cavalry: Cavalry hook or Crescent
     if (inf(1) >= 3 && inf(1) > inf(0) * 1.25) return 1;                    // more infantry: Wide line (overlap)
@@ -150,19 +150,29 @@ export class BattleLab {
     this.enemy = PLANS[this.plan].make(this.enemyAuto.map(q => ({ ...q })), F.W, F.H, hashRand(this.seed * 7 + this.plan));
   }
 
-  /** New armies: everyone starts in the automatic formation, with no arrows (holding). */
-  private rebuildArmy() {
+  /**
+   * New armies: everyone starts in the automatic formation, with no arrows (holding).
+   * keepMine: only the enemy changed, so your squads, spots and arrows stay as you set them.
+   */
+  private rebuildArmy(keepMine = false) {
     const auto = createBattle({ sides: [this.side(0), this.side(1)] }, this.seed);
     this.field = { W: auto.W, H: auto.H };
-    this.army = this.side(0).map(q => ({ ...q, ax: 0, ay: 0, placed: true }));
-    for (const q of auto.squads) if (q.side === 0) { const a = this.army[q.src]; a.ax = a.x = q.cx; a.ay = a.y = q.cy; }
+    if (keepMine && this.army.length === this.side(0).length) {
+      for (const q of auto.squads) if (q.side === 0) { // (the field can grow with the enemy: keep every squad on your half of it)
+        const a = this.army[q.src]; a.ax = q.cx; a.ay = q.cy;
+        a.x = Math.max(0.8, Math.min(auto.W / 2 - 0.4, a.x!)); a.y = Math.max(1, Math.min(auto.H - 1, a.y!));
+      }
+    } else {
+      this.army = this.side(0).map(q => ({ ...q, ax: 0, ay: 0, placed: true }));
+      for (const q of auto.squads) if (q.side === 0) { const a = this.army[q.src]; a.ax = a.x = q.cx; a.ay = a.y = q.cy; }
+    }
     // the enemy's automatic spots (in its own left-side coordinates), then its plan
     this.enemyAuto = this.side(1).map(q => ({ ...q, x: 0, y: 0 }));
     for (const q of auto.squads) if (q.side === 1) { const e = this.enemyAuto[q.src]; e.x = auto.W - q.cx; e.y = q.cy; }
     this.plan = this.pickPlan(); this.planAuto = true;
     this.makeEnemy();
-    this.sel = [];
     this.ground = null;
+    if (!keepMine) this.sel = [];
     this.preview();
     this.fit();
   }
@@ -236,9 +246,9 @@ export class BattleLab {
     switch (act) {
       case 'close': this.close(); return;
       case 'cam': this.autoCam = true; this.renderTop(); return;
-      case 'add': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 1); this.rebuildArmy(); break;
-      case 'add5': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 5); this.rebuildArmy(); break;
-      case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.rebuildArmy(); break;
+      case 'add': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 1); this.rebuildArmy(side === 1); break;
+      case 'add5': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 5); this.rebuildArmy(side === 1); break;
+      case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.rebuildArmy(side === 1); break;
       case 'rank': // (the enemy's squads were built earlier: give them the new rank too)
         this.ranks[side] = (this.ranks[side] + 1) % CONFIG.military.ranks.length;
         for (const a of this.army) a.rank = this.ranks[0];
@@ -333,13 +343,13 @@ export class BattleLab {
         ${this.batchHtml()}`;
     } else if (this.view === 'setup') {
       const col = (side: 0 | 1) => `<div class="labcol"><div class="labside" style="color:${TEAM[side]}">${SIDE_NAME[side]}</div>
-        ${UNITS.map(u => `<div class="labrow"><img src="${unitIcon(u)}" alt=""><span>${CONFIG.military.units[u].name}</span>
+        ${UNITS.map(u => `<div class="labrow"><img src="${unitIcon(u)}" alt=""><span>${SHORT[u]}</span>
           <button data-lab="sub" data-side="${side}" data-unit="${u}">−</button><b>${this.counts[side][u]}</b><button data-lab="add" data-side="${side}" data-unit="${u}">+</button><button class="p5" data-lab="add5" data-side="${side}" data-unit="${u}">+5</button></div>`).join('')}
         <div class="labmen">${this.men(side)} soldiers</div>
         <button class="mini" data-lab="rank" data-side="${side}">Rank: ${rankName(this.ranks[side])}</button></div>`;
       this.panel.innerHTML = `<div class="labpresets">${PRESETS.map((p, i) => `<button class="chip panel" data-lab="preset" data-i="${i}">${p.name}</button>`).join('')}</div>
         <div class="labcols">${col(0)}${col(1)}</div>${this.techNames().length ? `<p style="font-size:12px">Your techs help red: <b>${this.techNames().join(', ')}</b></p>` : ''}
-        <p style="font-size:12px">Changing the armies puts your squads back in the automatic formation.</p>
+        <p style="font-size:12px">Changing YOUR army puts your squads back in the automatic formation. Changing the enemy leaves your formation alone.</p>
         <div class="labbtns"><button class="btn" data-lab="page">Done: deploy ➜</button></div>`;
     } else if (this.view === 'fight') {
       this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div><button class="btn ghost" data-lab="stop">Stop</button></div><div class="labplans">${this.plansHtml()}</div>`;
@@ -912,6 +922,7 @@ export class BattleLab {
 // little pixel symbols for squad badges (7 x 7)
 const GLYPHS: Record<UnitKind, string[]> = {
   swordsmen: ['...x...', '...x...', '...x...', '...x...', '.xxxxx.', '...x...', '...x...'],
+  heavy: ['..xxx..', '..xxx..', '..xxx..', '..xxx..', 'xxxxxxx', '..xxx..', '...x...'],
   spearmen: ['...x...', '..xxx..', '...x...', '...x...', '...x...', '...x...', '...x...'],
   archers: ['xx.....', 'x.x....', 'x..x.x.', 'xxxxxxx', 'x..x.x.', 'x.x....', 'xx.....'],
   cavalry: ['.....x.', '....xxx', 'xxxxxx.', 'xxxxx..', 'x...x..', 'x...x..', '.......'],
@@ -932,7 +943,7 @@ function hashRand(seed: number) { let t = seed | 0; return () => { t = (t + 0x6d
  * free = march with the army and pick their own targets near the enemy; hold = stand; path = follow an arrow, then free.
  */
 type Plan = { name: string; desc: string; make: (qs: SquadSetup[], W: number, H: number, rnd: () => number) => SquadSetup[] };
-const isInf = (q: SquadSetup) => q.unit === 'swordsmen' || q.unit === 'spearmen';
+const isInf = (q: SquadSetup) => q.unit === 'swordsmen' || q.unit === 'heavy' || q.unit === 'spearmen';
 const hook = (W: number, H: number, top: boolean): Pt[] => {
   const y = top ? 1.2 : H - 1.2;
   return [{ x: W * 0.42, y }, { x: W * 0.72, y }, { x: W * 0.86, y: top ? H * 0.32 : H * 0.68 }];
@@ -975,7 +986,7 @@ const PLANS: Plan[] = [
 
 /** Short mission words shown under squad badges during a fight ('' = nothing: the ordinary jobs). */
 const MISSION_WORD: Record<string, string> = { advance: '', support: '', attack: 'attack', flank: 'flank', reinforce: 'help', intercept: 'intercept', reserve: 'reserve', screen: 'screen', raid: 'raid', shock: 'charge', pursue: 'pursue', disengage: 'rally' };
-const SHORT: Record<UnitKind, string> = { swordsmen: 'Swords', spearmen: 'Spears', archers: 'Archers', cavalry: 'Horse' };
+const SHORT: Record<UnitKind, string> = { swordsmen: 'Swords', heavy: 'Heavy', spearmen: 'Spears', archers: 'Archers', cavalry: 'Horse' };
 const MAX_SQUADS = 50; // per unit type, per side
 /** Closest zoom: about 7 tiles across the screen. */
 const maxZoom = (shownW: number) => Math.max(4, shownW / 7);

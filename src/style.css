@@ -196,10 +196,10 @@ body.labopen #updateBtn { top: 84px; } /* in the Battle Lab: just under its top 
 .labcols { display: flex; gap: 10px; }
 .labcol { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .labside { font-weight: 800; font-size: 13px; margin: 4px 0 2px; }
-.labrow { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; }
-.labrow img, .labres img { width: 26px; height: 26px; image-rendering: pixelated; flex: none; }
+.labrow { display: flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; }
+.labrow img, .labres img { width: 24px; height: 26px; image-rendering: pixelated; flex: none; }
 .labrow span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.labrow button { width: 30px; height: 30px; border-radius: 8px; background: #eef1f5; font-weight: 800; font-size: 16px; }
+.labrow button { width: 27px; height: 30px; border-radius: 8px; background: #eef1f5; font-weight: 800; font-size: 16px; }
 .labrow b { min-width: 14px; text-align: center; }
 .labcol .mini { margin-top: 4px; min-height: 34px; }
 .labbtns { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
@@ -235,8 +235,8 @@ body.labopen #updateBtn { top: 84px; } /* in the Battle Lab: just under its top 
 .mrow .vl { font-weight: 800; white-space: nowrap; }
 .mrow .vl small { font-weight: 700; color: var(--muted); font-size: 11px; margin-left: 4px; }
 .bar.thin { height: 4px; margin: 0 0 4px 25px; }
-.labrow button.p5 { width: 32px; font-size: 12px; }
-.labrow b { min-width: 18px; }
+.labrow button.p5 { width: 29px; font-size: 12px; }
+.labrow b { min-width: 16px; }
 .labmen { font-size: 11.5px; color: var(--muted); font-weight: 800; text-align: right; margin: 2px 2px 4px; }
 /* battle deployment */
 .labhint { font-size: 12.5px; margin: 0 0 6px; }
