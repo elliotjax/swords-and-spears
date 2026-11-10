@@ -264,6 +264,8 @@ export const CONFIG = {
     // Pushes: a squad drives forward into the enemy, shoving them back. The enemy can brace (stand firm) while it has the legs for it.
     push: {
       lean: 0.6,                // how hard a pushing squad presses in (tiles past normal fighting distance)
+      followSpeed: 0.3,         // squads next to one that's being driven back bend back with it at this share of walking speed (the line bends, it doesn't snap)
+      followGap: 0.6,           // ...once it is this far behind them
       braceGiveSpeed: 0.15,     // a braced squad is still driven back, at this share of the pushers' walking speed (a slow grind)...
       shoveRange: 2.4,          // (a push drives back the squad it's aimed at while the two are this close)
       attackSpeed: 0.15,        // men in a push strike this much faster...
@@ -282,7 +284,7 @@ export const CONFIG = {
     },
     // The army commander (one per side, same rules for both): gives every squad a mission and a reason. See src/battle/commander.ts.
     commander: {
-      thinkSeconds: 2.5,        // the commander re-thinks this often
+      thinkSeconds: 1.5,        // the commander re-thinks this often
       commitSeconds: 8,         // a mission is kept at least this long (unless it becomes impossible): no flip-flopping
       contactDist: 7,           // "the lines have met" when the two infantry bodies are this close
       reserveDepth: 1,          // infantry starting more than this far behind the front row start as the reserve
@@ -304,7 +306,13 @@ export const CONFIG = {
       // tiredness and pushes
       tiredAt: 0.72,            // a front squad this tired is relieved if a reserve can take over
       restedAt: 0.4,            // a resting squad counts as fresh again below this
-      pushGroup: 3,             // a push is one group of at most this many squads at the chosen spot (plus anyone finishing off a wavering enemy)
+      pushSquads: [2, 5] as [number, number], // a push is one group of this many squads side by side (picked by chance each time), starting together
+      pushWait: 10,             // ...if only one squad is able, the push waits up to this many seconds for a second one
+      pushJoin: 8,              // ...and neighbours who reach the fight within this many seconds of the start join the push
+      pushSpan: 5,            // ...all within this far (sideways) of the squad it's centred on
+      pushFirst: [4, 10] as [number, number], // seconds after the lines meet before the first push (by chance, in this range)
+      pushEvery: [14, 24] as [number, number], // seconds between one push ending and the next starting
+      isolatedDist: 5,          // a squad with no friendly infantry this close (and nobody to fight) goes to rejoin friends who are fighting
       raidScore: 7.5,           // how much the commander wants the first cavalry squad on each enemy archer squad (rear charges score about 4.5 to 8)
       pushStart: 0.5,           // a squad more tired than this isn't told to start a push
       pushStop: 0.75,           // ...and one that's pushing is told to stop at this

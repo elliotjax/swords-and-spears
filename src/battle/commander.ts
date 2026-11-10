@@ -54,10 +54,12 @@ export interface Commander {
   breach: { target: number; y: number; fed: boolean } | null; // the weak spot in their line we're breaking through right now
   through: { y: number; until: number } | null;                 // we broke through here: the squads there roll up their line
   nextBreach: number; breaches: number;
+  push: { ids: number[]; y: number; since: number; size: number } | null; // the push under way: a group of squads driving forward together
+  nextPush: number;   // when the next push may start (-1 = not set yet)
   rallied: Set<number>; // cavalry squads already pulled out once for being badly hurt (they aren't pulled out again)
 }
 
-export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set() });
+export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set() });
 
 /** The commander's battle plan: where to strike (-1 = the low-y wing, 1 = the high-y wing, 0 = the centre, 2 = both wings) or to defend first. */
 export interface Plan { strike: -1 | 0 | 1 | 2; defend: boolean; why: string; since: number; reviewAt: number }
@@ -238,7 +240,50 @@ export function commanderThink(b: BattleState, c: Commander) {
     const y = c.breach.y, pick = waiting.slice().sort((a, z) => Math.abs(a.my - y) - Math.abs(z.my - y))[0];
     give(pick, 'attack', 'sent in at the weak spot', c.breach.target); waiting.splice(waiting.indexOf(pick), 1); c.breach.fed = true;
   }
-  let pushingNow = myInf.filter(q => q.mission?.push).length; // squads in the push group right now
+  // ---- the push: one big coordinated effort at a time (a few per battle), 2 to 5 squads side by side starting together ----
+  const rnd = (k: number) => hash01(b.rng + side * 104729, k + Math.round(b.t * 20));
+  const fighting = (q: BSquad) => q.state === 'melee' && q.target > 0 && valid(b, q.target);
+  if (engaged && c.nextPush < 0) c.nextPush = c.contactAt + K.pushFirst[0] + rnd(1) * (K.pushFirst[1] - K.pushFirst[0]);
+  if (c.push) { // over when the group is spent (too tired, broken, or nobody left to push)
+    const live = c.push.ids.map(id => b.squads[id - 1]).filter(q => active(q) && !q.broken && q.mission?.push && q.fatigue < K.pushStop && fighting(q));
+    if (!live.length && b.t - c.push.since > 2) { c.push = null; c.nextPush = b.t + K.pushEvery[0] + rnd(2) * (K.pushEvery[1] - K.pushEvery[0]); }
+  }
+  if (!c.push && engaged && plan && !(plan.defend && sinceContact < K.counterAfter) && (b.t >= c.nextPush || (c.breach && b.t >= c.nextPush - K.pushEvery[0] * 0.5))) {
+    // where: the weak spot if we've found one, otherwise on the wing the plan strikes at; who: the freshest squad there and its neighbours
+    const pool = myInf.filter(q => fighting(q) && b.squads[q.target - 1].unit !== 'cavalry' && q.fatigue < K.pushStart && !wavering(q) && ['advance', 'reinforce', 'attack', 'flank'].includes(q.mission?.kind ?? ''));
+    const near = (q: BSquad) => pool.filter(o => Math.abs(o.my - q.my) < K.pushSpan).length;
+    const worth = (q: BSquad) => Math.min(near(q), K.pushSquads[1]) + (c.breach ? -Math.abs(q.my - c.breach.y) * 0.5 : striking(q.my) ? 1.5 : 0) - q.fatigue * 2;
+    const at = pool.slice().sort((a, z) => worth(z) - worth(a))[0];
+    if (at) {
+      const size = K.pushSquads[0] + Math.floor(rnd(3) * (K.pushSquads[1] - K.pushSquads[0] + 1));
+      const group = pool.filter(q => Math.abs(q.my - at.my) < K.pushSpan).sort((a, z) => Math.abs(a.my - at.my) - Math.abs(z.my - at.my)).slice(0, size);
+      if (group.length >= 2 || (group.length && b.t > c.nextPush + K.pushWait)) { // a push wants company: wait a little for a second squad
+        c.push = { ids: group.map(q => q.id), y: at.my, since: b.t, size }; c.pushes++;
+        for (const q of group) q.mission!.push = true; // all together, now
+        plan.why = `${c.breach ? 'breaking through a weak spot' : 'pushing'} with ${group.length} squads on the ${sector(at.my) === 0 ? 'centre' : wingName(sector(at.my))}`;
+      }
+    }
+  }
+  if (c.push && c.push.ids.length < c.push.size && b.t - c.push.since < K.pushJoin) { // neighbours who arrive in the first moments join in
+    for (const q of myInf) {
+      if (c.push.ids.length >= c.push.size) break;
+      if (!c.push.ids.includes(q.id) && fighting(q) && b.squads[q.target - 1].unit !== 'cavalry' && q.fatigue < K.pushStart && !wavering(q) && Math.abs(q.my - c.push.y) < K.pushSpan) c.push.ids.push(q.id);
+    }
+  }
+  const inPush = (q: BSquad) => !!c.push && c.push.ids.includes(q.id);
+  // ---- being pushed: plug the gap (the nearest reserve, or a free squad close by, goes at the pushers) ----
+  for (const e of foeInf) {
+    if (!e.pushing || e.target <= 0 || sentAt(e.id) > 0) continue;
+    const victim = b.squads[e.target - 1];
+    if (!victim || victim.side !== side) continue;
+    let best: BSquad | null = null, bd = K.answerRange;
+    for (const q of myInf) {
+      if (q === victim || q.state === 'melee' || !(q.mission?.kind === 'reserve' || q.mission?.kind === 'advance') || q.fatigue >= K.tiredAt) continue;
+      const d = dist(q, victim) + (q.mission.kind === 'reserve' ? 0 : 3);
+      if (d < bd) { bd = d; best = q; }
+    }
+    if (best) { give(best, 'reinforce', `plugging the gap: they are pushing our ${NAME[victim.unit]}`, e.id); const i = waiting.indexOf(best); if (i >= 0) waiting.splice(i, 1); }
+  }
   for (const q of myInf) {
     const m = q.mission;
     if (!m) { // opening orders: front rows advance, rows behind are the reserve
@@ -264,25 +309,27 @@ export function commanderThink(b: BattleState, c: Commander) {
       continue;
     }
     if (m.kind === 'advance' || m.kind === 'reinforce' || m.kind === 'attack' || m.kind === 'flank') {
-      // push orders. A push is ONE concentrated effort: a group of a few squads side by side at the commander's chosen
-      // spot (the weak spot it is breaking through, otherwise the wing the plan strikes at). Elsewhere squads only push
-      // to finish an enemy that's about to break. Nobody is told to push into a squad that's already pushing them.
-      const e = q.state === 'melee' && q.target > 0 && valid(b, q.target) ? b.squads[q.target - 1] : null;
-      const here = atBreach(q.my), wingPush = !c.breach && striking(q.my), finish = !!e && wavering(e);
+      // push orders: squads in the commander's push group keep driving while they have the strength; anyone may push
+      // to finish off an enemy that's about to break.
+      const e = fighting(q) ? b.squads[q.target - 1] : null;
+      const here = inPush(q), finish = !!e && wavering(e) && q.fatigue < K.pushStart;
       const was = !!m.push;
-      const want = !!e && (here || wingPush || finish) && !(!was && e.pushing && e.target === q.id) && !(plan?.defend && sinceContact < K.counterAfter);
-      m.push = want && (was ? q.fatigue < K.pushStop : q.fatigue < K.pushStart && (finish || pushingNow < K.pushGroup));
-      if (m.push && !was && !finish) pushingNow++;
-      const edge = finish;
-      if (m.push && !was) c.pushes++;
+      m.push = !!e && ((here && q.fatigue < K.pushStop) || (finish && !(e.pushing && e.target === q.id)));
+      const edge = finish && !here;
       if (m.kind !== 'advance') continue;
-      if (m.push) m.why = atBreach(q.my) ? 'pushing: breaking through their line' : edge ? 'pushing: they are giving way in front of us' : 'pushing: this is where we strike';
+      void was;
+      if (m.push) m.why = here && c.breach ? 'pushing: breaking through their line' : edge ? 'pushing: they are giving way in front of us' : 'pushing: this is where we strike';
       // we broke through here: turn up and down their line straight away
       if (c.through && Math.abs(q.my - c.through.y) < K.breachWidth && q.state !== 'melee' && foeInf.length) {
         const t = foeInf.filter(x => sentAt(x.id) < K.maxPerTarget).sort((a, z) => dist(q, a) - dist(q, z))[0];
         if (t) { give(q, 'flank', 'through their line: rolling it up', t.id); continue; }
       }
       else if (m.why.startsWith('pushing')) m.why = 'holding the line';
+      // on our own with nobody to fight: rejoin the nearest friends who are fighting (fight together, not scattered)
+      if (engaged && q.state !== 'melee' && open(q) && !myInf.some(o => o !== q && dist(o, q) < K.isolatedDist)) {
+        const f = myInf.filter(o => o !== q && fighting(o) && sentAt(o.target, o) < K.maxPerTarget).sort((a, z) => dist(q, a) - dist(q, z))[0];
+        if (f) { give(q, 'reinforce', `regrouping: joining our ${NAME[f.unit]}`, f.target); continue; }
+      }
       // nobody left in front of us: turn and roll up their line
       if (engaged && sinceContact > K.rollAfter && q.state !== 'melee' && foeInf.length && open(q) && !foeInf.some(x => Math.abs(x.my - q.my) < K.rollLateral && Math.abs(x.mx - q.mx) < K.rollDepth)) {
         const t = foeInf.filter(x => sentAt(x.id) < K.maxPerTarget).sort((a, z) => dist(q, a) - dist(q, z))[0];

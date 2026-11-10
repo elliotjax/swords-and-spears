@@ -705,6 +705,14 @@ export function stepBattle(b: BattleState) {
           // (never bouncing back), and the squad being pushed can't step forward again
           if (q.pushing) step = pusherOf.get(tq.id) === q && dE < PU.shoveRange ? U.speed * (tq.bracing ? PU.braceGiveSpeed : PU.giveSpeed) * DT : Math.max(step, 0);
           else if (pushedBy) step = Math.min(step, 0);
+          else if (!isCav) {
+            // the squad beside us is being driven back: bend back with it (still fighting), so the line bends instead of snapping
+            for (const o of b.squads) {
+              if (o === q || o.side !== q.side || !pusherOf.has(o.id) || o.pushing || !active(o)) continue;
+              const ox = o.mx - q.mx, oy = o.my - q.my, f = ox * fwdX + oy * fwdY, r = Math.abs(-ox * fwdY + oy * fwdX);
+              if (f < -PU.followGap && f > -4 && r < halfFront(q.unit) + halfFront(o.unit) + M.supportGap) { step = Math.min(step, -U.speed * PU.followSpeed * DT); break; }
+            }
+          }
           gx = q.cx + fwdX * step / DT; gy = q.cy + fwdY * step / DT; // move along our facing
           speed = Math.abs(step) / DT;
         } else {
