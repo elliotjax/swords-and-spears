@@ -215,7 +215,7 @@ export const CONFIG = {
     // Placeholder battle stats, to be designed with battles.
     units: {
       swordsmen: { name: 'Swordsmen', size: 10, cost: 225, upkeep: 6, hp: 100, attack: 12, defense: 10, goodVs: 'Spearmen', weakVs: 'Cavalry' },
-      heavy: { name: 'Heavy swordsmen', size: 10, cost: 450, upkeep: 10, hp: 175, attack: 30, defense: 10, goodVs: 'Spearmen', weakVs: 'Archers' },
+      heavy: { name: 'Heavy swordsmen', size: 10, cost: 450, upkeep: 10, hp: 145, attack: 21, defense: 10, goodVs: 'Spearmen', weakVs: 'Archers' },
       spearmen: { name: 'Spearmen', size: 10, cost: 200, upkeep: 5, hp: 100, attack: 10, defense: 12, goodVs: 'Cavalry', weakVs: 'Archers' },
       archers: { name: 'Archers', size: 10, cost: 225, upkeep: 6, hp: 70, attack: 11, defense: 6, goodVs: 'Spearmen', weakVs: 'Cavalry' },
       cavalry: { name: 'Cavalry', size: 5, cost: 300, upkeep: 8, hp: 160, attack: 16, defense: 9, goodVs: 'Archers', weakVs: 'Spearmen' },
@@ -455,8 +455,8 @@ export const CONFIG = {
     // cooldown = seconds between swings (archers: between arrows). block = chance to parry/block a blow from the front.
     // Soldiers swing often but most frontal blows are parried: kills come from flanks, ganging up and catching people off balance.
       swordsmen: { damage: 7.5, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, block: 0.55, strongVs: ['spearmen'] },
-      // heavy swordsmen: swordsmen with 2.5x the hit, 1.75x the health and plate armour that turns away 10% of every blow
-      heavy: { damage: 7.5 * 2.5, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, armor: 0.1, hp: 100 * 1.75, block: 0.55, strongVs: ['spearmen'] },
+      // heavy swordsmen: swordsmen with 1.75x the hit, 1.45x the health and plate armour that turns away 10% of every blow
+      heavy: { damage: 7.5 * 1.75, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, armor: 0.1, hp: 100 * 1.45, block: 0.55, strongVs: ['spearmen'] },
       spearmen: { damage: 6.5, cooldown: 2.8, reach: 0.85, speed: 0.65, defense: 0.15, block: 0.42, strongVs: ['cavalry'] },
       archers: { damage: 20, cooldown: 4.0, meleeCooldown: 2.8, reach: 0.5, speed: 0.7, defense: 0.05, block: 0.15, range: 7, meleeDamage: 4, strongVs: ['spearmen'] },
       cavalry: { damage: 8, cooldown: 2.8, reach: 0.65, speed: 1.7, defense: 0.12, block: 0.3, chargeBonus: 4.5, strongVs: ['archers'] },
