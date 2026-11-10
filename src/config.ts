@@ -320,6 +320,9 @@ export const CONFIG = {
       shoreAfter: 8,            // seconds after contact before the commander shores up a losing part of its line...
       shoreBelow: 0.6,          // ...one where we're this much weaker than them (and not where we strike)...
       shoreEvery: 8,            // ...one reserve at a time, this often
+      archerRefocus: 6,         // archers look for a new focus this often...
+      archerReach: 1.8,         // ...among enemies within this many times their range (they walk up to shoot it)
+      massShare: 0.6,           // this share of their cavalry (2 squads or more) near one end of our line = massing: a reserve guards that wing
       idleSeconds: 4,           // an infantry squad not fighting this long (once the lines have met) is given a new job
       busyReach: 1.6,           // a soldier with an enemy this close is busy fighting (a quarter of a squad busy = the squad is busy)
       gapMin: 1.4,              // a hole this wide (tiles of open ground) between two enemy squads is a gap to go through
@@ -401,6 +404,7 @@ export const CONFIG = {
       raidCavAvoid: 8,          // cavalry raiders leave enemy cavalry alone (unless it attacks them)
       raidArcherBonus: 3,       // raiders love archers
       raidTurnIn: 3.5,            // a raider riding round the enemy line along the edge turns in once it is this close (sideways of the field) to its target
+      archerFocus: 2.5,         // archers prefer the squad their commander told them to shoot at (tiles of distance this is worth)
       raidClearance: 2.2,       // raiders ride round enemy foot that's within this distance of their route
       rearCavRange: 7,          // infantry not fighting turn to meet enemy cavalry behind our line within this range
       rearCavBonus: 5,          // (spearmen +2)

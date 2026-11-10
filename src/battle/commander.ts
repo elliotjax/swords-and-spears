@@ -38,6 +38,7 @@ export interface Mission {
   since: number;      // battle time it was given
   until: number;      // the commander won't change it before this time (unless it becomes impossible)
   push?: boolean;     // advance only: drive forward into the enemy in front (the squad pushes while it has the strength)
+  postY?: number;     // reserve only: stand at this point along the line instead of our own spot (guarding a wing)
 }
 
 export interface Commander {
@@ -241,9 +242,22 @@ export function commanderThink(b: BattleState, c: Commander) {
   const striking = (y: number) => !!plan && !plan.defend && (plan.strike === 2 ? sector(y) !== 0 : sector(y) === plan.strike);
 
   // ---- archers: shoot ----
-  for (const q of mine) if (q.unit === 'archers' && open(q)) {
-    if (shooter(q)) give(q, 'support', 'shooting from behind our line');
-    else give(q, 'advance', 'out of arrows: fighting on foot');
+  // (they pick a focus: the enemy where we're pushing or breaking through, else whoever is beating our weakest squad)
+  const range = CONFIG.battle.units.archers.range ?? 7;
+  for (const q of mine) if (q.unit === 'archers' && (open(q) || (q.mission?.kind === 'support' && b.t >= q.mission.since + K.archerRefocus))) {
+    if (!shooter(q)) { give(q, 'advance', 'out of arrows: fighting on foot'); continue; }
+    let focus: BSquad | null = null, why = '', best = -Infinity;
+    for (const e of foes) {
+      if (e.broken || shooter(e)) continue;
+      const d = dist(q, e);
+      if (d > range * K.archerReach) continue;
+      const pushedBy = mine.find(f => f.target === e.id && f.state === 'melee' && (f.mission?.push || (c.breach && c.breach.target === e.id)));
+      const beating = mine.find(f => f.target === e.id && f.state === 'melee' && (wavering(f) || squadHp(b, f) < K.relieveHp));
+      const sc = (pushedBy ? 3 : 0) + (beating ? 2.5 : 0) + (e.state === 'melee' ? 0.5 : 0) - d / range;
+      if ((pushedBy || beating) && sc > best) { best = sc; focus = e; why = pushedBy ? `shooting their ${NAME[e.unit]} where we are pushing` : `covering our ${NAME[beating!.unit]}: shooting their ${NAME[e.unit]}`; }
+    }
+    if (focus) give(q, 'support', why, focus.id, 0, K.archerRefocus);
+    else give(q, 'support', 'shooting from behind our line', 0, 0, K.archerRefocus);
   }
 
   // ---- infantry ----
@@ -283,7 +297,23 @@ export function commanderThink(b: BattleState, c: Commander) {
     give(best, 'reinforce', `taking over from our tired ${NAME[f.unit]}`, f.target);
     give(f, 'disengage', 'exhausted: pulling back to rest', 0, wingOf(f), K.rallySeconds);
   }
-  const waiting = myInf.filter(q => q.mission?.kind === 'reserve' && q.fatigue < K.restedAt);
+  const waiting = myInf.filter(q => q.mission?.kind === 'reserve' && q.fatigue < K.restedAt && q.mission.postY === undefined);
+  // ---- reading the enemy: their horse massing on one wing -> a reserve (spearmen first) moves behind that wing ----
+  if (haveLine && foeCav.length >= 2) {
+    const span4 = Math.max(2, (L.hi - L.lo) / 4);
+    for (const w of [-1, 1] as const) {
+      const there = foeCav.filter(e => (w < 0 ? e.my < L.lo + span4 : e.my > L.hi - span4)).length;
+      const guard = myInf.find(q => q.mission?.kind === 'reserve' && q.mission.postY !== undefined && q.mission.wing === w);
+      if (there >= 2 && there >= foeCav.length * K.massShare) {
+        if (guard) continue;
+        const pick = waiting.slice().sort((a, z) => (a.unit === 'spearmen' ? 0 : 3) - (z.unit === 'spearmen' ? 0 : 3) + Math.abs(a.my - (w < 0 ? L.lo : L.hi)) / 4 - Math.abs(z.my - (w < 0 ? L.lo : L.hi)) / 4)[0];
+        if (!pick) continue;
+        give(pick, 'reserve', `their horse are massing on our ${wingName(w)}: guarding that wing`, 0, w, 0);
+        pick.mission!.postY = w < 0 ? L.lo + 0.5 : L.hi - 0.5;
+        waiting.splice(waiting.indexOf(pick), 1);
+      } else if (guard && there === 0) guard.mission!.postY = undefined; // the danger has gone: back into the reserve
+    }
+  }
   // ---- shoring up: a part of our line that is clearly losing (not where we strike) gets a waiting reserve, whatever the plan ----
   if (engaged && haveLine && sinceContact > K.shoreAfter && b.t >= (c.nextShore ?? 0)) {
     for (const sct of [-1, 0, 1] as const) {
@@ -559,5 +589,5 @@ export function postOf(b: BattleState, q: BSquad): { x: number; y: number } {
     const back = m.kind === 'screen' ? K.screenBack : m.kind === 'disengage' ? K.rallyBack : 2;
     return { x: (L.front - back) * q.fwd, y };
   }
-  return { x: (L.front - Math.max(K.reserveBack, Math.min(q.lineDepth, 4))) * q.fwd, y: clampY(q.homeY) };
+  return { x: (L.front - Math.max(K.reserveBack, Math.min(q.lineDepth, 4))) * q.fwd, y: clampY(m.postY ?? q.homeY) };
 }

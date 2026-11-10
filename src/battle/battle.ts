@@ -598,6 +598,8 @@ export function stepBattle(b: BattleState) {
       // archers: walk up until the enemy is well within range, then stand and shoot volleys
       let nd = Infinity, nx = tq.mx, ny = tq.my;
       for (const e of b.squads) if (e.side !== q.side && active(e)) { const d = Math.hypot(e.mx - q.mx, e.my - q.my); if (d < nd) { nd = d; nx = e.mx; ny = e.my; } }
+      // the commander gave us a focus: walk up to shoot it (unless something else is right on top of us)
+      if (ms?.kind === 'support' && fixed && tq && active(tq) && nd > 3) { nd = Math.hypot(tq.mx - q.mx, tq.my - q.my); nx = tq.mx; ny = tq.my; }
       // standing and shooting until the enemy is well out of range, then walk up to a comfortable distance
       const range = rangeOf(q.side, q.unit), want = range * 0.6;
       const a = Math.atan2(ny - q.my, nx - q.mx);
@@ -887,6 +889,7 @@ export function stepBattle(b: BattleState) {
           if (e.inMelee) score += 5; // don't shoot into a melee where our own men are fighting (if there's anything else)
           if (e.unit === 'cavalry' && behindLine(s.side, e.x)) score -= A.archerRearCav; // cavalry raiding behind our line
           score += (arrowsOn.get(e.squad) ?? 0) * A.archerSpread;             // ...but don't all shoot the same squad
+          if (e.squad === q.target && b.cmd[q.side]) score -= A.archerFocus;     // the commander's focus
         } else {
           // the enemy nearest our place in the line, but also near us
           score = Math.hypot(e.x - slot.x, e.y - slot.y) * ML.slotWeight + d * (1 - ML.slotWeight);
