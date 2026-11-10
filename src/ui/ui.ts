@@ -37,7 +37,7 @@ export function unitIcon(u: UnitKind): string {
   cv.width = cv.height = 64;
   const c = cv.getContext('2d')!;
   const v = { unit: u, step: 0, dir: 0, carry: null, look: { tunic: 0, hair: 0, skin: 0 } } as unknown as Villager;
-  drawPawn(c, v, 0, 0, 8, u === 'cavalry' ? 34 : 30, 54, false);
+  drawPawn(c, v, 0, 0, u === 'boss' ? 3 : 8, u === 'cavalry' ? 34 : 30, 54, false);
   url = cv.toDataURL();
   unitCache.set(u, url);
   return url;
@@ -605,7 +605,7 @@ export class UI {
 
   private recruitHtml(): string {
     const s = this.s;
-    const cards = (Object.keys(CONFIG.military.units) as UnitKind[]).map(u => {
+    const cards = (Object.keys(CONFIG.military.units) as UnitKind[]).filter(u => !CONFIG.military.units[u].noRecruit).map(u => {
       const U = CONFIG.military.units[u];
       const why = recruitBlock(s, u);
       return `<div class="ucard"><img src="${unitIcon(u)}" alt="">

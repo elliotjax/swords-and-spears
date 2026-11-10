@@ -14,7 +14,7 @@ import type { GameState } from '../sim/types';
 //  and run many battles in the background to check the balance.
 // =====================================================================
 
-const UNITS: UnitKind[] = ['swordsmen', 'heavy', 'spearmen', 'archers', 'cavalry'];
+const UNITS: UnitKind[] = ['swordsmen', 'heavy', 'boss', 'spearmen', 'archers', 'cavalry'];
 const TEAM = ['#e6402e', '#3f78ee'], TEAM_DARK = ['#a62d22', '#2a54ad'], TEAM_LIGHT = ['#f5a79c', '#9fc0ff']; // (bright, so armies are easy to tell apart from far away)
 const SIDE_NAME = ['You (red)', 'Enemy (blue)'];
 
@@ -76,7 +76,7 @@ export class BattleLab {
   private enemy: SquadSetup[] = [];       // the enemy's squads: where they stand and their orders (left-side coordinates)
 
   constructor(private onClose: () => void, private getState?: () => GameState) {
-    this.counts = [{ swordsmen: 2, heavy: 0, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, heavy: 0, spearmen: 2, archers: 2, cavalry: 2 }];
+    this.counts = [{ swordsmen: 2, heavy: 0, boss: 0, spearmen: 2, archers: 2, cavalry: 2 }, { swordsmen: 2, heavy: 0, boss: 0, spearmen: 2, archers: 2, cavalry: 2 }];
     this.root = document.createElement('div');
     this.root.id = 'lab';
     this.root.className = 'hidden';
@@ -985,6 +985,7 @@ export class BattleLab {
 // little pixel symbols for squad badges (7 x 7)
 const GLYPHS: Record<UnitKind, string[]> = {
   swordsmen: ['...x...', '...x...', '...x...', '...x...', '.xxxxx.', '...x...', '...x...'],
+  boss: ['x.xxx.x', 'xxxxxxx', '.xxxxx.', '..xxx..', '.xxxxx.', '.xx.xx.', '.xx.xx.'],
   heavy: ['..xxx..', '..xxx..', '..xxx..', '..xxx..', 'xxxxxxx', '..xxx..', '...x...'],
   spearmen: ['...x...', '..xxx..', '...x...', '...x...', '...x...', '...x...', '...x...'],
   archers: ['xx.....', 'x.x....', 'x..x.x.', 'xxxxxxx', 'x..x.x.', 'x.x....', 'xx.....'],
@@ -1006,7 +1007,7 @@ function hashRand(seed: number) { let t = seed | 0; return () => { t = (t + 0x6d
  * free = march with the army and pick their own targets near the enemy; hold = stand; path = follow an arrow, then free.
  */
 type Plan = { name: string; desc: string; make: (qs: SquadSetup[], W: number, H: number, rnd: () => number) => SquadSetup[] };
-const isInf = (q: SquadSetup) => q.unit === 'swordsmen' || q.unit === 'heavy' || q.unit === 'spearmen';
+const isInf = (q: SquadSetup) => q.unit === 'swordsmen' || q.unit === 'heavy' || q.unit === 'boss' || q.unit === 'spearmen';
 const hook = (W: number, H: number, top: boolean): Pt[] => {
   const y = top ? 1.2 : H - 1.2;
   return [{ x: W * 0.42, y }, { x: W * 0.72, y }, { x: W * 0.86, y: top ? H * 0.32 : H * 0.68 }];
@@ -1049,7 +1050,7 @@ const PLANS: Plan[] = [
 
 /** Short mission words shown under squad badges during a fight ('' = nothing: the ordinary jobs). */
 const MISSION_WORD: Record<string, string> = { advance: '', support: '', attack: 'attack', flank: 'flank', reinforce: 'help', intercept: 'intercept', reserve: 'reserve', screen: 'screen', raid: 'raid', shock: 'charge', pursue: 'pursue', disengage: 'rally' };
-const SHORT: Record<UnitKind, string> = { swordsmen: 'Swords', heavy: 'Heavy', spearmen: 'Spears', archers: 'Archers', cavalry: 'Horse' };
+const SHORT: Record<UnitKind, string> = { swordsmen: 'Swords', heavy: 'Heavy', boss: 'Boss', spearmen: 'Spears', archers: 'Archers', cavalry: 'Horse' };
 const MAX_SQUADS = 50; // per unit type, per side
 /** Closest zoom: about 7 tiles across the screen. */
 const maxZoom = (shownW: number) => Math.max(4, shownW / 7);
@@ -1104,7 +1105,7 @@ function drawSoldier(P: (x: number, y: number, c: string) => void, s: BSoldier, 
   for (let i = 1; i < w; i++) P(ax + x0 + i, ay + 1, 'rgba(0,0,0,.22)');
   for (let r = 0; r < h; r++) {
     let row = sp[r];
-    if (r === h - 1 && frame >= 0) row = s.unit === 'cavalry' ? (frame ? '.N.N.' : 'N..N.') : (frame ? 'l..' : '..l');
+    if (r === h - 1 && frame >= 0 && s.unit !== 'boss') row = s.unit === 'cavalry' ? (frame ? '.N.N.' : 'N..N.') : (frame ? 'l..' : '..l');
     for (let i = 0; i < w; i++) {
       const ch = row[flip ? w - 1 - i : i];
       if (ch === '.') continue;

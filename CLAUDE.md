@@ -33,6 +33,7 @@ The army commander (first version) is built: see README section 10 "Army command
 - Squad step in `stepBattle`: pick a target (scoring in tiles, bonuses in `CONFIG.battle.ai`), then one of: archers / withdraw / melee / hold / path / marching in the army line / form up and charge.
 - Dynamics: `q.fatigue` (0..1; `CONFIG.battle.fatigue`), `q.pushing` / `q.bracing` (shoving weights in the separation step; `CONFIG.battle.push`), the commander's `plan` (strike wing / centre / both / defend) and its push orders (`mission.push`): one push event at a time (`c.push`, 2 to 5 squads starting together); neighbours of a pushed squad bend back; reserves plug the gap; lone squads regroup.
 - Units: swordsmen, heavy (1.75x damage, 1.45x hp, `armor` 10%), spearmen, archers, cavalry; per-unit stats in `CONFIG.battle.units` (`hp`, `armor` optional).
+- Boss (`boss`, Warlord): one giant soldier, `radius`/`mass`/`worth`/`splash` stats in `CONFIG.battle.units`; reach and spacing use `bodyR`/`ext` so big bodies work.
 - Courage: `q.support` (friendly squads beside it) softens front/charge/outnumbered losses (`morale.supportFront`). Cavalry `q.role`: guard or raid, set in `createBattle`.
 - Soldier step: each soldier picks their own opponent near their formation slot; blows, parries and morale follow.
 - Ideas not built yet: a commander that plans ahead (an intent per wing, refusing a flank, timing a combined attack), fog of war (`observe`), difficulty and personalities, squads wheeling to face several attackers, one-on-one duel animations, saved formations.

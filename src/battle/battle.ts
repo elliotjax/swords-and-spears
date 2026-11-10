@@ -122,6 +122,10 @@ function rand(b: BattleState) {
 const hash01 = (a: number, b: number) => { let h = Math.imul(a, 374761393) ^ Math.imul(b, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 const unitSize = (u: UnitKind) => CONFIG.military.units[u].size;
 const stats = (u: UnitKind) => CONFIG.battle.units[u];
+/** Body radius of a soldier (tiles); ordinary soldiers 0.13, horses 0.2, the boss 0.75. */
+const bodyR = (u: UnitKind) => stats(u).radius ?? (u === 'cavalry' ? 0.2 : 0.13);
+/** How much further apart two soldiers' centres are than ordinary ones when they touch (so reach and spacing work for giants). */
+const ext = (a: UnitKind, z: UnitKind) => bodyR(a) + bodyR(z) - 0.26;
 /** A soldier's full health. */
 const maxHp = (u: UnitKind) => stats(u).hp ?? CONFIG.battle.soldierHp;
 const angDiff = (a: number, b: number) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
@@ -129,6 +133,7 @@ const angDiff = (a: number, b: number) => { let d = b - a; while (d > Math.PI) d
 /** Formation slot i of a squad: (forward, right) offsets from the anchor, in tiles. */
 function slotLocal(u: UnitKind, i: number): { f: number; r: number; file: number; rank: number } {
   const S = CONFIG.battle.spacing;
+  if (u === 'boss') return { f: 0, r: 0, file: 2, rank: 0 }; // (a lone giant stands in the middle of its slot)
   const file = i % 5, rank = Math.floor(i / 5);
   if (u === 'cavalry') return { f: -rank * S * 1.6, r: (file - 2) * S * 1.5, file, rank };
   return { f: -rank * S, r: (file - 2) * S, file, rank };
@@ -150,13 +155,13 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
   const cavGap = halfFront('cavalry') * 2 + 0.6;
   type Spot = { q: SquadSetup; i: number; depth: number; off: number }; // depth: tiles behind the front line; off: sideways from the middle
   const layouts = ([0, 1] as Side[]).map(side => {
-    const by: Record<string, { q: SquadSetup; i: number }[]> = { swordsmen: [], heavy: [], spearmen: [], archers: [], cavalry: [] };
+    const by: Record<string, { q: SquadSetup; i: number }[]> = { swordsmen: [], heavy: [], boss: [], spearmen: [], archers: [], cavalry: [] };
     setup.sides[side].forEach((q, i) => by[q.unit].push({ q, i }));
     const spots: Spot[] = [];
     let row = 0, widest = 0;
-    // the front row: heavy swordsmen in the middle, plain swordsmen either side of them
+    // the front row: the boss and heavy swordsmen in the middle, plain swordsmen either side of them
     const sw = by.swordsmen, hv = by.heavy, half = Math.ceil(sw.length / 2);
-    const front = [...sw.slice(0, half), ...hv, ...sw.slice(half)];
+    const front = [...sw.slice(0, half), ...by.boss, ...hv, ...sw.slice(half)];
     for (const u of ['swordsmen', 'spearmen', 'archers'] as UnitKind[]) {
       const list = u === 'swordsmen' ? front : by[u];
       for (let i = 0; i < list.length; i += B.maxRow) {
@@ -854,7 +859,7 @@ export function stepBattle(b: BattleState) {
     // ---- who to fight ----
     s.retarget -= DT;
     let t = s.target > 0 ? so(s.target) : null;
-    const dT = t ? Math.hypot(t.x - s.x, t.y - s.y) : Infinity;
+    const dT = t ? Math.hypot(t.x - s.x, t.y - s.y) - ext(s.unit, t.unit) : Infinity;
     const locked = !!t && alive(t) && !shoots && dT <= meleeReach + 0.35; // once locked in a fight, they fight to the death...
     if (locked && s.hurtBy > 0 && s.hurtBy !== t!.id && b.t - s.hurtAt < 0.3) {
       // ...unless someone else hits them from the side: they may turn on them
@@ -891,7 +896,7 @@ export function stepBattle(b: BattleState) {
     }
 
     if (t) {
-      const d = Math.hypot(t.x - s.x, t.y - s.y);
+      const ex = ext(s.unit, t.unit), d = Math.hypot(t.x - s.x, t.y - s.y) - ex;
       const meleeNow = !shoots || d < 1.1;
       const reach = meleeNow ? meleeReach : rangeOf(s.side, s.unit);
       const room = locked || hunt > leash ? hunt : leash; // how far from our place we may be while fighting this one
@@ -916,16 +921,27 @@ export function stepBattle(b: BattleState) {
           else if (roll > 1 - SO.heavyChance) { dmg *= SO.heavy; heavy = true; }
           else dmg *= 0.85 + rand(b) * 0.3;
           // ganged up on: a soldier fighting several enemies at once can't put everything into each blow
-          dmg /= 1 + SO.ganged * Math.max(0, s.foes - 1);
+          const giant = (stats(s.unit).mass ?? 1) > 1; // a giant isn't hampered by being swarmed, and swarming it doesn't give a bonus to hit
+          if (!giant) dmg /= 1 + SO.ganged * Math.max(0, s.foes - 1);
           if (meleeNow) {
             s.lunge = 0.18; s.lungeDir = s.dir;
-            const hitP = B.hitChance * s.skill * (1 + SO.gangedHit * Math.max(0, t.foes - 1));
+            const hitP = B.hitChance * s.skill * ((stats(t.unit).mass ?? 1) > 1 ? 1 : 1 + SO.gangedHit * Math.max(0, t.foes - 1));
             // the defender may block a blow coming from in front of them (harder with several attackers)
             const facing = Math.cos(angDiff(t.dir, Math.atan2(s.y - t.y, s.x - t.x))) > 0.3;
             // parrying: only blows from the front, not while off balance or mid-swing; much harder if they're busy fighting someone else
             const busy = t.target !== s.id ? SO.busyParry : 1;
             const blockP = facing && t.stagger <= 0 && t.lunge <= 0 && !brace && !charged ? stats(t.unit).block * t.skill * busy * (1 - B.fatigue.parry * sq(t.squad).fatigue) * (sq(t.squad).pushing ? B.push.exposedParry : 1) / (1 + SO.ganged * Math.max(0, t.foes - 1)) : 0;
-            if (rand(b) < hitP && rand(b) >= blockP) hits.push({ t, dmg, by: s, charge: charged, flank: fromFlank(sq(t.squad), t, s.x, s.y), kb, heavy });
+            if (rand(b) < hitP && rand(b) >= blockP) {
+              hits.push({ t, dmg, by: s, charge: charged, flank: fromFlank(sq(t.squad), t, s.x, s.y), kb, heavy });
+              if (U.splash) { // a slam: everyone close to the target takes a share of the blow and is knocked off balance
+                const sp = U.splash;
+                nearby(t.x, t.y, sp.radius, e => {
+                  if (e === t || e.side === s.side || !alive(e) || Math.hypot(e.x - t.x, e.y - t.y) > sp.radius) return;
+                  hits.push({ t: e, dmg: dmg * sp.share, by: s, charge: false, flank: false, kb: 0, heavy: true });
+                });
+                for (let i = 0; i < 4; i++) b.fx.push({ x: t.x + (rand(b) - 0.5) * sp.radius, y: t.y + (rand(b) - 0.5) * sp.radius, t: 0, kind: 'dust' });
+              }
+            }
             else if (rand(b) < 0.35) b.fx.push({ x: (s.x + t.x) / 2, y: (s.y + t.y) / 2 - 0.2, t: 0, kind: 'clash' }); // missed or blocked: sparks
             s.cd = (U.meleeCooldown ?? U.cooldown) * B.tempo * (0.8 + rand(b) * 0.4) / (0.9 + s.skill * 0.1) / (q.pushing ? 1 + B.push.attackSpeed : 1); // men in a push strike faster
           } else {
@@ -951,7 +967,7 @@ export function stepBattle(b: BattleState) {
       } else if (meleeNow) {
         // step toward the enemy, but only as far as our place in the line allows
         const a = Math.atan2(t.y - s.y, t.x - s.x);
-        let tx = t.x - Math.cos(a) * reach * 0.85, ty = t.y - Math.sin(a) * reach * 0.85;
+        let tx = t.x - Math.cos(a) * (reach * 0.85 + ex), ty = t.y - Math.sin(a) * (reach * 0.85 + ex);
         const ox = tx - slot.x, oy = ty - slot.y, off = Math.hypot(ox, oy);
         if (off > room) { tx = slot.x + ox / off * room; ty = slot.y + oy / off * room; }
         goTo(tx, ty, U.speed * (q.state === 'charge' ? 1.3 : 1.1));
@@ -995,7 +1011,7 @@ export function stepBattle(b: BattleState) {
   };
   for (const h of hits) if (!h.t.dead) land(h, false);
 
-  const weightOf = (s: BSoldier) => { const q = sq(s.squad); return q.pushing ? B.push.weight : q.bracing ? B.push.braceWeight : 1; };
+  const weightOf = (s: BSoldier) => { const q = sq(s.squad); return (q.pushing ? B.push.weight : q.bracing ? B.push.braceWeight : 1) * (stats(s.unit).mass ?? 1); };
   // keep soldiers from standing on top of each other (all pushes worked out first, then applied)
   const push: [BSoldier, number, number][] = [];
   for (const s of b.soldiers) {
@@ -1008,8 +1024,9 @@ export function stepBattle(b: BattleState) {
       const foe = e.side !== s.side;
       let wgt = 1; // how much of the shove this soldier takes (pushing or braced men give less; men being driven back give more)
       if (foe) { const we = weightOf(e), ws = weightOf(s); wgt = 2 * we / (we + ws); if (wgt > 1.3 && d < 0.36 && s.stagger <= 0 && rand(b) < B.push.staggerChance) s.stagger = B.push.staggerSeconds; }
-      if (foe && d < 0.75) close = true;
-      const min = (e.unit === 'cavalry' || s.unit === 'cavalry' ? 0.4 : 0.26) + (foe ? 0.12 : 0);
+      const x = ext(s.unit, e.unit);
+      if (foe && d < 0.75 + x) close = true;
+      const min = Math.max(bodyR(s.unit) + bodyR(e.unit), e.unit === 'cavalry' || s.unit === 'cavalry' ? 0.4 : 0) + (foe ? 0.12 : 0);
       if (d > 0.001 && d < min - 0.02) { const k = (min - 0.02 - d) * (foe ? 0.4 * wgt : 0.2); px += (dx / d) * k; py += (dy / d) * k; } // (a little give, so nobody jitters)
     });
     s.inMelee = close;

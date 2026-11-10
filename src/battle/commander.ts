@@ -72,7 +72,7 @@ export const observe = (b: BattleState, side: Side): BSquad[] => b.squads.filter
 const isInf = (q: BSquad) => q.unit !== 'cavalry' && !shooter(q);
 const dist = (a: BSquad, z: BSquad) => Math.hypot(a.mx - z.mx, a.my - z.my);
 const valid = (b: BattleState, id: number) => { const e = b.squads[id - 1]; return !!e && active(e); };
-const NAME: Record<string, string> = { swordsmen: 'swordsmen', heavy: 'heavy swordsmen', spearmen: 'spearmen', archers: 'archers', cavalry: 'cavalry' };
+const NAME: Record<string, string> = { swordsmen: 'swordsmen', heavy: 'heavy swordsmen', boss: 'warlord', spearmen: 'spearmen', archers: 'archers', cavalry: 'cavalry' };
 
 /** Missions that mean "stay at a post until something comes" (deliberate waiting). */
 export const POSTED: MissionKind[] = ['reserve', 'screen'];
@@ -134,7 +134,7 @@ export function commanderThink(b: BattleState, c: Commander) {
   // ---- the plan: where to strike ----
   // sectors of the field across our line: -1 low-y wing, 0 centre, 1 high-y wing
   const span = Math.max(1, L.hi - L.lo), sector = (y: number): -1 | 0 | 1 => (y < L.lo + span / 3 ? -1 : y > L.hi - span / 3 ? 1 : 0);
-  const power = (q: BSquad) => squadHp(b, q) * (0.5 + q.morale / 200) * (1 - 0.4 * q.fatigue) * (q.unit === 'cavalry' ? 0.6 : q.unit === 'archers' ? 0.5 : 1);
+  const power = (q: BSquad) => (CONFIG.battle.units[q.unit].worth ?? 1) * squadHp(b, q) * (0.5 + q.morale / 200) * (1 - 0.4 * q.fatigue) * (q.unit === 'cavalry' ? 0.6 : q.unit === 'archers' ? 0.5 : 1);
   const balance = { '-1': 0, '0': 0, '1': 0 } as Record<string, number>; // ours minus theirs in each sector
   let ourPower = 0, theirPower = 0;
   if (haveLine) {

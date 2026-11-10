@@ -540,6 +540,7 @@ export const squadName = (q: Squad) => `${unitDef(q.unit).name} #${q.num}`;
 /** Why a squad can't be recruited right now (null = it can). */
 export function recruitBlock(s: GameState, u: UnitKind): string | null {
   const U = unitDef(u);
+  if (U.noRecruit) return 'Cannot be recruited';
   if (s.hallId == null) return 'Place the Town Hall first';
   if (!s.buildings.some(b => b.kind === 'barracks' && isBuilt(b))) return 'Build a Barracks first';
   if (idleCount(s) < U.size) return `Needs ${U.size} idle villagers`;

@@ -15,7 +15,7 @@ export type Good = 'wood' | 'stone' | 'furniture';
 export const GOODS: Good[] = ['wood', 'stone', 'furniture'];
 export type Cost = Partial<Record<Good, number>> & { gold?: number };
 export type TileKind = 'grass' | 'forest' | 'stone';
-export type UnitKind = 'swordsmen' | 'heavy' | 'spearmen' | 'archers' | 'cavalry';
+export type UnitKind = 'swordsmen' | 'heavy' | 'boss' | 'spearmen' | 'archers' | 'cavalry';
 export type BadgeColor = 'green' | 'blue' | 'gold' | 'storage';
 
 export interface BuildingDef {
@@ -216,10 +216,11 @@ export const CONFIG = {
     units: {
       swordsmen: { name: 'Swordsmen', size: 10, cost: 225, upkeep: 6, hp: 100, attack: 12, defense: 10, goodVs: 'Spearmen', weakVs: 'Cavalry' },
       heavy: { name: 'Heavy swordsmen', size: 10, cost: 450, upkeep: 10, hp: 145, attack: 21, defense: 10, goodVs: 'Spearmen', weakVs: 'Archers' },
+      boss: { name: 'Warlord', size: 1, cost: 2500, upkeep: 40, hp: 600, attack: 80, defense: 20, goodVs: 'Infantry', weakVs: 'Archers', noRecruit: true },
       spearmen: { name: 'Spearmen', size: 10, cost: 200, upkeep: 5, hp: 100, attack: 10, defense: 12, goodVs: 'Cavalry', weakVs: 'Archers' },
       archers: { name: 'Archers', size: 10, cost: 225, upkeep: 6, hp: 70, attack: 11, defense: 6, goodVs: 'Spearmen', weakVs: 'Cavalry' },
       cavalry: { name: 'Cavalry', size: 5, cost: 300, upkeep: 8, hp: 160, attack: 16, defense: 9, goodVs: 'Archers', weakVs: 'Spearmen' },
-    } as Record<UnitKind, { name: string; size: number; cost: number; upkeep: number; hp: number; attack: number; defense: number; goodVs: string; weakVs: string }>,
+    } as Record<UnitKind, { name: string; size: number; cost: number; upkeep: number; hp: number; attack: number; defense: number; goodVs: string; weakVs: string; noRecruit?: boolean }>,
   },
 
   // Battles (left = you, right = enemy). Every number here is a starting guess for tuning.
@@ -457,10 +458,12 @@ export const CONFIG = {
       swordsmen: { damage: 7.5, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, block: 0.55, strongVs: ['spearmen'] },
       // heavy swordsmen: swordsmen with 1.75x the hit, 1.45x the health, plate armour that turns away 10% of every blow and twice the courage (takes twice the pressure to break; `courage` divides all morale loss)
       heavy: { damage: 7.5 * 1.75, cooldown: 2.6, reach: 0.55, speed: 0.7, defense: 0.18, armor: 0.1, courage: 2, hp: 100 * 1.45, block: 0.55, strongVs: ['spearmen'] },
+      // the Warlord (boss): one giant, 3x as big (radius), 600 HP, every blow is a slam that also hits everyone near the target
+      boss: { damage: 80, cooldown: 2.6, reach: 0.7, speed: 0.7, defense: 0.2, armor: 0.25, courage: 4, hp: 600, block: 0.3, radius: 0.75, mass: 6, worth: 4, splash: { radius: 2.0, share: 0.75 }, strongVs: [] },
       spearmen: { damage: 6.5, cooldown: 2.8, reach: 0.85, speed: 0.65, defense: 0.15, block: 0.42, strongVs: ['cavalry'] },
       archers: { damage: 20, cooldown: 4.0, meleeCooldown: 2.8, reach: 0.5, speed: 0.7, defense: 0.05, block: 0.15, range: 7, meleeDamage: 4, strongVs: ['spearmen'] },
       cavalry: { damage: 8, cooldown: 2.8, reach: 0.65, speed: 1.7, defense: 0.12, block: 0.3, chargeBonus: 4.5, strongVs: ['archers'] },
-    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; block: number; armor?: number; courage?: number; hp?: number; range?: number; meleeDamage?: number; meleeCooldown?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
+    } as Record<UnitKind, { damage: number; cooldown: number; reach: number; speed: number; defense: number; block: number; armor?: number; courage?: number; hp?: number; radius?: number; mass?: number; worth?: number; splash?: { radius: number; share: number }; range?: number; meleeDamage?: number; meleeCooldown?: number; chargeBonus?: number; strongVs: UnitKind[] }>,
   },
 
   // Tech tree: researched at the Town Hall with gold, one at a time, takes a few days.

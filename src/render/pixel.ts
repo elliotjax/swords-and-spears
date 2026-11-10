@@ -446,10 +446,13 @@ export function buildingCanvas(kind: BuildingKind): HTMLCanvasElement {
 // Taller figures (owner's pick): 3 wide x 5 tall, seen from the front.
 // Letters: h hair, s skin, T tunic, l legs, g helmet, R red uniform, S shield, w sword,
 // p spear tip, | spear shaft, H green hood, b bow, q quiver, n/N horse, m horse head.
+/** The same picture three times as big. */
+const big3 = (rows: string[]) => rows.flatMap(r => { const w = [...r].map(ch => ch.repeat(3)).join(''); return [w, w, w]; });
 export const SPRITES: Record<string, string[]> = {
   civ: ['.h.', '.s.', 'TTT', '.T.', 'l.l'],
   swordsmen: ['.g.', '.s.', 'SRw', 'SRw', 'l.l'],
   heavy: ['.G.', '.s.', 'SKw', 'SRw', 'L.L'],
+  boss: big3(['.G.', '.s.', 'SKw', 'SRw', 'L.L']),
   spearmen: ['..p', '.g|', '.s|', 'RR|', '.R|', 'l.l'],
   archers: ['.H.', '.s.', 'bRq', 'bR.', 'l.l'],
   cavalry: ['.g...', '.s...', 'RRR..', 'nnnnm', 'nnnn.', 'N..N.'],
@@ -477,7 +480,7 @@ export function drawPawn(c: CanvasRenderingContext2D, v: Villager, ax: number, a
   for (let i = 1; i < w; i++) P(x0 + i, 1, 'rgba(0,0,0,.22)'); // shadow
   for (let r = 0; r < h; r++) {
     let row = sp[r];
-    if (r === h - 1 && frame >= 0) row = v.unit === 'cavalry' ? (frame ? '.N.N.' : 'N..N.') : (frame ? 'l..' : '..l');
+    if (r === h - 1 && frame >= 0 && v.unit !== 'boss') row = v.unit === 'cavalry' ? (frame ? '.N.N.' : 'N..N.') : (frame ? 'l..' : '..l');
     for (let i = 0; i < w; i++) {
       const ch = row[flip ? w - 1 - i : i];
       if (ch === '.') continue;
