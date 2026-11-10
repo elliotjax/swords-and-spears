@@ -1,6 +1,6 @@
 // The shape of a battle, compared with how pre-modern battles actually went (see README "Battle research").
 // Run: npx esbuild tools/battle-shape.ts --bundle --platform=node --outfile=node_modules/.cache/shape.cjs --log-level=warning && node node_modules/.cache/shape.cjs
-//  - MIXING: share of fighting soldiers standing among more enemies than friends (lines should hold, not dissolve into a blob)
+//  - MIXING: share of fighting soldiers with 2+ enemies behind them (lines should hold, not dissolve into a blob)
 //  - FORMATION: how far soldiers stand from their place in the squad (tiles)
 //  - LOSSES: winners' losses; share of the losers' losses that came after their army started to break (history: winners lose
 //    about 5-10%, most of the losers' deaths come in the rout and pursuit)
@@ -8,6 +8,7 @@
 import { createBattle, stepBattle, type BattleState, type SquadSetup } from '../src/battle/battle';
 import { CONFIG } from "../src/config";
 const EXP = process.argv[2];
+if (EXP === "b") { const ML = CONFIG.battle.melee as any; ML.foeGap = 0.32; ML.huntLeash = 0.6; ML.edgeLeash = 0.8; }
 if (EXP === "a") { CONFIG.battle.deadliness *= 0.5; const M = CONFIG.battle.morale as any; M.deathLoss *= 1.6; M.frontHitLoss *= 2; M.flankHitLoss *= 1.5; }
 
 const mk = (o: Record<string, number>): SquadSetup[] => Object.entries(o).flatMap(([u, n]) => Array.from({ length: n }, () => ({ unit: u as SquadSetup['unit'], rank: 1 })));
@@ -17,6 +18,7 @@ const SETS: [string, Record<string, number>, number][] = [
   ['big 10/10/6/12', { swordsmen: 10, spearmen: 10, archers: 6, cavalry: 12 }, 3],
 ];
 for (const [name, A, N] of SETS) {
+  let lullN = 0, cohS = 0, cohN = 0;
   let mixS = 0, mixN = 0, offS = 0, offN = 0, winLoss = 0, lateShare = 0, lulls = 0, surges = 0, len = 0, cv = 0;
   for (let i = 0; i < N; i++) {
     const b = createBattle({ sides: [mk(A), mk(A)], commander: [true, true] }, 900 + i * 41, i % 2 === 1);
@@ -33,12 +35,13 @@ for (const [name, A, N] of SETS) {
       if (b.firstContact < 0 || b.decidedAt >= 0) continue;
       const m = mixing(b); mixS += m[0]; mixN += m[1];
       const o = offSlot(b); offS += o[0]; offN += o[1];
+      for (const q of b.squads) if (!q.gone && q.state === 'melee' && q.unit !== 'cavalry') { cohS += q.cohesion; cohN++; }
     }
     const w = b.winner === -1 ? 0 : b.winner, l = 1 - w;
     const dead = (s: number) => b.soldiers.filter(x => x.side === s && x.dead).length;
     winLoss += dead(w) / n0[w];
     lateShare += dead(l) ? (dead(l) - (breakAt[l] >= 0 ? deadAtBreak[l] : dead(l))) / dead(l) : 0;
-    len += b.t;
+    len += b.t; lullN += b.stats.lulls ?? 0;
     // rhythm: smooth to 3 s, count rises above 1.3x the mean (surges) and drops below 0.5x the mean (lulls)
     const sm = intensity.map((_, k) => { const a = intensity.slice(Math.max(0, k - 1), k + 2); return a.reduce((x, y) => x + y, 0) / a.length; });
     const mean = sm.reduce((x, y) => x + y, 0) / Math.max(1, sm.length);
@@ -48,9 +51,10 @@ for (const [name, A, N] of SETS) {
     cv += sd / Math.max(1e-9, mean);
   }
   console.log(`\n=== ${name}, ${N} battles, ${(len / N / 60).toFixed(1)} min ===`);
-  console.log(`MIXING: ${(mixS / Math.max(1, mixN) * 100).toFixed(0)}% of soldiers in a fight stand among more enemies than friends`);
+  console.log(`MIXING: ${(mixS / Math.max(1, mixN) * 100).toFixed(0)}% of soldiers in a fight have 2+ enemies behind them (inside the enemy ranks, or enemies inside ours)`);
   console.log(`FORMATION: soldiers stand ${(offS / Math.max(1, offN)).toFixed(2)} tiles from their place in the squad on average (spacing is 0.34)`);
   console.log(`LOSSES: winners lose ${(winLoss / N * 100).toFixed(0)}% of their men; ${(lateShare / N * 100).toFixed(0)}% of the losers' deaths come after a quarter of their squads broke`);
+  console.log(`LULLS: ${(lullN / N).toFixed(1)} squad lulls per battle; cohesion of fighting squads ${(cohS / Math.max(1, cohN)).toFixed(2)} on average`);
   console.log(`RHYTHM: ${(surges / N).toFixed(1)} surges and ${(lulls / N).toFixed(1)} lulls per battle; ups and downs ${(cv / N).toFixed(2)} (0 = one constant grind)`);
 }
 
@@ -63,9 +67,15 @@ function mixing(b: BattleState): [number, number] {
   for (const s of live) {
     let fr = 0, en = 0;
     for (let gx = Math.floor(s.x) - 1; gx <= Math.floor(s.x) + 1; gx++) for (let gy = Math.floor(s.y) - 1; gy <= Math.floor(s.y) + 1; gy++)
-      for (const o of grid.get(gx * 1000 + gy) ?? []) { if (o === s || Math.hypot(o.x - s.x, o.y - s.y) > 1.2) continue; if (o.side === s.side) fr++; else en++; }
+      for (const o of grid.get(gx * 1000 + gy) ?? []) {
+        if (o === s || o.side === s.side || Math.hypot(o.x - s.x, o.y - s.y) > 1.2) continue;
+        en++;
+        // an enemy BEHIND us (relative to the way our squad faces) means we're inside their ranks, or they're inside ours
+        const q = b.squads[s.squad - 1];
+        if ((o.x - s.x) * Math.cos(q.ang) + (o.y - s.y) * Math.sin(q.ang) < -0.15) fr++;
+      }
     if (!en) continue;
-    n++; if (en > fr) mixed++;
+    n++; if (fr >= 2) mixed++;
   }
   return [mixed, n];
 }

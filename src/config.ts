@@ -447,12 +447,30 @@ export const CONFIG = {
       brokenLeash: 1.0,         // broken squads get ragged
       pressGap: 0.25,           // the stronger squad leans in and pushes the weaker one back
       frayRate: 0.08,           // formations fray: soldiers may drift this much further from their place per second of melee...
-      frayMax: 1.0,             // ...up to this much
+      frayMax: 0.6,             // ...up to this much (now: this much at zero cohesion)
       chargeLeash: 0.8,         // in the last rush of a charge the line loosens this much (it's not a parade)
       frontHunt: 0.6,           // front-rank soldiers with nobody to fight may go looking this share as far as the back ranks
       slotWeight: 0.45,         // choosing who to fight: how much "near my place in the squad" counts (the rest is "near me")
-      huntLeash: 1.3,           // soldiers not in the front rank may go this far from their place to find someone to fight (flanking, wrapping round)
+      foeGap: 0.22,             // enemies keep this much extra room between them (two lines press against each other instead of mixing)
+      huntLeash: 0.8,           // soldiers not in the front rank may go this far from their place to find someone to fight (flanking, wrapping round)
       pressForward: 0.2,        // back ranks with nobody to fight lean forward to fill gaps
+    },
+    // Cohesion (0..1): how well a squad keeps together. Separate from courage: a brave squad can still come apart.
+    cohesion: {
+      meleePerSec: 0.012,       // lost per second of fighting...
+      pushedPerSec: 0.03,       // ...more while being driven back (not braced)...
+      flankHit: 0.01,           // ...and with every blow from the side or rear
+      recoverPerSec: 0.05,      // regained per second out of the fight...
+      lullMul: 2.5,             // ...faster in a lull (that's what the lull is for)
+      blockLoss: 0.35,          // at zero cohesion, blocks/parries are this much less likely
+      looseAt: 0.25,            // below this the formation dissolves: every man for himself...
+      looseLeash: 0.6,          // ...stepping this much further from their place to fight
+    },
+    // Surges and lulls: infantry fight in bouts, then step back a pace to catch their breath, then surge in again.
+    lull: {
+      bout: [7, 15] as [number, number], // seconds of fighting in a bout (longer for squads with good cohesion)
+      rest: [3, 5] as [number, number],  // seconds of standing back (3 s or more restores the charge)
+      back: 1.3,                // tiles stepped back
     },
     // Every soldier is a little different, and fights a little differently each time.
     soldier: {

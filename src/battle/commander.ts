@@ -405,6 +405,7 @@ export function commanderThink(b: BattleState, c: Commander) {
   // ---- initiative: squads with nothing to do go through gaps in their line or round its ends ----
   // (busy = at least a quarter of its men actually have someone to fight within reach; a squad "in melee" with only a few men chasing stragglers is idle)
   const busy = (q: BSquad) => {
+    if (q.lull) return true; // catching its breath between bouts: about to go back in
     let n = 0, f = 0;
     for (const id of q.members) {
       const so = b.soldiers[id - 1];

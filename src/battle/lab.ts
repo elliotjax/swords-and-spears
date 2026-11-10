@@ -540,7 +540,7 @@ export class BattleLab {
         c.lineWidth = 1.2 * d; c.strokeStyle = '#ffffff'; c.stroke();
       }
       // the commander's mission for this squad (short word under the badge)
-      const mw = this.view !== 'setup' && words && !shaky && !q.broken ? (q.pushing ? 'PUSH' : q.bracing ? 'brace' : q.mission ? MISSION_WORD[q.mission.kind] : '') : '';
+      const mw = this.view !== 'setup' && words && !shaky && !q.broken ? (q.pushing ? 'PUSH' : q.bracing ? 'brace' : q.lull ? 'breather' : q.mission ? MISSION_WORD[q.mission.kind] : '') : '';
       if (mw) {
         c.font = `800 ${8.5 * d}px Nunito, system-ui, sans-serif`;
         c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.6)'; c.fillStyle = q.side === 0 ? '#ffd9d4' : '#d6e4ff';
