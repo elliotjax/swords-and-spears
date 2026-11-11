@@ -324,6 +324,24 @@ export const CONFIG = {
       archerRefocus: 6,         // archers look for a new focus this often...
       archerReach: 1.8,         // ...among enemies within this many times their range (they walk up to shoot it)
       massShare: 0.6,           // this share of their cavalry (2 squads or more) near one end of our line = massing: a reserve guards that wing
+      // breakthrough charges through holes in their fighting line
+      gapAfter: 6,              // seconds after contact before the commander looks for holes
+      gapBin: 0.5,              // the line is checked in slices this wide (tiles)
+      gapWidth: 1.6,            // a stretch this wide with no enemy soldier in it is a hole
+      gapWide: 3.2,             // a hole this wide gets two groups
+      gapDepth: [2.5, 4.5] as [number, number], // enemy soldiers this far in front of / behind the fighting line count as "in the line"
+      gapThrough: 1.6,          // the chargers run to a point this far behind the enemy squad beside the hole, then turn on it
+      gapReserveRange: 14,      // a waiting reserve this close is sent first
+      gapAtOnce: 2,             // holes being charged at the same time, at most
+      gapEvery: 12,             // seconds before the same hole is charged again
+      gapMouth: 3.6,            // chargers first line up with the hole this far in front of that point (on our side), then go straight through
+      gapBand: 0.5,             // ...and while running through, only enemies this close to their path (sideways) stop them
+      viaSeconds: 12,            // chargers that can't reach the point behind the line in this time go straight for the target
+      rushSpeed: 0.18,          // breakthrough chargers move this much faster
+      detachSize: 4,            // no reserve and nobody free: the squads beside the hole each send this many men (their rear rank)...
+      detachMin: 8,             // ...if they have at least this many standing...
+      detachCohesion: 0.4,      // ...are in fair order...
+      detachReach: 1.5,         // ...and stand this close beside the hole
       idleSeconds: 4,           // an infantry squad not fighting this long (once the lines have met) is given a new job
       busyReach: 1.6,           // a soldier with an enemy this close is busy fighting (a quarter of a squad busy = the squad is busy)
       gapMin: 1.4,              // a hole this wide (tiles of open ground) between two enemy squads is a gap to go through

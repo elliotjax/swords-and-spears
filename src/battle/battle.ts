@@ -71,7 +71,8 @@ export interface BSquad {
   firstFight: number;         // when the squad first fought (-1 = not yet)
   meleeSince: number;         // when the current melee started (-1 = not in melee)
   withdrawUntil: number; wx: number; wy: number;
-  viaEdge: boolean; 
+  viaEdge: boolean;
+  detached?: boolean;         // a detachment split off another squad during the battle
   lull: boolean;              // infantry: stepped back a pace to catch its breath between bouts (surges and lulls)
   lullAt: number;             // when the lull started
   chargeAt: number;           // infantry: when our charge last hit home (momentum for a few seconds)
@@ -604,6 +605,7 @@ export function stepBattle(b: BattleState) {
     const fwdX = Math.cos(q.ang), fwdY = Math.sin(q.ang);
     let gx = q.cx, gy = q.cy, speed = U.speed, faceTo = toE, turnRate = 1.6;
     let contact = false, wp: Pt | null = null, cover: Pt | null = null;
+    let viaRun = false; // running through a gap in their line first (a commander's breakthrough charge)
 
     if (shooter(q)) {
       // archers: walk up until the enemy is well within range, then stand and shoot volleys
@@ -673,6 +675,16 @@ export function stepBattle(b: BattleState) {
           if (blocked) { q.viaEdge = true; gx = ax; gy = wy; }
         }
       } else q.viaEdge = false;
+      // a breakthrough charge: first through the gap the commander pointed at (a point just behind their line), then onto the target
+      if (ms?.via && !ms.viaDone && fixed && !isCav) {
+        if (Math.hypot(q.mx - ms.via.x, q.my - ms.via.y) < 1.4 || b.t > ms.since + K.viaSeconds) ms.viaDone = true;
+        else {
+          viaRun = true; gx = ms.via.x; gy = ms.via.y;
+          // not lined up with the hole yet: go to its mouth on our side first, then straight through (no cutting across the fighting)
+          const mouthF = ms.via.x * q.fwd - K.gapMouth;
+          if (q.mx * q.fwd < mouthF + 0.6 && Math.abs(q.my - ms.via.y) > 0.9) { gx = mouthF * q.fwd; gy = ms.via.y; }
+        }
+      }
       if (station) { // waiting at a post (a commander's reserve or screen, or an old-style guard on its wing)
         if (post) { gx = post.x; gy = post.y; }
         else { gx = isFinite(sideFront[q.side]) ? (sideFront[q.side] - 0.5) * q.fwd : q.cx; gy = q.homeY; }
@@ -695,7 +707,7 @@ export function stepBattle(b: BattleState) {
 
       // is the enemy right in front of our line? (forward gap from our front rank)
       let gap = Infinity;
-      const band = halfFront(q.unit) + 0.35, rx = -fwdY, ry = fwdX;
+      const band = viaRun ? K.gapBand : halfFront(q.unit) + 0.35, rx = -fwdY, ry = fwdX; // (running through a hole: only someone right in our path stops us)
       const passing = raiding && tq.unit !== 'cavalry'; // raiders ride past enemy cavalry on the way to their target
       nearby(q.cx, q.cy, 2.5, e => {
         if (e.side === q.side) return;
@@ -817,7 +829,10 @@ export function stepBattle(b: BattleState) {
           q.state = charging ? 'charge' : forming ? 'formup' : 'march';
           speed = support ? U.speed * 0.6 : forming ? marchPace[q.side] * 0.7 : q.state === 'march' && !isCav ? marchPace[q.side] : U.speed * (charging ? 1.2 : 1);
           if (!isFinite(speed)) speed = U.speed;
-          faceTo = forming ? toE : Math.hypot(gx - q.cx, gy - q.cy) > 0.6 ? Math.atan2(gy - q.cy, gx - q.cx) : toE;
+          // a breakthrough charge goes in at a run (no stopping to dress the ranks), a little faster than a normal charge
+          if (viaRun) { q.state = 'charge'; speed = U.speed * 1.2; }
+          if (ms?.rush && !isCav) speed = Math.max(speed, U.speed) * (1 + K.rushSpeed);
+          faceTo = forming && !viaRun ? toE : Math.hypot(gx - q.cx, gy - q.cy) > 0.6 ? Math.atan2(gy - q.cy, gx - q.cx) : toE;
           if (forming) turnRate = 2.6;
         }
       }
@@ -865,7 +880,7 @@ export function stepBattle(b: BattleState) {
     const goTo = (tx: number, ty: number, sp: number, stopAt = 0.04) => {
       const dx = tx - s.x, dy = ty - s.y, d = Math.hypot(dx, dy);
       if (d <= stopAt) return;
-      const m = Math.min(d - stopAt, sp * s.pace * (1 - B.fatigue.slow * q.fatigue) * DT);
+      const m = Math.min(d - stopAt, sp * s.pace * (1 - B.fatigue.slow * q.fatigue) * (q.mission?.rush && !isCav ? 1 + B.commander.rushSpeed : 1) * DT);
       s.x += (dx / d) * m; s.y += (dy / d) * m;
       s.dir = Math.atan2(dy, dx); s.step += m * 30; s.moved += m;
     };
@@ -1109,6 +1124,29 @@ export function stepBattle(b: BattleState) {
   }
   const losersLeft = b.decidedAt >= 0 && b.winner !== -1 && b.soldiers.some(s => s.side !== b.winner && alive(s));
   if ((b.decidedAt >= 0 && (b.t - b.decidedAt >= B.pursuitSeconds || !losersLeft)) || b.t >= B.maxSeconds) b.over = true;
+}
+
+/**
+ * Split a detachment off a squad: its rearmost `n` soldiers become a new small squad (same unit, rank and courage),
+ * standing where they are. Used by the commander to send a few men through a gap when there's no reserve to send.
+ */
+export function detach(b: BattleState, q: BSquad, n: number): BSquad | null {
+  const live = q.members.filter(id => fights(b.soldiers[id - 1]));
+  if (live.length - n < 3 || n < 2) return null;
+  const moved = live.slice(live.length - n); // the last in the order = the rear rank
+  q.members = q.members.filter(id => !moved.includes(id));
+  let cx = 0, cy = 0;
+  for (const id of moved) { const s = b.soldiers[id - 1]; cx += s.x; cy += s.y; }
+  cx /= n; cy /= n;
+  const d: BSquad = {
+    ...q, id: b.squads.length + 1, members: moved, cx, cy, mx: cx, my: cy, homeY: cy,
+    state: 'march', target: -1, retarget: 0, flankSide: 0, meleeSince: -1, lull: false, boutEnd: -1, lullAt: -9, chargeAt: -9,
+    pushing: false, bracing: false, pushSince: -1, mission: null, hitBy: {}, path: [], pathI: 0, commit: -1, inLine: false, waiting: false,
+    viaEdge: false, firstFight: -1, detached: true,
+  };
+  moved.forEach((id, i) => { const s = b.soldiers[id - 1]; s.squad = d.id; s.slot = i; s.target = -1; });
+  b.squads.push(d);
+  return d;
 }
 
 /** Run a whole battle instantly (for the "run many battles" test). */

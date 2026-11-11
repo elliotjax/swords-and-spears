@@ -365,7 +365,7 @@ export class BattleLab {
       const rows = (side: Side) => b.squads.filter(q => q.side === side).map(q => {
         const n = squadAlive(b, q), size = q.members.length;
         const status = n === 0 ? 'wiped out' : q.fleeing ? `fled with ${n}` : `${n} standing`;
-        return `<div class="labres"><img src="${unitIcon(q.unit)}" alt=""><span>${CONFIG.military.units[q.unit].name} #${q.num}</span><b>${n}/${size}</b><small>${status}</small></div>`;
+        return `<div class="labres"><img src="${unitIcon(q.unit)}" alt=""><span>${CONFIG.military.units[q.unit].name} #${q.num}${q.detached ? ' (detachment)' : ''}</span><b>${n}/${size}</b><small>${status}</small></div>`;
       }).join('');
       this.panel.innerHTML = `<h3 style="color:${b.winner === 1 ? TEAM[1] : TEAM[0]}">${title} <small style="color:var(--muted);font-size:13px;margin-left:6px">${fmtTime(b.t)}</small></h3>
         <div class="labcols"><div class="labcol"><div class="labside" style="color:${TEAM[0]}">${SIDE_NAME[0]}</div>${rows(0)}</div>
@@ -540,7 +540,7 @@ export class BattleLab {
         c.lineWidth = 1.2 * d; c.strokeStyle = '#ffffff'; c.stroke();
       }
       // the commander's mission for this squad (short word under the badge)
-      const mw = this.view !== 'setup' && words && !shaky && !q.broken ? (q.pushing ? 'PUSH' : q.bracing ? 'brace' : q.lull ? 'breather' : q.mission ? MISSION_WORD[q.mission.kind] : '') : '';
+      const mw = this.view !== 'setup' && words && !shaky && !q.broken ? (q.pushing ? 'PUSH' : q.bracing ? 'brace' : q.lull ? 'breather' : q.mission?.rush && q.state !== 'melee' ? 'CHARGE' : q.mission ? MISSION_WORD[q.mission.kind] : '') : '';
       if (mw) {
         c.font = `800 ${8.5 * d}px Nunito, system-ui, sans-serif`;
         c.lineWidth = 3 * d; c.strokeStyle = 'rgba(0,0,0,.6)'; c.fillStyle = q.side === 0 ? '#ffd9d4' : '#d6e4ff';
@@ -602,9 +602,10 @@ export class BattleLab {
         c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(z.x, z.y); c.stroke();
         c.strokeStyle = TEAM_DARK[q.side]; c.lineWidth = 1.4 * d; c.stroke();
       }
-      if (q.pushing) { // chevrons marching ahead of the block
-        const ph = (b.t * 1.6) % 1;
-        c.strokeStyle = TEAM_LIGHT[q.side]; c.lineCap = 'round'; c.lineJoin = 'round'; c.lineWidth = 2.6 * d;
+      const rushing = !!q.mission?.rush && q.state !== 'melee' && !q.broken; // a breakthrough charge: white chevrons, faster
+      if (q.pushing || rushing) { // chevrons marching ahead of the block
+        const ph = (b.t * (rushing ? 2.6 : 1.6)) % 1;
+        c.strokeStyle = rushing ? '#ffffff' : TEAM_LIGHT[q.side]; c.lineCap = 'round'; c.lineJoin = 'round'; c.lineWidth = 2.6 * d;
         const half = Math.min(1.1, (n1 - n0) / 2);
         for (let i = 0; i < 3; i++) {
           const f = f1 + 0.35 + (i + ph) * 0.55;

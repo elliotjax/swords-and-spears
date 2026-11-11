@@ -1,5 +1,5 @@
 import { CONFIG } from '../config';
-import { active, halfFront, shooter, squadHp, wavering, type BattleState, type BSquad, type Side } from './battle';
+import { active, detach, halfFront, shooter, squadAlive, squadHp, wavering, type BattleState, type BSquad, type Side } from './battle';
 
 // =====================================================================
 //  The army commander (one per side, same rules for both).
@@ -38,6 +38,8 @@ export interface Mission {
   since: number;      // battle time it was given
   until: number;      // the commander won't change it before this time (unless it becomes impossible)
   push?: boolean;     // advance only: drive forward into the enemy in front (the squad pushes while it has the strength)
+  via?: { x: number; y: number }; viaDone?: boolean; // go through this point first (a gap in their line), then onto the target
+  rush?: boolean;     // a breakthrough charge: move a little faster
   postY?: number;     // reserve only: stand at this point along the line instead of our own spot (guarding a wing)
 }
 
@@ -62,12 +64,14 @@ export interface Commander {
   idleSince: Map<number, number>; // when each of our infantry squads last stopped fighting
   burst: number;      // reserves still to send at once (a feint's switch, a counter-attack)
   exploits: number;   // squads sent through gaps / round the end of their line so far
+  gapRuns: { y: number; until: number }[]; // gaps in their line we are charging through right now
+  gapCharges: number; detachments: number; // (for the tools)
   nextShore?: number; shores?: number; // shoring up a losing part of our line with a reserve
 }
 /** A commander's character for one battle (0..1 each): how fast it commits, how bold its cavalry are, how long it waits. */
 export interface Temper { aggr: number; cav: number; patience: number }
 
-export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0 });
+export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0 });
 
 /** Kinds of battle plan (doctrines). */
 export type PlanKind = 'envelop' | 'double' | 'centre' | 'defend' | 'feint' | 'hook' | 'refuse';
@@ -356,7 +360,16 @@ export function commanderThink(b: BattleState, c: Commander) {
   const atBreach = (y: number) => !!c.breach && Math.abs(y - c.breach.y) < K.breachWidth;
   if (c.breach && !c.breach.fed && waiting.length) { // one fresh reserve goes straight in at the weak spot
     const y = c.breach.y, pick = waiting.slice().sort((a, z) => Math.abs(a.my - y) - Math.abs(z.my - y))[0];
-    give(pick, 'attack', 'sent in at the weak spot', c.breach.target); waiting.splice(waiting.indexOf(pick), 1); c.breach.fed = true;
+    give(pick, 'attack', 'sent in at the weak spot', c.breach.target); pick.mission!.rush = true; waiting.splice(waiting.indexOf(pick), 1); c.breach.fed = true;
+  } else if (c.breach && !c.breach.fed && valid(b, c.breach.target)) { // no reserve: a neighbour that isn't fighting the weak squad itself sends its rear rank at it
+    const t = b.squads[c.breach.target - 1];
+    const donor = myInf.filter(q => !q.detached && q.unit !== 'boss' && q.unit !== 'archers' && q.target !== t.id && dist(q, t) < K.detachReach + 3 && squadAlive(b, q) >= K.detachMin && q.cohesion > K.detachCohesion && !wavering(q) && !q.pushing && q.fatigue < K.tiredAt)
+      .sort((a, z) => dist(a, t) - dist(z, t))[0];
+    const d = donor ? detach(b, donor, K.detachSize) : null;
+    if (d) {
+      c.detachments++; c.breach.fed = true;
+      d.mission = { kind: 'flank', target: t.id, wing: 0, why: `a detachment from our ${NAME[donor!.unit]}: into the weak spot`, since: b.t, until: b.t + K.commitSeconds + 4, rush: true };
+    }
   }
   // ---- the push: one big coordinated effort at a time (a few per battle), 2 to 5 squads side by side starting together ----
   const rnd = (k: number) => hash01(b.rng + side * 104729, k + Math.round(b.t * 20));
@@ -401,6 +414,75 @@ export function commanderThink(b: BattleState, c: Commander) {
       if (d < bd) { bd = d; best = q; }
     }
     if (best) { give(best, 'reinforce', `plugging the gap: they are pushing our ${NAME[victim.unit]}`, e.id); const i = waiting.indexOf(best); if (i >= 0) waiting.splice(i, 1); }
+  }
+  // ---- breakthrough charges: a hole in their fighting line (no enemy soldiers there) gets infantry charged through it ----
+  // who goes, in order: a waiting reserve; a squad with nothing to do; else the squads beside the hole each send their rear rank
+  // (a detachment). They run through the hole (a little faster than a normal charge), then turn on the enemy squad beside it.
+  c.gapRuns = c.gapRuns.filter(g => b.t < g.until);
+  if (engaged && haveLine && sinceContact > K.gapAfter && foeInf.length && plan && !plan.defend && c.gapRuns.length < K.gapAtOnce) {
+    // their line, soldier by soldier: which stretches along it have nobody standing in them?
+    const bin = K.gapBin, n = Math.max(1, Math.ceil(b.H / bin));
+    const occ = new Uint8Array(n), ours = new Uint8Array(n);
+    let lo = Infinity, hi = -Infinity;
+    for (const so of b.soldiers) {
+      if (so.dead || so.fled || so.unit === 'cavalry') continue;
+      const f = so.x * fwd - L.front;
+      if (so.side === side) { if (f > -3) ours[Math.min(n - 1, Math.max(0, Math.floor(so.y / bin)))] = 1; continue; }
+      if (so.routing || f < -K.gapDepth[0] || f > K.gapDepth[1]) continue;
+      const k = Math.min(n - 1, Math.max(0, Math.floor(so.y / bin)));
+      occ[k] = 1; lo = Math.min(lo, k); hi = Math.max(hi, k);
+    }
+    type Gap = { y: number; w: number };
+    const gaps: Gap[] = [];
+    for (let k = lo + 1, start = -1; k <= hi; k++) {
+      if (!occ[k]) { if (start < 0) start = k; continue; }
+      if (start >= 0) { const w = (k - start) * bin; if (w >= K.gapWidth) gaps.push({ y: (start + k) / 2 * bin, w }); start = -1; }
+    }
+    gaps.sort((a, z) => z.w - a.w);
+    for (const g of gaps) {
+      if (c.gapRuns.length >= K.gapAtOnce) break;
+      if (c.gapRuns.some(r => Math.abs(r.y - g.y) < K.gapWidth * 2)) continue;
+      // the enemy squad beside the hole to turn on (the weaker one), and the point just behind their line to run to
+      const beside = foeInf.filter(e => Math.abs(e.my - g.y) < g.w / 2 + halfFront(e.unit) + 1.5 && Math.abs(e.mx * fwd - L.front) < K.gapDepth[1]).sort((a, z) => strength(a) - strength(z))[0];
+      if (!beside || sentAt(beside.id) >= K.exploitGroup) continue;
+      const via = { x: (beside.mx * fwd + K.gapThrough) * fwd, y: g.y };
+      const send = (q: BSquad, why: string) => {
+        give(q, 'flank', why, beside.id, 0, K.commitSeconds + 4);
+        q.mission!.via = via; q.mission!.rush = true; c.idleSince.delete(q.id);
+      };
+      const want = g.w >= K.gapWide ? 2 : 1;
+      let sent = 0;
+      // 1) waiting reserves
+      for (const q of waiting.slice().sort((a, z) => Math.hypot(a.mx - via.x, a.my - g.y) - Math.hypot(z.mx - via.x, z.my - g.y))) {
+        if (sent >= want || Math.hypot(q.mx - via.x, q.my - g.y) > K.gapReserveRange) break;
+        send(q, `charging through a gap in their line: onto their ${NAME[beside.unit]} from behind`); waiting.splice(waiting.indexOf(q), 1); sent++;
+      }
+      // 2) squads near the hole with nothing to do
+      if (sent < want) for (const q of myInf.filter(q => q.state !== 'melee' && !q.lull && q.fatigue < K.tiredAt && !wavering(q) && (q.mission?.kind === 'advance' || q.mission?.kind === 'reinforce') && !q.mission.push && Math.hypot(q.mx - via.x, q.my - g.y) < K.exploitRange)
+        .sort((a, z) => Math.abs(a.my - g.y) - Math.abs(z.my - g.y))) {
+        if (sent >= want) break;
+        send(q, `charging through a gap in their line: onto their ${NAME[beside.unit]} from behind`); sent++;
+      }
+      // 3) nobody free: the squads beside the hole each send their rear rank through it
+      if (!sent) {
+        const donors = myInf.filter(q => !q.detached && q.unit !== 'boss' && q.unit !== 'archers' && Math.abs(q.my - g.y) < g.w / 2 + halfFront(q.unit) + K.detachReach && Math.abs(q.mx * fwd - L.front) < 3 &&
+          squadAlive(b, q) >= K.detachMin && q.cohesion > K.detachCohesion && !wavering(q) && !q.pushing && q.fatigue < K.tiredAt && !q.mission?.rush)
+          .sort((a, z) => Math.abs(a.my - g.y) - Math.abs(z.my - g.y)).slice(0, 2);
+        for (const q of donors) {
+          const d = detach(b, q, K.detachSize);
+          if (!d) continue;
+          c.detachments++; sent++;
+          d.mission = { kind: 'flank', target: beside.id, wing: 0, why: `a detachment from our ${NAME[q.unit]}: charging through the gap`, since: b.t, until: b.t + K.commitSeconds + 4, via, rush: true };
+        }
+      }
+      if (sent) {
+        c.gapRuns.push({ y: g.y, until: b.t + K.gapEvery }); c.gapCharges++;
+        plan.why = `charging through a gap in their line (${sent} ${sent > 1 ? 'groups' : 'group'})`;
+        // a free horse squad close by goes through with them
+        const horse = mine.filter(h => h.unit === 'cavalry' && h.state !== 'melee' && h.fatigue < K.tiredAt && ['raid', 'attack', 'reserve'].includes(h.mission?.kind ?? 'reserve')).sort((a, z) => dist(a, beside) - dist(z, beside))[0];
+        if (horse && dist(horse, beside) < K.cavJoin) give(horse, 'shock', `through the gap with the infantry: charging their ${NAME[beside.unit]}`, beside.id, wingOf(horse));
+      }
+    }
   }
   // ---- initiative: squads with nothing to do go through gaps in their line or round its ends ----
   // (busy = at least a quarter of its men actually have someone to fight within reach; a squad "in melee" with only a few men chasing stragglers is idle)
