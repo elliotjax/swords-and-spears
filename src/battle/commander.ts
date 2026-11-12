@@ -29,7 +29,8 @@ export type MissionKind =
   | 'shock'      // cavalry: charge a busy enemy from behind, pull back, charge again
   | 'pursue'     // run down routing enemies
   | 'disengage'  // pull out of a bad fight and rally
-  | 'support';   // archers: shoot (and stay behind our infantry)
+  | 'support'    // archers: shoot (and stay behind our infantry)
+  | 'second';    // second line: stand just behind a friendly squad that's fighting, ready to take over from it
 
 export interface Mission {
   kind: MissionKind;
@@ -41,6 +42,7 @@ export interface Mission {
   push?: boolean;     // advance only: drive forward into the enemy in front (the squad pushes while it has the strength)
   via?: { x: number; y: number }; viaDone?: boolean; // go through this point first (a gap in their line), then onto the target
   rush?: boolean;     // a breakthrough charge: move a little faster
+  friend?: number;    // second line: the friendly squad we stand behind
   op?: boolean;       // part of a push operation (pushop.ts): its manager gives the orders, the army commander leaves the squad alone
   postY?: number;     // reserve only: stand at this point along the line instead of our own spot (guarding a wing)
 }
@@ -70,12 +72,15 @@ export interface Commander {
   gapCharges: number; detachments: number; // (for the tools)
   op: PushOp | null;  // the push operation under way (its own fast manager: pushop.ts)
   opNote: string; opNoteUntil: number; ops: number; opsBroke: number; opsHeld: number;
+  w0: { lo: number; hi: number } | null; // how wide our infantry stood when the battle began (the line we try to keep)
+  rotations: number; seconds: number; // (for the tools)
+  organized?: boolean; // the army has been put into front line / second line / reserve
   nextShore?: number; shores?: number; // shoring up a losing part of our line with a reserve
 }
 /** A commander's character for one battle (0..1 each): how fast it commits, how bold its cavalry are, how long it waits. */
 export interface Temper { aggr: number; cav: number; patience: number }
 
-export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0, op: null, opNote: '', opNoteUntil: 0, ops: 0, opsBroke: 0, opsHeld: 0 });
+export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0, op: null, opNote: '', opNoteUntil: 0, ops: 0, opsBroke: 0, opsHeld: 0, w0: null, rotations: 0, seconds: 0 });
 
 /** Kinds of battle plan (doctrines). */
 export type PlanKind = 'envelop' | 'double' | 'centre' | 'defend' | 'feint' | 'hook' | 'refuse';
@@ -101,7 +106,7 @@ const valid = (b: BattleState, id: number) => { const e = b.squads[id - 1]; retu
 const NAME: Record<string, string> = { swordsmen: 'swordsmen', heavy: 'heavy swordsmen', boss: 'warlord', spearmen: 'spearmen', archers: 'archers', cavalry: 'cavalry' };
 
 /** Missions that mean "stay at a post until something comes" (deliberate waiting). */
-export const POSTED: MissionKind[] = ['reserve', 'screen'];
+export const POSTED: MissionKind[] = ['reserve', 'screen', 'second'];
 
 export function commanderThink(b: BattleState, c: Commander) {
   const K = CONFIG.battle.commander, side = c.side;
@@ -464,7 +469,7 @@ export function commanderThink(b: BattleState, c: Commander) {
         send(q, `charging through a gap in their line: onto their ${NAME[beside.unit]} from behind`); waiting.splice(waiting.indexOf(q), 1); sent++;
       }
       // 2) squads near the hole with nothing to do
-      if (sent < want) for (const q of myInf.filter(q => q.state !== 'melee' && !q.lull && q.fatigue < K.tiredAt && !wavering(q) && (q.mission?.kind === 'advance' || q.mission?.kind === 'reinforce') && !q.mission.push && Math.hypot(q.mx - via.x, q.my - g.y) < K.exploitRange)
+      if (sent < want) for (const q of myInf.filter(q => q.state !== 'melee' && !q.lull && q.fatigue < K.tiredAt && !wavering(q) && (q.mission?.kind === 'advance' || q.mission?.kind === 'reinforce' || q.mission?.kind === 'second') && !q.mission.push && Math.hypot(q.mx - via.x, q.my - g.y) < K.exploitRange)
         .sort((a, z) => Math.abs(a.my - g.y) - Math.abs(z.my - g.y))) {
         if (sent >= want) break;
         send(q, `charging through a gap in their line: onto their ${NAME[beside.unit]} from behind`); sent++;
@@ -490,10 +495,68 @@ export function commanderThink(b: BattleState, c: Commander) {
       }
     }
   }
+  // ---- army organization: a front line of the right length, a second line behind it, rotation, and a flank budget ----
+  // (big armies don't all pile into one endless line: the front is kept about as wide as the army deployed (more for an
+  //  enveloping plan), at most half the infantry fights at once, the next squads stand behind the front squads as a second
+  //  line and take over when the squad in front tires, and only a budget of squads goes round the flanks)
+  const O = K.org;
+  if (!c.w0 && myInf.length) { let lo = Infinity, hi = -Infinity; for (const q of myInf) { lo = Math.min(lo, q.my); hi = Math.max(hi, q.my); } c.w0 = { lo, hi }; }
+  const flankers = myInf.filter(q => q.mission?.kind === 'flank' && !q.mission.rush && !q.mission.op).length;
+  const flankBudget = Math.max(1, Math.round(myInf.length * (plan ? O.flankShare[plan.kind] ?? 0.15 : 0.15)));
+  // before the lines meet: organize the army once the plan is made (front line, second line behind it, reserve)
+  if (plan && c.w0 && !c.organized && haveLine) {
+    c.organized = true;
+    const gapW0 = halfFront('swordsmen') * 2 + 0.6;
+    const slots0 = Math.max(2, Math.round((c.w0.hi - c.w0.lo) * (O.frontStretch[plan.kind] ?? 1.2) / gapW0) + 1);
+    const cap0 = Math.min(slots0, Math.max(2, Math.ceil(myInf.length * O.frontShare)));
+    const adv = myInf.filter(q => q.mission?.kind === 'advance').sort((a, z) => a.lineDepth - z.lineDepth || Math.abs(a.my - (L.lo + L.hi) / 2) - Math.abs(z.my - (L.lo + L.hi) / 2));
+    const front0 = adv.slice(0, cap0), taken = new Set<number>();
+    for (const q of adv.slice(cap0)) {
+      const f = front0.filter(x => !taken.has(x.id)).sort((a, z) => Math.abs(a.my - q.my) - Math.abs(z.my - q.my))[0];
+      if (!f) break;
+      taken.add(f.id);
+      give(q, 'second', `second line: behind our ${NAME[f.unit]}`, 0, 0, 0); q.mission!.friend = f.id; c.seconds++;
+    }
+  }
+  if (engaged && haveLine && plan && c.w0) {
+    const gapW = halfFront('swordsmen') * 2 + 0.6;
+    const slots = Math.max(2, Math.round((c.w0.hi - c.w0.lo) * (O.frontStretch[plan.kind] ?? 1.2) / gapW) + 1);
+    const cap = Math.min(slots, Math.max(2, Math.ceil(myInf.length * O.frontShare)));
+    const atFront = (q: BSquad) => q.state === 'melee' || q.state === 'charge' || q.state === 'formup' || q.lull;
+    const front = myInf.filter(q => atFront(q) && !q.mission?.op && q.mission?.kind !== 'flank');
+    const backerOf = new Map<number, BSquad>();
+    for (const q of myInf) { const m = q.mission; if (m?.kind === 'second' && m.friend && valid(b, m.friend)) backerOf.set(m.friend, q); }
+    // 1) rotation: a front squad that is tired, hurt, shaken or coming apart is relieved by the squad behind it
+    for (const f of front) {
+      const bk = backerOf.get(f.id);
+      if (!bk || atFront(bk) || f.target <= 0 || !valid(b, f.target)) continue;
+      if (!(f.fatigue >= K.tiredAt || squadHp(b, f) < K.relieveHp || wavering(f) || f.cohesion < O.relieveCohesion)) continue;
+      give(bk, 'reinforce', `second line: taking over from our worn ${NAME[f.unit]}`, f.target); backerOf.delete(f.id); c.rotations++;
+      if (!wavering(f) && !f.pushing) give(f, 'disengage', 'relieved by the second line: pulling back to rest', 0, wingOf(f), K.rallySeconds);
+    }
+    // 2) squads not fighting: fill the front up to its size; after that, stand behind the front squad that most needs backing
+    let frontCount = front.length;
+    const spare = myInf.filter(q => !atFront(q) && !q.mission?.op && !q.mission?.rush && q.fatigue < K.tiredAt &&
+      (q.mission?.kind === 'advance' || (q.mission?.kind === 'second' && !(q.mission.friend && valid(b, q.mission.friend) && b.squads[q.mission.friend - 1].state === 'melee'))));
+    spare.sort((a, z) => a.lineDepth - z.lineDepth);
+    for (const q of spare) {
+      if (q.mission!.kind === 'second' && backerOf.get(q.mission!.friend!) === q && b.squads[q.mission!.friend! - 1].state !== 'melee') { /* its friend is between bouts: stay */ }
+      if (q.mission!.kind === 'advance' && frontCount < cap) { frontCount++; continue; } // room at the front
+      const need = front.filter(f => !backerOf.has(f.id) && Math.hypot(f.mx - q.mx, f.my - q.my) < O.backRange)
+        .sort((a, z) => (dist(q, a) / 6 - a.fatigue * 2 - (1 - squadHp(b, a)) * 2) - (dist(q, z) / 6 - z.fatigue * 2 - (1 - squadHp(b, z)) * 2))[0];
+      if (need) {
+        give(q, 'second', `second line: behind our ${NAME[need.unit]}`, 0, 0, 0);
+        q.mission!.friend = need.id; backerOf.set(need.id, q); c.seconds++;
+      } else if (q.mission!.kind === 'second' && !(q.mission!.friend && valid(b, q.mission!.friend))) {
+        // the squad we backed is gone: step into its place
+        give(q, 'advance', 'second line: stepping into the gap', 0, 0, 0); frontCount++;
+      }
+    }
+  }
   // ---- initiative: squads with nothing to do go through gaps in their line or round its ends ----
   // (busy = at least a quarter of its men actually have someone to fight within reach; a squad "in melee" with only a few men chasing stragglers is idle)
   const busy = (q: BSquad) => {
-    if (q.lull) return true; // catching its breath between bouts: about to go back in
+    if (q.lull || q.mission?.kind === 'second') return true; // catching its breath / standing as the second line: deliberate
     let n = 0, f = 0;
     for (const id of q.members) {
       const so = b.soldiers[id - 1];
@@ -527,12 +590,13 @@ export function commanderThink(b: BattleState, c: Commander) {
       }
       // nearest openings first; up to exploitGroup squads per opening (counting those already sent at that enemy)
       const pairs: { q: BSquad; o: Opening; d: number }[] = [];
+      let budget = flankBudget - flankers; // (round the ends: only a budget of squads; through gaps: always)
       for (const q of idle) for (const o of ops) { const d = Math.hypot(q.mx - o.x, q.my - o.y); if (d < K.exploitRange) pairs.push({ q, o, d: d - (o.gap ? 1.5 : 0) }); }
       pairs.sort((a, z) => a.d - z.d);
       const used = new Set<BSquad>();
       for (const { q, o } of pairs) {
-        if (used.has(q) || sentAt(o.e.id) >= K.exploitGroup || !valid(b, o.e.id)) continue;
-        used.add(q); c.exploits++;
+        if (used.has(q) || sentAt(o.e.id) >= K.exploitGroup || !valid(b, o.e.id) || (!o.gap && budget <= 0)) continue;
+        used.add(q); c.exploits++; if (!o.gap) budget--;
         give(q, 'flank', o.gap ? `through a gap in their line: hitting their ${NAME[o.e.unit]} from the side` : `round the end of their line: hitting their ${NAME[o.e.unit]} from the side`, o.e.id);
         c.idleSince.delete(q.id);
         // a free horse squad close by joins in: infantry and cavalry together
@@ -547,6 +611,10 @@ export function commanderThink(b: BattleState, c: Commander) {
     if (!m) { // opening orders: front rows advance, rows behind are the reserve
       if (q.lineDepth > K.reserveDepth) give(q, 'reserve', 'in reserve behind the line', 0, wingOf(q), 0);
       else give(q, 'advance', 'advancing with the line', 0, 0, 0);
+      continue;
+    }
+    if (m.kind === 'second') { // (the organization block above looks after the second line; with no enemy infantry left, finish them off)
+      if (engaged && !foeInf.length && foes.length) give(q, 'advance', 'committed: finishing them off');
       continue;
     }
     if (m.kind === 'reserve') {
@@ -674,6 +742,10 @@ export function postOf(b: BattleState, q: BSquad): { x: number; y: number } {
   const K = CONFIG.battle.commander, L = b.line[q.side], m = q.mission!;
   if (!isFinite(L.front)) return { x: q.cx, y: q.cy };
   const clampY = (y: number) => Math.max(1, Math.min(b.H - 1, y));
+  if (m.kind === 'second' && m.friend) { // just behind the friend we back up, wherever it is now
+    const f = b.squads[m.friend - 1];
+    if (f && active(f)) return { x: (f.mx * q.fwd - K.org.secondBack) * q.fwd, y: clampY(f.my) };
+  }
   const out = halfFront(q.unit) + K.screenOut;
   if (q.unit === 'cavalry') {
     const y = clampY(m.wing < 0 ? L.lo - out : L.hi + out);

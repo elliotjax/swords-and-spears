@@ -324,6 +324,16 @@ export const CONFIG = {
       archerRefocus: 6,         // archers look for a new focus this often...
       archerReach: 1.8,         // ...among enemies within this many times their range (they walk up to shoot it)
       massShare: 0.6,           // this share of their cavalry (2 squads or more) near one end of our line = massing: a reserve guards that wing
+      // ---- army organization: front length, second line, rotation, flank budget ----
+      org: {
+        frontShare: 0.5,        // at most this share of the infantry fights in the front line at once
+        frontStretch: { envelop: 1.3, double: 1.5, centre: 1.0, defend: 1.0, feint: 1.2, hook: 1.2, refuse: 1.1 } as Record<string, number>, // front line width = deployed width x this
+        flankShare: { envelop: 0.2, double: 0.25, centre: 0.1, defend: 0.08, feint: 0.15, hook: 0.15, refuse: 0.12 } as Record<string, number>, // squads that may be off round the flanks at once
+        secondEngage: 1.2,      // the second line only fights enemies this close (it doesn't join the front on its own)
+        secondBack: 2.4,        // the second line stands this far behind the squad it backs
+        backRange: 14,          // a spare squad backs a front squad within this distance
+        relieveCohesion: 0.3,   // a front squad below this cohesion is relieved too
+      },
       // ---- the push operation (pushop.ts): a managed attack on a stretch of the battle line ----
       op: {
         radius: 25,             // reserves and free infantry this close to the point join the push
@@ -331,6 +341,8 @@ export const CONFIG = {
         minWidth: 6, maxWidth: 16, // (a player-drawn push is kept between these)
         tick: 0.3,              // its manager thinks this often (seconds)
         minFree: 1,             // the commander only starts one with at least this many free squads to pour in
+        capShare: 0.12,         // a push takes at most this share of the army's infantry as free squads (the nearest)...
+        minCap: 4,              // ...but at least this many
         cornerReach: 3,         // squads fighting this close beside the stretch hold its corners
         lineDepth: 2.5,         // an enemy squad this close behind their front counts as part of their line
         minAssault: 4,          // seconds before the line can count as broken

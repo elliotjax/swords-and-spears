@@ -487,13 +487,13 @@ export function stepBattle(b: BattleState) {
         tq = mt; q.target = mt.id; fixed = true; q.inLine = false;
         if (ms.kind === 'flank' || ms.kind === 'shock') q.flankSide = -(q.mx - mt.mx) * Math.sin(mt.ang) + (q.my - mt.my) * Math.cos(mt.ang) >= 0 ? 1 : -1;
         else if (q.retarget <= 0) q.flankSide = 0;
-      } else if (ms.kind === 'reserve' || ms.kind === 'screen' || ms.kind === 'disengage') {
+      } else if (ms.kind === 'reserve' || ms.kind === 'screen' || ms.kind === 'disengage' || ms.kind === 'second') {
         // posted: stay at our post, but deal with anything that comes close (bounded initiative)
         posted = true; fixed = true; tq = null;
         if (ms.kind === 'disengage') {
           if (q.state === 'melee') { const p = postOf(b, q); q.state = 'withdraw'; q.withdrawUntil = ms.until; q.wx = p.x; q.wy = p.y; }
         } else {
-          const R = ms.kind === 'screen' ? K.screenRange : K.reserveRange;
+          const R = ms.kind === 'screen' ? K.screenRange : ms.kind === 'second' ? K.org.secondEngage : K.reserveRange;
           let bd = R;
           for (const e of b.squads) {
             if (e.side === q.side || !active(e) || e.broken) continue;

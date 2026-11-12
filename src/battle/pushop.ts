@@ -87,11 +87,19 @@ export function startPushOp(b: BattleState, c: Commander, x: number, y: number, 
     const dy = Math.abs(q.my - op.y), d = Math.hypot(q.mx - op.x, q.my - op.y);
     let role: OpRole | null = null;
     if (q.state === 'melee' && !q.mission?.rush) role = dy <= half ? 'front' : dy <= half + K.cornerReach ? 'corner' : null;
-    else if (d <= K.radius && q.fatigue < CK.tiredAt && q.mission?.kind !== 'intercept' && q.mission?.postY === undefined) role = 'assault';
+    else if (d <= K.radius && q.fatigue < CK.tiredAt && q.mission?.kind !== 'intercept' && q.mission?.postY === undefined) {
+      // (the second line only joins where it stands behind the stretch being pushed: elsewhere it keeps backing its own front squad)
+      const fr = q.mission?.kind === 'second' && q.mission.friend ? b.squads[q.mission.friend - 1] : null;
+      if (!fr || Math.abs(fr.my - op.y) <= half + 2) role = 'assault';
+    }
     if (!role) continue;
     op.ids.push(q.id); op.role[q.id] = role;
     if (role === 'assault') free++; else if (role === 'front') fronts++;
   }
+  // a push takes the nearest free squads up to a cap (a big army doesn't throw its whole reserve into one push)
+  const cap = Math.max(K.minCap, Math.round(b.squads.filter(q => q.side === side && ok(q) && isFoot(q)).length * K.capShare));
+  const assault = op.ids.filter(id => op.role[id] === 'assault').sort((a, z) => Math.hypot(b.squads[a - 1].mx - op.x, b.squads[a - 1].my - op.y) - Math.hypot(b.squads[z - 1].mx - op.x, b.squads[z - 1].my - op.y));
+  for (const id of assault.slice(cap)) { op.ids.splice(op.ids.indexOf(id), 1); delete op.role[id]; free--; }
   if (free < K.minFree && by === 'commander') return null; // nobody to pour in: the commander's ordinary push will do
   if (free + fronts === 0) return null;
   for (const id of op.ids) {
@@ -113,7 +121,8 @@ export function endPushOp(b: BattleState, c: Commander, why: string) {
     const q = b.squads[id - 1], m = q?.mission;
     if (!m) continue;
     m.op = false; m.until = b.t; m.push = false; m.rush = false;
-    if (op.role[id] !== 'assault') { m.kind = 'advance'; m.target = 0; m.why = 'holding the line'; m.via = undefined; }
+    // everyone goes back to the line (the army commander sorts out front, second line and reserve again)
+    if (q.state !== 'melee' || op.role[id] !== 'assault') { m.kind = 'advance'; m.target = 0; m.why = 'back to the line after the push'; m.via = undefined; }
   }
   c.op = null; c.opNote = `${why}`; c.opNoteUntil = b.t + 6;
   c.nextPush = b.t + CONFIG.battle.commander.pushEvery[0] + (CONFIG.battle.commander.pushEvery[1] - CONFIG.battle.commander.pushEvery[0]) * 0.5;
