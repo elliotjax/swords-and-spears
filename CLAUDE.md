@@ -3,6 +3,7 @@
 **README.md is the single source of truth.** Read it first (section 1 has the owner's rules). Keep it updated with every decision and add to the progress log (section 15).
 
 ## Status
+**New chat? Read `HANDOFF.md` first** (temporary, full context of the long battle session, open problems and next steps), then README.
 The army commander (first version) is built: see README section 10 "Army commander" and `COMMANDER_TASK.md` (the brief it was built from, with a status note at the top). `PROJECT_COLLABORATION.md` is the wider design brief written with ChatGPT: only build from it what the owner authorizes.
 
 ## The owner
