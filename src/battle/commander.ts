@@ -120,7 +120,9 @@ export function commanderThink(b: BattleState, c: Commander) {
     const m = q.mission;
     if (m && m.kind === kind && m.target === target && m.wing === wing) { m.why = why; return; }
     if (m) { c.changes++; if (m.kind === 'reserve' && kind !== 'reserve') c.commits++; }
+    const old = sentBy(q); if (old) counts.set(old, (counts.get(old) ?? 1) - 1);
     q.mission = { kind, target, wing, why, since: b.t, until: b.t + hold };
+    if (target > 0 && !POSTED.includes(kind)) counts.set(target, (counts.get(target) ?? 0) + 1);
     q.retarget = 0;
   };
   /** May the commander change this squad's mission now? */
@@ -133,7 +135,11 @@ export function commanderThink(b: BattleState, c: Commander) {
   };
   const wingOf = (q: BSquad): -1 | 1 => (q.homeY < b.H / 2 ? -1 : 1);
   /** How many of our squads are already sent against this enemy squad. */
-  const sentAt = (id: number, except?: BSquad) => mine.reduce((a, q) => a + (q !== except && q.mission?.target === id && !POSTED.includes(q.mission.kind) ? 1 : 0), 0);
+  // (kept as a running count: big armies ask this thousands of times per think)
+  const counts = new Map<number, number>();
+  const sentBy = (q: BSquad) => (q.mission && q.mission.target > 0 && !POSTED.includes(q.mission.kind) ? q.mission.target : 0);
+  for (const q of mine) { const t = sentBy(q); if (t) counts.set(t, (counts.get(t) ?? 0) + 1); }
+  const sentAt = (id: number, except?: BSquad) => (counts.get(id) ?? 0) - (except && sentBy(except) === id ? 1 : 0);
 
   // ---- the picture ----
   const foeInf = foes.filter(e => isInf(e) && !e.broken), foeCav = foes.filter(e => e.unit === 'cavalry' && !e.broken);

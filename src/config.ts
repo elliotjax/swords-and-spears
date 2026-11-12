@@ -229,6 +229,7 @@ export const CONFIG = {
     maxRow: 10,                 // squads side by side in one row before another row starts behind it
     rowGap: 1.4,                // tiles between rows of squads at the start
     armyGap: 16,                // tiles between the two armies' front lines at the start
+    bigBattleSoldiers: 1500,    // with more soldiers than this on the field, some slow bookkeeping runs less often (keeps huge battles smooth)
     soldierHp: 100,             // soldiers start with this much HP (a unit can set its own `hp` in `units`)
     spacing: 0.34,              // gap between soldiers in a formation (tiles): tight, like a real army
     squadGap: 2.3,              // gap between squad centres standing in the same line (tiles)

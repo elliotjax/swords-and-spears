@@ -387,7 +387,9 @@ export function stepBattle(b: BattleState) {
     }
   }
   // friends beside us: a friendly squad close on our left and/or right (it steadies us)
-  for (const q of b.squads) {
+  // (worked out four times a second: it changes slowly, and big armies have hundreds of squads)
+  const tick = Math.round(b.t * BATTLE_TPS);
+  if (tick % 5 === 0) for (const q of b.squads) {
     if (!active(q) || q.broken) continue;
     const fx = Math.cos(q.ang), fy = Math.sin(q.ang);
     let left = false, right = false;
@@ -495,7 +497,10 @@ export function stepBattle(b: BattleState) {
         } else {
           const R = ms.kind === 'screen' ? K.screenRange : ms.kind === 'second' ? K.org.secondEngage : K.reserveRange;
           let bd = R;
-          for (const e of b.squads) {
+          // (a posted squad looks round properly four times a second; in between it keeps an eye on what it already saw)
+          const look = (tick + q.id) % 5 === 0;
+          if (!look && q.target > 0) { const e = sq(q.target); if (e.side !== q.side && active(e) && !e.broken && Math.hypot(e.mx - q.mx, e.my - q.my) < R + 0.5) tq = e; }
+          if (look) for (const e of b.squads) {
             if (e.side === q.side || !active(e) || e.broken) continue;
             if (isCav && e.unit === 'spearmen' && e.state !== 'melee' && e.target !== q.id) continue; // cavalry don't go head-on into fresh spears
             // a screen holds its wing: it only goes for enemies that are coming at us (charging, fighting, or very close), not ones standing guard opposite
@@ -757,6 +762,7 @@ export function stepBattle(b: BattleState) {
           else if (!isCav) {
             // the squad beside us is being driven back: bend back with it (still fighting), so the line bends instead of snapping
             for (const o of b.squads) {
+              if (!pusherOf.size) break;
               if (o === q || o.side !== q.side || !pusherOf.has(o.id) || o.pushing || !active(o)) continue;
               const ox = o.mx - q.mx, oy = o.my - q.my, f = ox * fwdX + oy * fwdY, r = Math.abs(-ox * fwdY + oy * fwdX);
               if (f < -PU.followGap && f > -4 && r < halfFront(q.unit) + halfFront(o.unit) + M.supportGap) { step = Math.min(step, -U.speed * PU.followSpeed * DT); break; }
@@ -1075,23 +1081,51 @@ export function stepBattle(b: BattleState) {
   const weightOf = (s: BSoldier) => { const q = sq(s.squad); return (q.pushing ? B.push.weight : q.bracing ? B.push.braceWeight : 1) * (stats(s.unit).mass ?? 1); };
   // keep soldiers from standing on top of each other (all pushes worked out first, then applied)
   const push: [BSoldier, number, number][] = [];
+  // (the hottest loop in a big battle: a finer grid, per-soldier numbers worked out once, and far pairs skipped early)
+  const CELL = 0.8, live: BSoldier[] = [], wOf = new Float32Array(b.soldiers.length + 1), rOf = new Float32Array(b.soldiers.length + 1);
+  // a flat grid with linked lists (no maps, no arrays per cell): head[cell] = first soldier index in `live`, nxt[i] = the next one
+  const GW = Math.ceil(b.W / CELL) + 4, GH = Math.ceil(b.H / CELL) + 4, head = new Int32Array(GW * GH).fill(-1);
+  const cellOf = (x: number, y: number) => Math.max(0, Math.min(GH - 1, Math.floor(y / CELL) + 2)) * GW + Math.max(0, Math.min(GW - 1, Math.floor(x / CELL) + 2));
+  let bigR = 0;
   for (const s of b.soldiers) {
     if (!alive(s)) continue;
+    live.push(s); wOf[s.id] = weightOf(s); rOf[s.id] = bodyR(s.unit); bigR = Math.max(bigR, rOf[s.id]);
+  }
+  const nxt = new Int32Array(live.length);
+  for (let i = 0; i < live.length; i++) { const c = cellOf(live[i].x, live[i].y); nxt[i] = head[c]; head[c] = i; }
+  // flat copies of what the loop reads (much faster than reading the soldier objects in the inner loop)
+  const L = live.length, X = new Float64Array(L), Y = new Float64Array(L), SD = new Uint8Array(L), CV = new Uint8Array(L), RR = new Float32Array(L), WW = new Float32Array(L);
+  for (let i = 0; i < L; i++) { const o = live[i]; X[i] = o.x; Y[i] = o.y; SD[i] = o.side; CV[i] = o.unit === 'cavalry' ? 1 : 0; RR[i] = rOf[o.id]; WW[i] = wOf[o.id]; }
+  const reachMax = 0.75 + Math.max(0, 2 * bigR - 0.26), reach2 = reachMax * reachMax, RC = Math.ceil(reachMax / CELL), foeGap = B.melee.foeGap;
+  const STG = B.push.staggerChance, STS = B.push.staggerSeconds;
+  // (huge battles: worked out every other tick, twice as hard: nobody notices, and it halves the hottest loop)
+  const every = L > B.bigBattleSoldiers ? 2 : 1;
+  if (tick % every === 0) for (let i = 0; i < L; i++) {
     let px = 0, py = 0, close = false;
-    nearby(s.x, s.y, 1, e => {
-      if (e === s || !alive(e)) return;
-      const dx = s.x - e.x, dy = s.y - e.y, d = Math.hypot(dx, dy);
-      // enemies shove each other harder than friends do: two fighting lines press against each other instead of mixing
-      const foe = e.side !== s.side;
-      let wgt = 1; // how much of the shove this soldier takes (pushing or braced men give less; men being driven back give more)
-      if (foe) { const we = weightOf(e), ws = weightOf(s); wgt = 2 * we / (we + ws); if (wgt > 1.3 && d < 0.36 && s.stagger <= 0 && rand(b) < B.push.staggerChance) s.stagger = B.push.staggerSeconds; }
-      const x = ext(s.unit, e.unit);
-      if (foe && d < 0.75 + x) close = true;
-      const min = Math.max(bodyR(s.unit) + bodyR(e.unit), e.unit === 'cavalry' || s.unit === 'cavalry' ? 0.4 : 0) + (foe ? B.melee.foeGap : 0);
-      if (d > 0.001 && d < min - 0.02) { const k = (min - 0.02 - d) * (foe ? 0.4 * wgt : 0.2); px += (dx / d) * k; py += (dy / d) * k; } // (a little give, so nobody jitters)
-    });
+    const sx = X[i], sy = Y[i], sr = RR[i], sCav = CV[i], sSide = SD[i], ws = WW[i];
+    const cx = Math.max(0, Math.min(GW - 1, Math.floor(sx / CELL) + 2)), cy = Math.max(0, Math.min(GH - 1, Math.floor(sy / CELL) + 2));
+    const y0 = Math.max(0, cy - RC), y1 = Math.min(GH - 1, cy + RC), x0 = Math.max(0, cx - RC), x1 = Math.min(GW - 1, cx + RC);
+    for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) {
+      for (let j = head[gy * GW + gx]; j >= 0; j = nxt[j]) {
+        if (j === i) continue;
+        const dx = sx - X[j], dy = sy - Y[j], d2 = dx * dx + dy * dy;
+        if (d2 > reach2) continue;
+        const d = Math.sqrt(d2), er = RR[j];
+        // enemies shove each other harder than friends do: two fighting lines press against each other instead of mixing
+        const foe = SD[j] !== sSide;
+        let wgt = 1; // how much of the shove this soldier takes (pushing or braced men give less; men being driven back give more)
+        if (foe) {
+          const we = WW[j]; wgt = 2 * we / (we + ws);
+          if (wgt > 1.3 && d < 0.36) { const s = live[i]; if (s.stagger <= 0 && rand(b) < STG) s.stagger = STS; }
+          if (d < 0.75 + sr + er - 0.26) close = true;
+        }
+        let min = sr + er; if ((CV[j] || sCav) && min < 0.4) min = 0.4; if (foe) min += foeGap;
+        if (d > 0.001 && d < min - 0.02) { const k = (min - 0.02 - d) * (foe ? 0.4 * wgt : 0.2); px += (dx / d) * k; py += (dy / d) * k; } // (a little give, so nobody jitters)
+      }
+    }
+    const s = live[i];
     s.inMelee = close;
-    if (px || py) push.push([s, px, py]);
+    if (px || py) push.push([s, px * every, py * every]);
   }
   for (const [s, px, py] of push) { s.x += px; s.y = Math.max(0.3, Math.min(b.H - 0.3, s.y + py)); }
 

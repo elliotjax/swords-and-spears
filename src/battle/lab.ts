@@ -22,13 +22,9 @@ const SIDE_NAME = ['You (red)', 'Enemy (blue)'];
 
 const PRESETS: { name: string; a: Partial<Record<UnitKind, number>>; b: Partial<Record<UnitKind, number>> }[] = [
   { name: 'Balanced', a: { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 }, b: { swordsmen: 2, spearmen: 2, archers: 2, cavalry: 2 } },
-  { name: 'Spears vs Cavalry', a: { spearmen: 2 }, b: { cavalry: 4 } },
-  { name: 'Cavalry vs Archers', a: { cavalry: 4 }, b: { archers: 2 } },
-  { name: 'Archers vs Spears', a: { archers: 2 }, b: { spearmen: 2 } },
-  { name: 'Swords vs Spears', a: { swordsmen: 2 }, b: { spearmen: 2 } },
-  { name: 'Big battle', a: { swordsmen: 3, spearmen: 3, archers: 3, cavalry: 4 }, b: { swordsmen: 3, spearmen: 3, archers: 3, cavalry: 4 } },
   { name: 'Huge (400)', a: { swordsmen: 6, spearmen: 6, archers: 4, cavalry: 8 }, b: { swordsmen: 6, spearmen: 6, archers: 4, cavalry: 8 } },
   { name: 'Epic (1000)', a: { swordsmen: 15, spearmen: 15, archers: 10, cavalry: 20 }, b: { swordsmen: 15, spearmen: 15, archers: 10, cavalry: 20 } },
+  { name: 'Shield Wall (1500 v 1500)', a: { swordsmen: 50, heavy: 50, spearmen: 50 }, b: { swordsmen: 50, heavy: 50, spearmen: 50 } },
 ];
 
 export class BattleLab {
