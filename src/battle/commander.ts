@@ -71,7 +71,7 @@ export interface Commander {
   gapRuns: { y: number; until: number }[]; // gaps in their line we are charging through right now
   gapCharges: number; detachments: number; // (for the tools)
   op: PushOp | null;  // the push operation under way (its own fast manager: pushop.ts)
-  opNote: string; opNoteUntil: number; ops: number; opsBroke: number; opsHeld: number;
+  opNote: string; opNoteUntil: number; ops: number; opsBroke: number; opsHeld: number; nextOp: number;
   w0: { lo: number; hi: number } | null; // how wide our infantry stood when the battle began (the line we try to keep)
   rotations: number; seconds: number; // (for the tools)
   organized?: boolean; // the army has been put into front line / second line / reserve
@@ -80,7 +80,7 @@ export interface Commander {
 /** A commander's character for one battle (0..1 each): how fast it commits, how bold its cavalry are, how long it waits. */
 export interface Temper { aggr: number; cav: number; patience: number }
 
-export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0, op: null, opNote: '', opNoteUntil: 0, ops: 0, opsBroke: 0, opsHeld: 0, w0: null, rotations: 0, seconds: 0 });
+export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0, op: null, opNote: '', opNoteUntil: 0, ops: 0, nextOp: -1, opsBroke: 0, opsHeld: 0, w0: null, rotations: 0, seconds: 0 });
 
 /** Kinds of battle plan (doctrines). */
 export type PlanKind = 'envelop' | 'double' | 'centre' | 'defend' | 'feint' | 'hook' | 'refuse';
@@ -407,7 +407,13 @@ export function commanderThink(b: BattleState, c: Commander) {
         c.push = { ids: group.map(q => q.id), y: at.my, since: b.t, size }; c.pushes++;
         for (const q of group) q.mission!.push = true; // all together, now
         // the big version: a managed push operation on that stretch of the line, with every reserve and free squad nearby
-        if (!c.op && (c.op = startPushOp(b, c, at.mx, at.my, K.op.width, 'commander'))) c.ops++;
+        // the big version: a managed push operation on that stretch of the line, with everything nearby (only a few per battle)
+        const maxOps = Math.min(K.op.aiCount[1], K.op.aiCount[0] + Math.floor(myInf.length / K.op.aiPerSquads));
+        if (c.nextOp < 0) c.nextOp = c.contactAt + K.op.aiFirst[0] + rnd(7) * (K.op.aiFirst[1] - K.op.aiFirst[0]);
+        if (!c.op && c.ops < maxOps && b.t >= c.nextOp && (c.op = startPushOp(b, c, at.mx, at.my, K.op.width, 'commander'))) {
+          c.ops++; c.push = null; c.nextPush = Infinity; // (the push operation replaces the small push)
+          for (const q of group) q.mission!.push = false;
+        }
         plan.why = `${c.breach ? 'breaking through a weak spot' : 'pushing'} with ${group.length} squads on the ${sector(at.my) === 0 ? 'centre' : wingName(sector(at.my))}`;
       }
     }

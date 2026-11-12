@@ -42,6 +42,7 @@ export interface BSoldier {
   hp: number; cd: number; target: number; retarget: number;
   dir: number; step: number; flash: number; lunge: number; lungeDir: number;
   dead: boolean; fled: boolean; charge: boolean; moved: number;
+  pressure?: number;          // crowd pressure on his back (bodies stacking up behind him)
   stagger: number;            // knocked off balance by a charge or a heavy blow (can't strike)
   diedAt: number;             // battle time of death (for the fall animation)
   // each soldier is a little different
@@ -355,6 +356,17 @@ export function stepBattle(b: BattleState) {
     const k = (Math.floor(s.y) + 8) * 1000 + Math.floor(s.x) + 8;
     let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(s);
   }
+  /** Friendly soldiers standing between a soldier and the man he wants to hit (in the way of his blow). */
+  const friendsBetween = (s: BSoldier, t: BSoldier) => {
+    const dx = t.x - s.x, dy = t.y - s.y, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+    let n = 0;
+    nearby((s.x + t.x) / 2, (s.y + t.y) / 2, d / 2 + 0.3, e => {
+      if (e === s || e.side !== s.side || e.dead || e.fled) return;
+      const ex = e.x - s.x, ey = e.y - s.y, f = ex * ux + ey * uy;
+      if (f > 0.08 && f < d - 0.08 && Math.abs(-ex * uy + ey * ux) < 0.2) n++;
+    });
+    return n;
+  };
   const nearby = (x: number, y: number, r: number, f: (s: BSoldier) => void) => {
     const R = Math.ceil(r);
     for (let gy = Math.floor(y) - R; gy <= Math.floor(y) + R; gy++) for (let gx = Math.floor(x) - R; gx <= Math.floor(x) + R; gx++) {
@@ -887,7 +899,9 @@ export function stepBattle(b: BattleState) {
     const goTo = (tx: number, ty: number, sp: number, stopAt = 0.04) => {
       const dx = tx - s.x, dy = ty - s.y, d = Math.hypot(dx, dy);
       if (d <= stopAt) return;
-      const m = Math.min(d - stopAt, sp * s.pace * (1 - B.fatigue.slow * q.fatigue) * (q.mission?.rush && !isCav ? 1 + B.commander.rushSpeed : 1) * DT);
+      // (a man well away from where he should be hurries: nobody ambles about in a battle)
+      const hurry = 1 + Math.min(SO.hurryMax, Math.max(0, d - SO.hurryFrom) * SO.hurry);
+      const m = Math.min(d - stopAt, sp * hurry * s.pace * (1 - B.fatigue.slow * q.fatigue) * (q.mission?.rush && !isCav ? 1 + B.commander.rushSpeed : 1) * DT);
       s.x += (dx / d) * m; s.y += (dy / d) * m;
       s.dir = Math.atan2(dy, dx); s.step += m * 30; s.moved += m;
     };
@@ -969,7 +983,9 @@ export function stepBattle(b: BattleState) {
         if (meleeNow) foesNow[t.id]++;
         // spearmen brace: a charging horse runs onto a set spear (a free strike, whatever the timing)
         const brace = meleeNow && s.unit === 'spearmen' && s.charge && t.unit === 'cavalry' && t.charge && t.moved > 1;
-        if ((s.cd <= 0 || brace) && s.stagger <= 0) {
+        // only the front two ranks can strike: a man with two or more friends between him and his enemy can't reach past them
+        const blocked = meleeNow && !brace && s.cd <= 0 && friendsBetween(s, t) >= ML.strikeRanks;
+        if ((s.cd <= 0 || brace) && s.stagger <= 0 && !blocked) {
           let dmg = damageOf(b, s, q, t, sq(t.squad), meleeNow);
           let charged = false, kb = 0, heavy = false;
           if (brace) { dmg *= C.braceBonus; s.charge = false; }
@@ -1100,6 +1116,39 @@ export function stepBattle(b: BattleState) {
   const STG = B.push.staggerChance, STS = B.push.staggerSeconds;
   // (huge battles: worked out every other tick, twice as hard: nobody notices, and it halves the hottest loop)
   const every = L > B.bigBattleSoldiers ? 2 : 1;
+  // ---- crowd pressure: bodies stack up ----
+  // Every man leaning forward (his squad is pushing, or he's pressing on behind the men in front instead of standing and
+  // fighting) adds his weight, and passes on the weight of the men leaning on his back. So pressure builds from the back
+  // ranks to the front, and the side with more weight behind its front men shoves the other back.
+  const PR = B.crowd, P = new Float32Array(L), FX = new Float32Array(L), FY = new Float32Array(L);
+  if (tick % every === 0 && PR.on) {
+    const depth = new Float32Array(L), order = new Int32Array(L);
+    for (let i = 0; i < L; i++) {
+      const o = live[i], q = sq(o.squad);
+      FX[i] = Math.cos(q.ang); FY[i] = Math.sin(q.ang); depth[i] = X[i] * FX[i] + Y[i] * FY[i]; order[i] = i;
+      if (o.unit === 'cavalry' || shooter(q) || q.broken || o.routing) continue;
+      // how hard he leans: pushing squad > pressing on > standing his ground fighting (he still passes on the weight behind him)
+      const fighting = o.target > 0 && !so(o.target).dead && Math.hypot(so(o.target).x - o.x, so(o.target).y - o.y) < 1.0 && o.moved < 0.02;
+      P[i] = q.pushing ? PR.pushing : q.state === 'melee' || q.state === 'charge' ? (fighting ? 0 : PR.pressing) : 0;
+    }
+    // back to front: each man adds a share of the pressure of the friends right behind him (leaning on his back)
+    order.sort((a, z) => depth[a] - depth[z]);
+    for (const i of order) {
+      if (CV[i]) continue;
+      const cx = Math.max(0, Math.min(GW - 1, Math.floor(X[i] / CELL) + 2)), cy = Math.max(0, Math.min(GH - 1, Math.floor(Y[i] / CELL) + 2));
+      let add = 0;
+      for (let gy = Math.max(0, cy - 1); gy <= Math.min(GH - 1, cy + 1); gy++) for (let gx = Math.max(0, cx - 1); gx <= Math.min(GW - 1, cx + 1); gx++)
+        for (let j = head[gy * GW + gx]; j >= 0; j = nxt[j]) {
+          if (j === i || SD[j] !== SD[i] || P[j] === 0) continue;
+          const dx = X[i] - X[j], dy = Y[i] - Y[j];
+          const f = dx * FX[i] + dy * FY[i], r = -dx * FY[i] + dy * FX[i];
+          if (f > 0.05 && f < PR.reach && Math.abs(r) < PR.width) add += P[j];
+        }
+      P[i] = Math.min(PR.max, P[i] + add * PR.pass);
+    }
+    // the weight each man throws against an enemy grows with the pressure behind him
+    for (let i = 0; i < L; i++) if (P[i] > 0) WW[i] *= 1 + PR.gain * P[i];
+  }
   if (tick % every === 0) for (let i = 0; i < L; i++) {
     let px = 0, py = 0, close = false;
     const sx = X[i], sy = Y[i], sr = RR[i], sCav = CV[i], sSide = SD[i], ws = WW[i];
@@ -1123,8 +1172,11 @@ export function stepBattle(b: BattleState) {
         if (d > 0.001 && d < min - 0.02) { const k = (min - 0.02 - d) * (foe ? 0.4 * wgt : 0.2); px += (dx / d) * k; py += (dy / d) * k; } // (a little give, so nobody jitters)
       }
     }
+    // pressure behind him moves him forward (into the enemy if they're there: the separation above decides who gives way)
+    if (P[i] > PR.creepFrom) { const k = Math.min(PR.creepMax, (P[i] - PR.creepFrom) * PR.creep) * DT; px += FX[i] * k; py += FY[i] * k; }
     const s = live[i];
     s.inMelee = close;
+    s.pressure = P[i];
     if (px || py) push.push([s, px * every, py * every]);
   }
   for (const [s, px, py] of push) { s.x += px; s.y = Math.max(0.3, Math.min(b.H - 0.3, s.y + py)); }

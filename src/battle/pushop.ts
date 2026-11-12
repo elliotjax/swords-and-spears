@@ -24,7 +24,7 @@ import type { Commander, Mission } from './commander';
 //  commander leaves it alone.
 // =====================================================================
 
-export type OpRole = 'front' | 'assault' | 'corner';
+export type OpRole = 'front' | 'assault' | 'corner' | 'line' | 'fill';
 export interface PushOp {
   side: Side; by: 'commander' | 'player';
   x: number; y: number; half: number;   // the point on the battle line, and half the width of the stretch
@@ -81,25 +81,28 @@ export function startPushOp(b: BattleState, c: Commander, x: number, y: number, 
     ids: [], role: {}, sides: [], cornersSent: false, note: '', lineLo: M.lo, lineHi: M.hi + 1, density: 0, rolled: 0,
   };
   const CK = CONFIG.battle.commander;
-  let free = 0, fronts = 0;
+  // who does what:
+  //  - fighting on the stretch: FRONT (push); just beside it: CORNER (push, and later send half round); further along the
+  //    battle line: LINE (push too: the whole line leans in, pinning the enemy so they can't shift men to the charge point)
+  //  - not fighting, close behind the charge point: ASSAULT (all of them charge the point at once)
+  //  - not fighting, further back (up to the radius): FILL (move up and join the line beside the charge, pushing there,
+  //    taking the place of the reserves that went in)
+  let free = 0, fronts = 0, fills = 0;
   for (const q of b.squads) {
     if (q.side !== side || !ok(q) || !isFoot(q) || q.unit === 'boss' || wavering(q)) continue;
     const dy = Math.abs(q.my - op.y), d = Math.hypot(q.mx - op.x, q.my - op.y);
     let role: OpRole | null = null;
-    if (q.state === 'melee' && !q.mission?.rush) role = dy <= half ? 'front' : dy <= half + K.cornerReach ? 'corner' : null;
-    else if (d <= K.radius && q.fatigue < CK.tiredAt && q.mission?.kind !== 'intercept' && q.mission?.postY === undefined) {
-      // (the second line only joins where it stands behind the stretch being pushed: elsewhere it keeps backing its own front squad)
-      const fr = q.mission?.kind === 'second' && q.mission.friend ? b.squads[q.mission.friend - 1] : null;
-      if (!fr || Math.abs(fr.my - op.y) <= half + 2) role = 'assault';
-    }
+    if (q.state === 'melee' && !q.mission?.rush) role = dy <= half ? 'front' : dy <= half + K.cornerReach ? 'corner' : dy <= half + K.lineReach ? 'line' : null;
+    else if (d <= K.radius && q.fatigue < CK.tiredAt && q.mission?.kind !== 'intercept' && q.mission?.postY === undefined) role = d <= K.chargeRadius ? 'assault' : 'fill';
     if (!role) continue;
     op.ids.push(q.id); op.role[q.id] = role;
-    if (role === 'assault') free++; else if (role === 'front') fronts++;
+    if (role === 'assault') free++; else if (role === 'fill') fills++; else fronts++;
   }
-  // a push takes the nearest free squads up to a cap (a big army doesn't throw its whole reserve into one push)
+  // the fill-ins are capped (the rest of the army keeps its own line and reserve)
   const cap = Math.max(K.minCap, Math.round(b.squads.filter(q => q.side === side && ok(q) && isFoot(q)).length * K.capShare));
-  const assault = op.ids.filter(id => op.role[id] === 'assault').sort((a, z) => Math.hypot(b.squads[a - 1].mx - op.x, b.squads[a - 1].my - op.y) - Math.hypot(b.squads[z - 1].mx - op.x, b.squads[z - 1].my - op.y));
-  for (const id of assault.slice(cap)) { op.ids.splice(op.ids.indexOf(id), 1); delete op.role[id]; free--; }
+  const fillIds = op.ids.filter(id => op.role[id] === 'fill').sort((a, z) => Math.hypot(b.squads[a - 1].mx - op.x, b.squads[a - 1].my - op.y) - Math.hypot(b.squads[z - 1].mx - op.x, b.squads[z - 1].my - op.y));
+  for (const id of fillIds.slice(cap)) { op.ids.splice(op.ids.indexOf(id), 1); delete op.role[id]; fills--; }
+  if (!free && fills) for (const id of fillIds.slice(0, Math.min(cap, 2))) { op.role[id] = 'assault'; free++; fills--; } // (nobody close: the nearest fill-ins charge)
   if (free < K.minFree && by === 'commander') return null; // nobody to pour in: the commander's ordinary push will do
   if (free + fronts === 0) return null;
   for (const id of op.ids) {
@@ -107,10 +110,12 @@ export function startPushOp(b: BattleState, c: Commander, x: number, y: number, 
     const m: Mission = q.mission ?? { kind: 'advance', target: 0, wing: 0, why: '', since: b.t, until: Infinity };
     q.mission = { ...m, op: true, until: Infinity, since: r === 'assault' ? b.t : m.since, via: undefined, viaDone: undefined };
     if (r === 'front') { q.mission.push = true; q.mission.why = 'the push: driving into their line'; }
-    if (r === 'corner') { q.mission.push = false; q.mission.why = 'holding the corner of the push'; }
+    if (r === 'corner') { q.mission.push = true; q.mission.why = 'the push: pushing on the corner'; }
+    if (r === 'line') { q.mission.push = true; q.mission.why = 'the push: the whole line leans in'; }
+    if (r === 'fill') { q.mission = { kind: 'advance', target: 0, wing: 0, why: 'the push: moving up to take the reserves\' place', since: b.t, until: Infinity, op: true, rush: true }; }
     q.lull = false; if (q.state === 'withdraw' && r !== 'assault') q.withdrawUntil = b.t;
   }
-  op.note = `push on a ${Math.round(half * 2)}-tile front: ${free} squads charging in, ${fronts} pushing`;
+  op.note = `PUSH on a ${Math.round(half * 2)}-tile front: ${free} squads charging, ${fronts} pushing along the line, ${fills} moving up`;
   return op;
 }
 
@@ -125,7 +130,9 @@ export function endPushOp(b: BattleState, c: Commander, why: string) {
     if (q.state !== 'melee' || op.role[id] !== 'assault') { m.kind = 'advance'; m.target = 0; m.why = 'back to the line after the push'; m.via = undefined; }
   }
   c.op = null; c.opNote = `${why}`; c.opNoteUntil = b.t + 6;
-  c.nextPush = b.t + CONFIG.battle.commander.pushEvery[0] + (CONFIG.battle.commander.pushEvery[1] - CONFIG.battle.commander.pushEvery[0]) * 0.5;
+  const CK = CONFIG.battle.commander, r = ((b.t * 7919) % 1000) / 1000;
+  c.nextPush = b.t + CK.pushEvery[0] + (CK.pushEvery[1] - CK.pushEvery[0]) * 0.5;
+  c.nextOp = b.t + CK.op.aiEvery[0] + r * (CK.op.aiEvery[1] - CK.op.aiEvery[0]);
   if (c.plan) c.plan.why = why;
 }
 
@@ -140,7 +147,7 @@ export function pushOpTick(b: BattleState, c: Commander) {
   op.ids = op.ids.filter(id => { const q = b.squads[id - 1]; if (ok(q) && q.mission?.op) return true; if (q?.mission) q.mission.op = false; return false; });
   const squads = op.ids.map(id => b.squads[id - 1]);
   const free = squads.filter(q => op.role[q.id] === 'assault');
-  const fronts = squads.filter(q => op.role[q.id] === 'front');
+  const fronts = squads.filter(q => op.role[q.id] !== 'assault' && op.role[q.id] !== 'fill');
   if (!free.length && !fronts.length) { endPushOp(b, c, 'the push is spent'); return; }
   if (b.t - op.since > K.maxSeconds) { endPushOp(b, c, op.phase === 'wrap' ? `the push broke through and rolled up ${op.rolled} of their squads` : 'the push was held: back to the line'); c.opsHeld += op.phase === 'wrap' ? 0 : 1; return; }
 
@@ -159,7 +166,20 @@ export function pushOpTick(b: BattleState, c: Commander) {
     q.retarget = 0; q.lull = false; if (q.state === 'withdraw') q.withdrawUntil = b.t;
   };
   // squads pushing on the stretch keep pushing while they have the legs
-  for (const q of fronts) { const m = q.mission!; m.push = q.fatigue < CK.pushStop && q.state === 'melee'; }
+  for (const q of squads) {
+    const r = op.role[q.id], m = q.mission!;
+    if (r === 'front' || r === 'corner' || r === 'line') m.push = q.fatigue < CK.pushStop && q.state === 'melee';
+    else m.push = q.state === 'melee' && q.fatigue < CK.pushStop; // the chargers and fill-ins push too once they're in
+  }
+  // fill-ins: onto the enemy squads beside the charge point (not on it), spread out, and push there
+  const besides = foes.filter(e => isFoot(e) && e.state === 'melee' && Math.abs(e.my - op.y) > op.half * 0.5 && Math.abs(e.my - op.y) <= op.half + K.lineReach);
+  for (const q of squads.filter(s => op.role[s.id] === 'fill')) {
+    const cur = q.mission!.target > 0 ? b.squads[q.mission!.target - 1] : null;
+    if (cur && ok(cur) && (q.state === 'melee' || b.t - q.mission!.since < 6)) continue;
+    let best: BSquad | null = null, bs = Infinity;
+    for (const e of besides) { const s = Math.hypot(e.mx - q.mx, e.my - q.my) + sent(e.id, q) * K.spread; if (s < bs) { bs = s; best = e; } }
+    if (best) order(q, 'attack', best, `the push: joining the line beside the charge (their ${NAME[best.unit]})`);
+  }
 
   if (op.phase === 'assault') {
     // ---- break in: everyone free goes at the thinnest part of their line on this stretch ----
@@ -186,7 +206,7 @@ export function pushOpTick(b: BattleState, c: Commander) {
         }
         if (best) order(q, 'attack', best, `the push: breaking their line (their ${NAME[best.unit]})`);
       }
-      op.note = `push on a ${Math.round(op.half * 2)}-tile front: ${free.length} squads charging in, ${fronts.length} pushing`;
+      op.note = `PUSH on a ${Math.round(op.half * 2)}-tile front: ${free.length} squads charging, ${fronts.length} pushing along the line`;
     }
   }
   if (op.phase === 'wrap') {

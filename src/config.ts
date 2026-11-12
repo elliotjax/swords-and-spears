@@ -337,7 +337,13 @@ export const CONFIG = {
       },
       // ---- the push operation (pushop.ts): a managed attack on a stretch of the battle line ----
       op: {
-        radius: 25,             // reserves and free infantry this close to the point join the push
+        radius: 25,             // reserves and free infantry this close to the point join the push...
+        chargeRadius: 12,       // ...those this close all charge the point at once; the rest move up and push beside it
+        lineReach: 8,           // squads fighting this far beside the stretch push too (the whole line leans in)
+        aiCount: [2, 6] as [number, number], // the army commander starts this many pushes per battle (more for bigger armies)...
+        aiPerSquads: 25,        // ...one more for every this many infantry squads...
+        aiFirst: [12, 22] as [number, number], // ...the first this long after the lines meet...
+        aiEvery: [28, 45] as [number, number], // ...then this long between one ending and the next
         width: 10,              // the stretch of the battle line it goes for (tiles)
         minWidth: 6, maxWidth: 16, // (a player-drawn push is kept between these)
         tick: 0.3,              // its manager thinks this often (seconds)
@@ -511,6 +517,21 @@ export const CONFIG = {
       foeGap: 0.22,             // enemies keep this much extra room between them (two lines press against each other instead of mixing)
       huntLeash: 0.8,           // soldiers not in the front rank may go this far from their place to find someone to fight (flanking, wrapping round)
       pressForward: 0.2,        // back ranks with nobody to fight lean forward to fill gaps
+      strikeRanks: 2,           // a man with this many friends between him and his enemy can't strike (only the front two ranks fight)
+    },
+    // Crowd pressure: men leaning forward pass on the weight of the men behind them, so pushes build up through the ranks.
+    crowd: {
+      on: true,
+      pushing: 1,               // how hard a man in a pushing squad leans forward
+      pressing: 0.55,           // ...a man in a fighting squad who isn't standing and trading blows (pressing on behind the front)
+      pass: 0.75,               // share of the pressure of the men leaning on his back that he passes on
+      reach: 0.6,               // "on his back" = a friend this close behind him...
+      width: 0.3,               // ...and this close to straight behind
+      max: 6,                   // pressure cap (about 6-7 ranks of men leaning)
+      gain: 0.35,               // each point of pressure makes him this much heavier against an enemy (who gives way decides who moves)
+      creepFrom: 1.2,           // above this pressure he's shoved forward...
+      creep: 0.12,              // ...this many tiles a second per point of pressure above it...
+      creepMax: 0.35,           // ...at most this fast
     },
     // Cohesion (0..1): how well a squad keeps together. Separate from courage: a brave squad can still come apart.
     cohesion: {
@@ -548,6 +569,9 @@ export const CONFIG = {
       react: 0.5,               // chance a soldier turns on someone hitting them from the side
       busyParry: 0.35,          // parrying a blow from someone you're NOT fighting (they're busy with someone else) is this much harder
       panicPerSec: 0.03,        // a badly hurt soldier in a shaken squad may run on their own (chance per second, less for brave ones)
+      hurryFrom: 0.5,           // a man further than this from where he's going hurries...
+      hurry: 0.6,               // ...this much faster per tile further...
+      hurryMax: 0.8,            // ...up to this much faster
       panicHp: 0.35,            // "badly hurt" = below this share of HP
     },
     charge: {
