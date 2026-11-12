@@ -16,7 +16,7 @@ const ARMIES: [string, Record<string, number>, number][] = [
 
 for (const [name, A, N] of ARMIES) {
   const idleU: Record<string, [number, number]> = {}, idleM: Record<string, [number, number]> = {};
-  const rows: { plans: string; sector: string; t: number; win: number; margin: number; pushes: number; breaches: number; flank: number; exploits: number; shores: number; changes: number; gaps: number; det: number }[] = [];
+  const rows: { plans: string; sector: string; t: number; win: number; margin: number; pushes: number; breaches: number; flank: number; exploits: number; shores: number; changes: number; gaps: number; det: number; ops: number; broke: number; held: number }[] = [];
   for (let i = 0; i < N; i++) {
     const b = createBattle({ sides: [mk(A), mk(A)], commander: [true, true] }, 500 + i * 37, i % 2 === 1);
     let firstBreak = '';
@@ -29,7 +29,7 @@ for (const [name, A, N] of ARMIES) {
       sample(b, idleU, idleM);
     }
     const alive = (s: number) => b.soldiers.filter(x => x.side === s && !x.dead && !x.fled).length;
-    rows.push({ plans: plans.join(' | '), sector: firstBreak || '-', t: b.t, win: b.winner, margin: Math.abs(alive(0) - alive(1)), pushes: (b.cmd[0]?.pushes ?? 0) + (b.cmd[1]?.pushes ?? 0), breaches: (b.cmd[0]?.breaches ?? 0) + (b.cmd[1]?.breaches ?? 0), flank: b.stats.flankHits[0] + b.stats.flankHits[1], exploits: (b.cmd[0]?.exploits ?? 0) + (b.cmd[1]?.exploits ?? 0), shores: (b.cmd[0]?.shores ?? 0) + (b.cmd[1]?.shores ?? 0), changes: (b.cmd[0]?.planChanges ?? 0) + (b.cmd[1]?.planChanges ?? 0), gaps: (b.cmd[0]?.gapCharges ?? 0) + (b.cmd[1]?.gapCharges ?? 0), det: (b.cmd[0]?.detachments ?? 0) + (b.cmd[1]?.detachments ?? 0) });
+    rows.push({ plans: plans.join(' | '), sector: firstBreak || '-', t: b.t, win: b.winner, margin: Math.abs(alive(0) - alive(1)), pushes: (b.cmd[0]?.pushes ?? 0) + (b.cmd[1]?.pushes ?? 0), breaches: (b.cmd[0]?.breaches ?? 0) + (b.cmd[1]?.breaches ?? 0), flank: b.stats.flankHits[0] + b.stats.flankHits[1], exploits: (b.cmd[0]?.exploits ?? 0) + (b.cmd[1]?.exploits ?? 0), shores: (b.cmd[0]?.shores ?? 0) + (b.cmd[1]?.shores ?? 0), changes: (b.cmd[0]?.planChanges ?? 0) + (b.cmd[1]?.planChanges ?? 0), gaps: (b.cmd[0]?.gapCharges ?? 0) + (b.cmd[1]?.gapCharges ?? 0), det: (b.cmd[0]?.detachments ?? 0) + (b.cmd[1]?.detachments ?? 0), ops: (b.cmd[0]?.ops ?? 0) + (b.cmd[1]?.ops ?? 0), broke: (b.cmd[0]?.opsBroke ?? 0) + (b.cmd[1]?.opsBroke ?? 0), held: (b.cmd[0]?.opsHeld ?? 0) + (b.cmd[1]?.opsHeld ?? 0) });
   }
   const pct = (a: [number, number]) => `${(a[0] / Math.max(1, a[1]) * 100).toFixed(0)}%`;
   console.log(`\n=== ${name}, ${N} battles ===`);
@@ -46,6 +46,7 @@ for (const [name, A, N] of ARMIES) {
   const [em, es] = sd(r => r.exploits), [hm] = sd(r => r.shores), [cm] = sd(r => r.changes), [bm] = sd(r => r.breaches);
   console.log(`per battle (both sides): squads sent through gaps / round the ends ${em.toFixed(1)} ± ${es.toFixed(1)}, line shored up ${hm.toFixed(1)}, plan changes ${cm.toFixed(1)}, breakthrough attempts ${bm.toFixed(1)}`);
   { const [gm, gs] = sd(r => r.gaps), [dm] = sd(r => r.det); console.log(`breakthrough charges through holes in the line ${gm.toFixed(1)} ± ${gs.toFixed(1)} per battle, detachments split off ${dm.toFixed(1)}`); }
+  { const [om] = sd(r => r.ops), [bk] = sd(r => r.broke), [hd] = sd(r => r.held); console.log(`push operations ${om.toFixed(1)} per battle: broke through ${bk.toFixed(1)}, held ${hd.toFixed(1)}`); }
   console.log(`length ${(tm / 60).toFixed(1)} min ± ${(ts / 60).toFixed(1)}; winner's margin ${mm.toFixed(0)} ± ${ms.toFixed(0)} soldiers; pushes ${pm.toFixed(1)} ± ${ps.toFixed(1)}; flank hits ${fm.toFixed(0)} ± ${fs.toFixed(0)}; red wins ${rows.filter(r => r.win === 0).length}/${N}`);
 }
 

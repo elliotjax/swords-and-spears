@@ -1,5 +1,6 @@
 import { CONFIG, type UnitKind } from '../config';
 import { commanderThink, newCommander, postOf, type Commander, type Mission } from './commander';
+import { pushOpTick } from './pushop';
 
 // =====================================================================
 //  Battle simulation v3. Left side (0) = you, right side (1) = enemy.
@@ -435,7 +436,7 @@ export function stepBattle(b: BattleState) {
   for (const sd of [0, 1]) { const L = b.line[sd]; L.front = sideFront[sd]; L.lo = Infinity; L.hi = -Infinity; }
   for (const q of b.squads) if (active(q) && !q.broken && q.unit !== 'cavalry' && !shooter(q)) { const L = b.line[q.side]; L.lo = Math.min(L.lo, q.my); L.hi = Math.max(L.hi, q.my); }
   // the army commanders think (every few seconds; the order flips so neither side goes first)
-  for (const sd of Math.floor(b.t / B.commander.thinkSeconds) % 2 ? [0, 1] : [1, 0]) { const c = b.cmd[sd]; if (c) commanderThink(b, c); } // (they take turns thinking first)
+  for (const sd of Math.floor(b.t / B.commander.thinkSeconds) % 2 ? [0, 1] : [1, 0]) { const c = b.cmd[sd]; if (c) { commanderThink(b, c); if (c.op) pushOpTick(b, c); } } // (they take turns thinking first; a push operation has its own, faster manager)
   const behindLine = (side: Side, x: number) => isFinite(sideFront[side]) && x * fwdOf[side] < sideFront[side] - 0.5;
   const enemyCavLeft = [0, 1].map(sd => b.squads.some(q => q.side !== sd && q.unit === 'cavalry' && active(q) && !q.broken));
 

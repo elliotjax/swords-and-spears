@@ -1,4 +1,5 @@
 import { CONFIG } from '../config';
+import { startPushOp, type PushOp } from './pushop';
 import { active, detach, halfFront, shooter, squadAlive, squadHp, wavering, type BattleState, type BSquad, type Side } from './battle';
 
 // =====================================================================
@@ -40,6 +41,7 @@ export interface Mission {
   push?: boolean;     // advance only: drive forward into the enemy in front (the squad pushes while it has the strength)
   via?: { x: number; y: number }; viaDone?: boolean; // go through this point first (a gap in their line), then onto the target
   rush?: boolean;     // a breakthrough charge: move a little faster
+  op?: boolean;       // part of a push operation (pushop.ts): its manager gives the orders, the army commander leaves the squad alone
   postY?: number;     // reserve only: stand at this point along the line instead of our own spot (guarding a wing)
 }
 
@@ -66,12 +68,14 @@ export interface Commander {
   exploits: number;   // squads sent through gaps / round the end of their line so far
   gapRuns: { y: number; until: number }[]; // gaps in their line we are charging through right now
   gapCharges: number; detachments: number; // (for the tools)
+  op: PushOp | null;  // the push operation under way (its own fast manager: pushop.ts)
+  opNote: string; opNoteUntil: number; ops: number; opsBroke: number; opsHeld: number;
   nextShore?: number; shores?: number; // shoring up a losing part of our line with a reserve
 }
 /** A commander's character for one battle (0..1 each): how fast it commits, how bold its cavalry are, how long it waits. */
 export interface Temper { aggr: number; cav: number; patience: number }
 
-export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0 });
+export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0, op: null, opNote: '', opNoteUntil: 0, ops: 0, opsBroke: 0, opsHeld: 0 });
 
 /** Kinds of battle plan (doctrines). */
 export type PlanKind = 'envelop' | 'double' | 'centre' | 'defend' | 'feint' | 'hook' | 'refuse';
@@ -103,7 +107,7 @@ export function commanderThink(b: BattleState, c: Commander) {
   const K = CONFIG.battle.commander, side = c.side;
   if (b.t < c.nextThink) return;
   c.nextThink = b.t + K.thinkSeconds;
-  const mine = b.squads.filter(q => q.side === side && active(q) && !q.broken);
+  const mine = b.squads.filter(q => q.side === side && active(q) && !q.broken && !q.mission?.op); // (squads in a push operation answer to its manager)
   const foes = observe(b, side);
   if (!mine.length) return;
   const L = b.line[side], fwd = mine[0].fwd;
@@ -391,6 +395,8 @@ export function commanderThink(b: BattleState, c: Commander) {
       if (group.length >= 2 || (group.length && b.t > c.nextPush + K.pushWait)) { // a push wants company: wait a little for a second squad
         c.push = { ids: group.map(q => q.id), y: at.my, since: b.t, size }; c.pushes++;
         for (const q of group) q.mission!.push = true; // all together, now
+        // the big version: a managed push operation on that stretch of the line, with every reserve and free squad nearby
+        if (!c.op && (c.op = startPushOp(b, c, at.mx, at.my, K.op.width, 'commander'))) c.ops++;
         plan.why = `${c.breach ? 'breaking through a weak spot' : 'pushing'} with ${group.length} squads on the ${sector(at.my) === 0 ? 'centre' : wingName(sector(at.my))}`;
       }
     }

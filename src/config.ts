@@ -324,6 +324,32 @@ export const CONFIG = {
       archerRefocus: 6,         // archers look for a new focus this often...
       archerReach: 1.8,         // ...among enemies within this many times their range (they walk up to shoot it)
       massShare: 0.6,           // this share of their cavalry (2 squads or more) near one end of our line = massing: a reserve guards that wing
+      // ---- the push operation (pushop.ts): a managed attack on a stretch of the battle line ----
+      op: {
+        radius: 25,             // reserves and free infantry this close to the point join the push
+        width: 10,              // the stretch of the battle line it goes for (tiles)
+        minWidth: 6, maxWidth: 16, // (a player-drawn push is kept between these)
+        tick: 0.3,              // its manager thinks this often (seconds)
+        minFree: 1,             // the commander only starts one with at least this many free squads to pour in
+        cornerReach: 3,         // squads fighting this close beside the stretch hold its corners
+        lineDepth: 2.5,         // an enemy squad this close behind their front counts as part of their line
+        minAssault: 4,          // seconds before the line can count as broken
+        assaultSeconds: 26,     // no breakthrough by then: the push is called off
+        maxSeconds: 60,         // a push never lasts longer than this
+        breachWidth: 3,         // a hole this wide (tiles with no enemy fighting) on the stretch = broken through
+        densityWeight: 0.25,    // choosing where to hit: each enemy soldier fighting near a target counts this many tiles
+        spread: 3,              // ...and each of our squads already sent at it counts this many
+        wrapReach: 15,          // after breaking through, roll up their line this far each way
+        wrapDepth: 2.5,         // wrapping squads go this far behind the enemy squad they turn on
+        behindDepth: 15,        // enemies standing up to this far behind their line are judged...
+        dangerRange: 7,         // ...those this close to the breach (or cavalry, or attacking us) get a squad sent at them
+        guardShare: 0.5,        // at most this share of the free squads go to meet enemies behind the line
+        perTarget: 2,           // wrapping squads per enemy squad
+        cornerDelay: 2,         // seconds after the breakthrough before the corner squads send men round
+        cornerShare: 0.5,       // a corner squad sends this share of its men...
+        cornerMin: 6,           // ...if it has this many standing...
+        cornerCohesion: 0.3,    // ...and is in fair order
+      },
       // breakthrough charges through holes in their fighting line
       gapAfter: 6,              // seconds after contact before the commander looks for holes
       gapBin: 0.5,              // the line is checked in slices this wide (tiles)

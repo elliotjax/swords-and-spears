@@ -9,6 +9,7 @@ import {
 } from './battle';
 import type { GameState } from '../sim/types';
 import { PLAN_NAME } from './commander';
+import { endPushOp, startPushOp } from './pushop';
 
 // =====================================================================
 //  Battle Lab: a test screen to set up two armies, watch them fight,
@@ -40,6 +41,8 @@ export class BattleLab {
   private counts: [Record<UnitKind, number>, Record<UnitKind, number>];
   private ranks: [number, number] = [1, 1];
   private speed = 1;
+  private pushMode = false;              // fighting: the next tap / drawn line on the field orders a push there
+  private pushLine: { a: Pt; b: Pt } | null = null; // the line being drawn for it (field tiles)
   private cine = false;                  // cinematic view: no badges, words or squad blocks (and no panel) while fighting
   private seed = 1;
   private ground: HTMLCanvasElement | null = null;
@@ -250,6 +253,7 @@ export class BattleLab {
       case 'close': this.close(); return;
       case 'cam': this.autoCam = true; this.renderTop(); return;
       case 'cine': this.cine = !this.cine; this.renderTop(); return;
+      case 'push': this.pushMode = !this.pushMode; this.pushLine = null; this.renderPanel(); return;
       case 'add': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 1); this.rebuildArmy(side === 1); break;
       case 'add5': this.counts[side][u] = Math.min(MAX_SQUADS, this.counts[side][u] + 5); this.rebuildArmy(side === 1); break;
       case 'sub': this.counts[side][u] = Math.max(0, this.counts[side][u] - 1); this.rebuildArmy(side === 1); break;
@@ -358,7 +362,7 @@ export class BattleLab {
         <p style="font-size:12px">Changing YOUR army puts your squads back in the automatic formation. Changing the enemy leaves your formation alone.</p>
         <div class="labbtns"><button class="btn" data-lab="page">Done: deploy ➜</button></div>`;
     } else if (this.view === 'fight') {
-      this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div><button class="btn ghost" data-lab="stop">Stop</button></div><div class="labplans">${this.plansHtml()}</div>`;
+      this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div>${this.b?.cmd[0] ? `<button class="btn ${this.pushMode ? '' : 'ghost'}" data-lab="push">⚔ Push</button>` : ''}<button class="btn ghost" data-lab="stop">Stop</button></div>${this.pushMode ? '<p class="labhint"><b>Push:</b> tap the battle line where you want to break through, or draw a line along it (its length is the width). Reserves and free infantry within 25 tiles join.</p>' : ''}<div class="labplans">${this.plansHtml()}</div>`;
     } else {
       const b = this.b!;
       const title = b.winner === 0 ? '🏆 You win!' : b.winner === 1 ? 'Defeat' : 'Draw';
@@ -386,7 +390,8 @@ export class BattleLab {
     const line = (sd: Side) => {
       const c = b.cmd[sd]; if (!c) return '';
       const p = c.plan, plan = p ? `<i>${PLAN_NAME[p.kind]}${p.kind === 'feint' && p.switched ? ' (switched)' : ''}</i> · ` : '';
-      return `<div><b style="color:${TEAM[sd]}">${sd === 0 ? 'Your' : 'Enemy'} commander:</b> ${plan}${(p?.why ?? 'advancing').replace(/^plan: /, '')}</div>`;
+      const note = !c.op && b.t < c.opNoteUntil ? c.opNote : (p?.why ?? 'advancing').replace(/^plan: /, '');
+      return `<div><b style="color:${TEAM[sd]}">${sd === 0 ? 'Your' : 'Enemy'} commander:</b> ${plan}${c.op ? '<b>PUSH</b> · ' : ''}${note}</div>`;
     };
     return line(0) + line(1);
   }
@@ -646,6 +651,18 @@ export class BattleLab {
       });
     } else {
       for (const q of b.squads) if (q.side === 0 && q.order === 'path' && !q.gone && !q.fleeing) arrow([{ x: q.mx, y: q.my }, ...q.path.slice(q.pathI)], TEAM_LIGHT[0], 2 * d, 0.55);
+      // push operations: the stretch of the line being attacked (a bar), and which ways it is wrapping (arrows behind their line)
+      if (!this.cine) for (const sd of [0, 1] as const) {
+        const op = b.cmd[sd]?.op; if (!op) continue;
+        const f = b.squads.find(q => q.side === sd)?.fwd ?? 1;
+        const a = S(op.x, op.y - op.half), z = S(op.x, op.y + op.half);
+        c.globalAlpha = 0.85; c.strokeStyle = '#ffffff'; c.lineWidth = 5 * d; c.lineCap = 'round';
+        c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(z.x, z.y); c.stroke();
+        c.strokeStyle = TEAM[sd]; c.lineWidth = 2.5 * d; c.stroke(); c.globalAlpha = 1;
+        if (op.phase === 'wrap') for (const w of op.sides) arrow([{ x: op.x, y: op.breachY }, { x: op.x + f * 3, y: op.breachY }, { x: op.x + f * 3.5, y: op.breachY + w * 5 }], '#ffffff', 3 * d, 0.8);
+        else arrow([{ x: op.x - f * 3, y: op.y }, { x: op.x + f * 0.5, y: op.y }], '#ffffff', 3 * d, 0.8);
+      }
+      if (this.pushLine) { const a = S(this.pushLine.a.x, this.pushLine.a.y), z = S(this.pushLine.b.x, this.pushLine.b.y); c.strokeStyle = '#ffffff'; c.lineWidth = 4 * d; c.setLineDash([8 * d, 6 * d]); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(z.x, z.y); c.stroke(); c.setLineDash([]); c.beginPath(); c.arc(a.x, a.y, 6 * d, 0, 7); c.fillStyle = '#ffffff'; c.fill(); }
     }
   }
 
@@ -879,6 +896,7 @@ export class BattleLab {
       cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pts.size === 2) { if (this.drag) this.endDrag(); const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), zoom: this.cam.zoom }; return; }
       tapStart = { x: e.clientX, y: e.clientY };
+      if (this.view === 'fight' && this.pushMode) { const w = this.toField(e.clientX, e.clientY); this.pushLine = { a: w, b: w }; return; } // ordering a push: tap or draw
       if (this.view !== 'setup') return;
       // deployment: the group's ✕, arrowhead or knob (fingertip-sized), or a squad (tap to select, drag to move the group)
       const sx = e.clientX, sy = e.clientY, H = this.hit;
@@ -899,6 +917,7 @@ export class BattleLab {
       const q = pts.get(e.pointerId); if (!q) return;
       const dx = e.clientX - q.x, dy = e.clientY - q.y; q.x = e.clientX; q.y = e.clientY;
       if (this.drag && pts.size === 1) { this.finger = { x: e.clientX, y: e.clientY }; this.dragTo(e.clientX, e.clientY); return; }
+      if (this.pushLine && pts.size === 1) { this.pushLine.b = this.toField(e.clientX, e.clientY); return; }
       if (Math.abs(dx) + Math.abs(dy) > 0.5 && this.autoCam) { this.autoCam = false; this.renderTop(); }
       if (pts.size === 1) { this.cam.x -= dx / this.ppt(); this.cam.y -= dy / this.ppt(); }
       else if (pinch) {
@@ -939,10 +958,24 @@ export class BattleLab {
     const end = (e: PointerEvent) => {
       pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
       if (this.drag) { this.endDrag(); return; }
+      if (this.pushLine) { this.orderPush(); return; }
       tapStart = null; // (tapping empty ground keeps the selection: use ✕ to clear it)
     };
     cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
     cv.addEventListener('wheel', e => { e.preventDefault(); this.cam.zoom = Math.max(this.minZoom, Math.min(zmax(), this.cam.zoom * Math.exp(-e.deltaY * 0.0015))); }, { passive: false });
+  }
+
+  /** The player's push: where they tapped, or along the line they drew (its length = the width of the push). */
+  private orderPush() {
+    const b = this.b, L = this.pushLine; this.pushLine = null; this.pushMode = false;
+    const c = b?.cmd[0];
+    if (b && c && L && !b.over) {
+      const len = Math.hypot(L.b.x - L.a.x, L.b.y - L.a.y), K = CONFIG.battle.commander.op;
+      if (c.op) endPushOp(b, c, 'a new push is ordered');
+      c.op = startPushOp(b, c, (L.a.x + L.b.x) / 2, (L.a.y + L.b.y) / 2, len > 2 ? Math.abs(L.b.y - L.a.y) : K.width, 'player');
+      if (c.op) c.ops++; else { c.opNote = 'no push: nobody is fighting there, or nobody is free to join'; c.opNoteUntil = b.t + 5; }
+    }
+    this.renderPanel();
   }
 
   private startDrag(mode: 'move' | 'path' | 'extend', sx: number, sy: number, toggle: number) {
