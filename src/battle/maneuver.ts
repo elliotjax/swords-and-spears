@@ -139,19 +139,34 @@ export function maneuverThink(b: BattleState, c: Commander) {
   c.mans[kind] = (c.mans[kind] ?? 0) + 1;
 
   if (kind === 'contract') {
-    // everyone falls back a few tiles and re-forms: a line half as long, two squads deep, centred on where the army is
-    const y0 = mine.reduce((a, q) => a + q.my, 0) / mine.length, LF = medianF - K.fallBack;
-    const order = mine.slice().sort((a, z) => a.my - z.my), n = Math.ceil(order.length / 2), until = b.t + K.reformSeconds;
-    const pairs: Record<number, number> = {};
-    for (let i = 0; i < n; i++) {
-      const a = order[i * 2], z = order[i * 2 + 1];
-      // the fitter of each pair in front
-      const [f, k] = !z || squadHp(b, a) * (1 - a.fatigue) >= squadHp(b, z) * (1 - z.fatigue) ? [a, z] : [z, a];
-      const y = y0 + (i - (n - 1) / 2) * gapW;
-      reform(f, LF * fwd, y, 'falling back to re-form a shorter, deeper line', until);
-      if (k) { reform(k, (LF - K.rowGap) * fwd, y, 'falling back to re-form: second row', until); pairs[k.id] = f.id; }
+    // close up on the middle of the fight: the squads still fighting shoulder to shoulder there stay (the core); squads
+    // strung out on their own at the ends pull back and re-form beside the core; everyone free forms a second row behind it
+    const y0 = fighting.length ? fighting.reduce((a, q) => a + q.my, 0) / fighting.length : mine.reduce((a, q) => a + q.my, 0) / mine.length;
+    const core = fighting.filter(q => Math.abs(q.my - y0) <= Math.max(gapW * 2, lineLen * K.core / 2) || q.support > 0 && Math.abs(q.my - y0) <= lineLen * 0.35);
+    const coreSet = new Set(core), until = b.t + K.reformSeconds, pairs: Record<number, number> = {}, ids: number[] = [];
+    let cLo = Infinity, cHi = -Infinity, cF = -Infinity;
+    for (const q of core) { cLo = Math.min(cLo, q.my); cHi = Math.max(cHi, q.my); cF = Math.max(cF, q.mx * fwd); }
+    if (!core.length) { cLo = cHi = y0; cF = medianF; }
+    const rest = mine.filter(q => !coreSet.has(q));
+    // the strung-out fighters: to the nearer end of the core, side by side (at most a few each side: the others go behind)
+    const strung = rest.filter(q => q.state === 'melee').sort((a, z) => Math.abs(a.my - y0) - Math.abs(z.my - y0));
+    const sideN = { '-1': 0, '1': 0 } as Record<string, number>, behindQ: BSquad[] = rest.filter(q => q.state !== 'melee');
+    for (const q of strung) {
+      const sd = q.my < y0 ? -1 : 1;
+      if (sideN[sd] >= K.coreExtend) { behindQ.push(q); continue; }
+      sideN[sd]++;
+      reform(q, (cF - 0.5) * fwd, (sd < 0 ? cLo : cHi) + sd * sideN[sd] * gapW, 'closing up on the centre: re-forming beside it', until); ids.push(q.id);
     }
-    c.man = { kind, since: b.t, until, ids: mine.map(q => q.id), wing: 0, pairs, note: `our line is too thin (${mine.length} squads over ${Math.round(lineLen)} tiles): falling back to re-form a shorter, deeper line` };
+    // everyone else: a second row behind the core (and the new ends), spread along it
+    const frontRow = core.slice().sort((a, z) => a.my - z.my);
+    behindQ.sort((a, z) => a.my - z.my).forEach((q, i) => {
+      const f = frontRow.length ? frontRow[Math.round(i * (frontRow.length - 1) / Math.max(1, behindQ.length - 1))] : null;
+      if (f) { reform(q, (f.mx * fwd - K.rowGap) * fwd, f.my, 'closing up on the centre: second row', until); pairs[q.id] = f.id; }
+      else reform(q, (cF - K.rowGap) * fwd, y0 + (i - (behindQ.length - 1) / 2) * gapW, 'closing up on the centre: second row', until);
+      ids.push(q.id);
+    });
+    if (!ids.length) { c.nextMan = b.t + K.look; return; }
+    c.man = { kind, since: b.t, until, ids, wing: 0, pairs, note: `our line is too thin (${mine.length} squads over ${Math.round(lineLen)} tiles): closing up on the centre, ${ids.length} squads re-forming around it` };
   } else if (kind === 'refuse') {
     // the losing wing pulls back and re-forms on a line bent behind the end of the centre
     const g = refuseWing, wingSq = G[g].list.slice().sort((a, z) => (a.my - z.my) * g);

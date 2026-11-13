@@ -257,7 +257,7 @@ export const CONFIG = {
     // Tiredness (0 fresh .. 1 exhausted). Shown on each squad's badge as a green / yellow / red dot.
     fatigue: {
       meleePerSec: 0.007,       // gained per second of fighting (a bit over two minutes of steady fighting to exhaustion)
-      pushMul: 3,               // pushing is this many times as tiring
+      pushMul: 1.6,              // pushing is this many times as tiring
       braceMul: 1.6,              // bracing against a push
       restPerSec: 0.02,         // lost per second while out of the fight
       damage: 0.35,             // an exhausted squad hits this much softer
@@ -273,7 +273,7 @@ export const CONFIG = {
       braceGiveSpeed: 0.15,     // a braced squad is still driven back, at this share of the pushers' walking speed (a slow grind)...
       shoveRange: 2.4,          // (a push drives back the squad it's aimed at while the two are this close)
       attackSpeed: 0.15,        // men in a push strike this much faster...
-      exposedParry: 0.6,        // ...but are exposed: they parry only this well
+      exposedParry: 0.95,       // ...but are exposed: they parry only this well
       speed: 0.7,               // a push advances at this share of walking speed
       giveSpeed: 0.55,          // ...and an unbraced squad is driven back at this share of the pushers' walking speed
       weight: 2.5,              // in the shoving, a pushing soldier counts as this heavy (ordinary = 1)
@@ -338,7 +338,8 @@ export const CONFIG = {
         contractBelow: 0.65,    // ...once this share of the starting infantry squads is left...
         thin: 0.62,             // ...and the fighting line is longer than this share of "everyone side by side" (0.5 = two deep)
         contractMax: 3,         // ...at most this many times a battle
-        fallBack: 5,            // tiles behind the middle of the army
+        core: 0.5,              // the middle this share of the fighting line is the core that stays put
+        coreExtend: 2,          // at most this many strung-out squads re-form on each end of the core (the rest go behind it)
         rowGap: 2.4,            // tiles between the rows of a re-formed line / a massed wing
         reformSeconds: 16,      // time allowed to get there
         arrived: 0.75,          // ...over as soon as this share has arrived
@@ -349,7 +350,7 @@ export const CONFIG = {
         losing: 0.7, holding: 0.9, // a wing is "losing" below this strength ratio, the centre "holds" above this
         refuseBack: 3, refuseStep: 1.5, refuseSeconds: 14,
         // mass: gather the free squads behind one wing, then push from there
-        massMin: 3, massShare: 0.3, massBack: 4, massSeconds: 11, massOther: 0.25,
+        massMin: 3, massShare: 0.3, massBack: 2.5, massSeconds: 7, massOther: 0.25,
         shiftMax: 4,            // shift: squads moved at once
       },
       // ---- army organization: front length, second line, rotation, flank budget ----
