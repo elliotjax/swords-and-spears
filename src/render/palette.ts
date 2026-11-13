@@ -1,0 +1,21 @@
+// Mockup E palette (README section 6.2)
+export const PAL = {
+  grass: '#8bc77a', grass2: '#7dbd6e',
+  patchLight: '#a1d68f', patchDark: '#74b266',
+  dirt: '#c6a779',
+  tree: ['#2f7d4f', '#3f9a5f', '#5bb877'], treeHi: '#9be0a9',
+  wall: '#f2e6cf',
+  stone: '#d9d3c4', stoneDark: '#aaa393',
+  roofLit: '#e0584c', roofShade: '#c0463c', roofHi: '#f08a7e',
+  slateLit: '#8392b6', slateShade: '#64739a',
+  wood: '#b07a4c', woodDark: '#8a5c36',
+  soil: '#9c6b42', furrow: '#b07c52',
+  crop: '#58b04c', crop2: '#7ccb5d',
+  banner: '#d6453d', gold: '#f0b93e',
+  outline: '#3a3342',
+  tunics: ['#4f7fc4', '#b3323a', '#d9a441', '#5a8f5a', '#8a5aa8'],
+  hair: ['#3b2a20', '#6b4426', '#c99a52', '#2a2a2e', '#9a4b2a'],
+  skin: ['#f2c79b', '#d9a27a', '#a8714c'],
+  shadow: 'rgba(28,48,30,.28)',
+  badge: { green: '#2f9d58', blue: '#4f7fc4', gold: '#d9a21e', storage: '#b5803a' },
+};
