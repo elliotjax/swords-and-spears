@@ -228,6 +228,7 @@ export const CONFIG = {
     fieldW: 26, fieldH: 15,     // smallest battlefield (tiles); it grows to fit big armies
     maxRow: 10,                 // squads side by side in one row before another row starts behind it
     rowGap: 1.4,                // tiles between rows of squads at the start
+    fieldMargin: { side: 0.9, sideMin: 2, sideMax: 22, rear: 0.5, rearMax: 12 }, // open ground beside each army (x its half-width) and behind it: room to manoeuvre
     armyGap: 16,                // tiles between the two armies' front lines at the start
     bigBattleSoldiers: 1500,    // with more soldiers than this on the field, some slow bookkeeping runs less often (keeps huge battles smooth)
     soldierHp: 100,             // soldiers start with this much HP (a unit can set its own `hp` in `units`)
@@ -337,32 +338,32 @@ export const CONFIG = {
       },
       // ---- the push operation (pushop.ts): a managed attack on a stretch of the battle line ----
       op: {
-        radius: 25,             // reserves and free infantry this close to the point join the push...
-        chargeRadius: 12,       // ...those this close all charge the point at once; the rest move up and push beside it
-        lineReach: 8,           // squads fighting this far beside the stretch push too (the whole line leans in)
+        radius: 20,             // every free infantry squad this close to the push's start is recruited and charges
+        corridor: 15,           // the push goes up a corridor this wide (7.5 tiles either side of its line)
+        behind: 3,              // squads/enemies up to this far behind the start still count as in the corridor
+        ahead: 10,              // enemies up to this far ahead of our foremost squad count as "in the way"
+        lineReach: 8,           // squads fighting this far beside the corridor push too (the whole line leans in)
+        cornerReach: 3,         // ...those this close beside it are its corners (they send half their men round after the breakthrough)
         aiCount: [2, 6] as [number, number], // the army commander starts this many pushes per battle (more for bigger armies)...
         aiPerSquads: 25,        // ...one more for every this many infantry squads...
         aiFirst: [12, 22] as [number, number], // ...the first this long after the lines meet...
         aiEvery: [28, 45] as [number, number], // ...then this long between one ending and the next
-        width: 10,              // the stretch of the battle line it goes for (tiles)
-        minWidth: 6, maxWidth: 16, // (a player-drawn push is kept between these)
+        aiBack: 5,              // the commander's own pushes start this far behind its fighting line
         tick: 0.3,              // its manager thinks this often (seconds)
-        minFree: 1,             // the commander only starts one with at least this many free squads to pour in
-        capShare: 0.12,         // a push takes at most this share of the army's infantry as free squads (the nearest)...
-        minCap: 4,              // ...but at least this many
-        cornerReach: 3,         // squads fighting this close beside the stretch hold its corners
-        lineDepth: 2.5,         // an enemy squad this close behind their front counts as part of their line
-        minAssault: 4,          // seconds before the line can count as broken
-        assaultSeconds: 26,     // no breakthrough by then: the push is called off
-        maxSeconds: 60,         // a push never lasts longer than this
-        breachWidth: 3,         // a hole this wide (tiles with no enemy fighting) on the stretch = broken through
-        densityWeight: 0.25,    // choosing where to hit: each enemy soldier fighting near a target counts this many tiles
-        spread: 3,              // ...and each of our squads already sent at it counts this many
+        minFree: 1,             // the commander only starts one with at least this many free squads to charge
+        capShare: 0.15,         // the commander's own pushes take at most this share of the army's infantry as chargers (the nearest)...
+        minCap: 4,              // ...but at least this many (a player's push takes everyone in the circle)
+        minAssault: 4,          // seconds before the corridor can count as cleared
+        assaultSeconds: 40,     // corridor not cleared by then: the push is called off
+        maxSeconds: 75,         // a push never lasts longer than this
+        retarget: 5,            // a charger keeps the enemy it was sent at for at least this long
+        laneWeight: 1.5,        // choosing who to charge: staying in your own lane of the corridor matters this much (per tile sideways)
+        spread: 2.5,            // ...and each of our squads already sent at an enemy counts this many tiles
         wrapReach: 15,          // after breaking through, roll up their line this far each way
         wrapDepth: 2.5,         // wrapping squads go this far behind the enemy squad they turn on
         behindDepth: 15,        // enemies standing up to this far behind their line are judged...
-        dangerRange: 7,         // ...those this close to the breach (or cavalry, or attacking us) get a squad sent at them
-        guardShare: 0.5,        // at most this share of the free squads go to meet enemies behind the line
+        dangerRange: 7,         // ...those this close to our chargers (or cavalry, or attacking us) get a squad sent at them
+        guardShare: 0.5,        // at most this share of the chargers go to meet enemies behind the line
         perTarget: 2,           // wrapping squads per enemy squad
         cornerDelay: 2,         // seconds after the breakthrough before the corner squads send men round
         cornerShare: 0.5,       // a corner squad sends this share of its men...

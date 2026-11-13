@@ -410,7 +410,7 @@ export function commanderThink(b: BattleState, c: Commander) {
         // the big version: a managed push operation on that stretch of the line, with everything nearby (only a few per battle)
         const maxOps = Math.min(K.op.aiCount[1], K.op.aiCount[0] + Math.floor(myInf.length / K.op.aiPerSquads));
         if (c.nextOp < 0) c.nextOp = c.contactAt + K.op.aiFirst[0] + rnd(7) * (K.op.aiFirst[1] - K.op.aiFirst[0]);
-        if (!c.op && c.ops < maxOps && b.t >= c.nextOp && (c.op = startPushOp(b, c, at.mx, at.my, K.op.width, 'commander'))) {
+        if (!c.op && c.ops < maxOps && b.t >= c.nextOp && (c.op = startPushOp(b, c, at.mx - fwd * K.op.aiBack, at.my, fwd, 0, 'commander'))) {
           c.ops++; c.push = null; c.nextPush = Infinity; // (the push operation replaces the small push)
           for (const q of group) q.mission!.push = false;
         }

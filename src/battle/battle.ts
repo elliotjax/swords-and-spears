@@ -195,8 +195,11 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
     const depth = Math.max(0, ...spots.map(p => p.depth));
     return { spots, halfW, depth };
   });
-  const H = setup.field?.H ?? Math.max(B.fieldH, Math.ceil(Math.max(layouts[0].halfW, layouts[1].halfW) * 2 + 4));
-  const frontX = 2.5 + Math.max(layouts[0].depth, layouts[1].depth);
+  // room to manoeuvre: open ground beside the armies and behind them, more for bigger armies
+  const widest = Math.max(layouts[0].halfW, layouts[1].halfW), FM = B.fieldMargin;
+  const sideRoom = Math.max(FM.sideMin, Math.min(FM.sideMax, widest * FM.side)), rearRoom = Math.min(FM.rearMax, widest * FM.rear);
+  const H = setup.field?.H ?? Math.max(B.fieldH, Math.ceil(widest * 2 + 4 + sideRoom * 2));
+  const frontX = setup.field ? Math.max(2.5 + Math.max(layouts[0].depth, layouts[1].depth), (setup.field.W - B.armyGap) / 2) : 2.5 + Math.max(layouts[0].depth, layouts[1].depth) + rearRoom;
   const W = setup.field?.W ?? Math.max(B.fieldW, Math.ceil(frontX * 2 + B.armyGap));
   const b: BattleState = {
     t: 0, rng: seed, W, H, soldiers: [], squads: [], arrows: [], fx: [], marks: [],
@@ -710,7 +713,7 @@ export function stepBattle(b: BattleState) {
       // a friendly squad is already fighting right in front of us: wait just behind it, ready to step in
       // (unless it's getting worn down: then push up and join the fight)
       let support: BSquad | null = null;
-      if (!isCav && !q.flankSide && q.state !== 'melee') {
+      if (!isCav && !q.flankSide && q.state !== 'melee' && !ms?.rush) { // (a breakthrough charge / push never waits behind a friend: it presses in)
         const ux = Math.cos(toE), uy = Math.sin(toE);
         let bestF = 3.4;
         for (const o of b.squads) {
@@ -1129,7 +1132,7 @@ export function stepBattle(b: BattleState) {
       if (o.unit === 'cavalry' || shooter(q) || q.broken || o.routing) continue;
       // how hard he leans: pushing squad > pressing on > standing his ground fighting (he still passes on the weight behind him)
       const fighting = o.target > 0 && !so(o.target).dead && Math.hypot(so(o.target).x - o.x, so(o.target).y - o.y) < 1.0 && o.moved < 0.02;
-      P[i] = q.pushing ? PR.pushing : q.state === 'melee' || q.state === 'charge' ? (fighting ? 0 : PR.pressing) : 0;
+      P[i] = q.pushing || (q.mission?.push && q.mission.op && q.state !== 'withdraw') ? PR.pushing : q.state === 'melee' || q.state === 'charge' ? (fighting ? 0 : PR.pressing) : 0;
     }
     // back to front: each man adds a share of the pressure of the friends right behind him (leaning on his back)
     order.sort((a, z) => depth[a] - depth[z]);

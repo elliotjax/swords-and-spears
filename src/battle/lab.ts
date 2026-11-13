@@ -358,7 +358,7 @@ export class BattleLab {
         <p style="font-size:12px">Changing YOUR army puts your squads back in the automatic formation. Changing the enemy leaves your formation alone.</p>
         <div class="labbtns"><button class="btn" data-lab="page">Done: deploy ➜</button></div>`;
     } else if (this.view === 'fight') {
-      this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div>${this.b?.cmd[0] ? `<button class="btn ${this.pushMode ? '' : 'ghost'}" data-lab="push">⚔ Push</button>` : ''}<button class="btn ghost" data-lab="stop">Stop</button></div>${this.pushMode ? '<p class="labhint"><b>Push:</b> tap the battle line where you want to break through, or draw a line along it (its length is the width). Reserves and free infantry within 25 tiles join.</p>' : ''}<div class="labplans">${this.plansHtml()}</div>`;
+      this.panel.innerHTML = `<div class="labbtns"><div class="labscore">${this.scoreHtml()}</div>${this.b?.cmd[0] ? `<button class="btn ${this.pushMode ? '' : 'ghost'}" data-lab="push">⚔ Push</button>` : ''}<button class="btn ghost" data-lab="stop">Stop</button></div>${this.pushMode ? '<p class="labhint"><b>Push:</b> put your finger where the push should start and drag in the direction it should go. Every free infantry squad within 20 tiles of the start (the circle) charges up the corridor (15 tiles wide).</p>' : ''}<div class="labplans">${this.plansHtml()}</div>`;
     } else {
       const b = this.b!;
       const title = b.winner === 0 ? '🏆 You win!' : b.winner === 1 ? 'Defeat' : 'Draw';
@@ -647,18 +647,32 @@ export class BattleLab {
       });
     } else {
       for (const q of b.squads) if (q.side === 0 && q.order === 'path' && !q.gone && !q.fleeing) arrow([{ x: q.mx, y: q.my }, ...q.path.slice(q.pathI)], TEAM_LIGHT[0], 2 * d, 0.55);
-      // push operations: the stretch of the line being attacked (a bar), and which ways it is wrapping (arrows behind their line)
+      // push operations: the corridor (two faint edges), the start dot and the direction arrow; wrap arrows after the breakthrough
+      const corridor = (ax: number, ay: number, ux: number, uy: number, len: number, col: string, alpha: number, radius: number) => {
+        const half = CONFIG.battle.commander.op.corridor / 2, nx = -uy, ny = ux;
+        c.globalAlpha = alpha * 0.6; c.strokeStyle = col; c.lineWidth = 1.6 * d; c.setLineDash([5 * d, 5 * d]);
+        for (const w of [-1, 1]) { const a = S(ax + nx * half * w, ay + ny * half * w), z = S(ax + nx * half * w + ux * len, ay + ny * half * w + uy * len); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(z.x, z.y); c.stroke(); }
+        if (radius > 0) { // the circle troops are recruited from
+          c.beginPath(); for (let i = 0; i <= 40; i++) { const t = i / 40 * Math.PI * 2, v = S(ax + Math.cos(t) * radius, ay + Math.sin(t) * radius); if (i) c.lineTo(v.x, v.y); else c.moveTo(v.x, v.y); } c.stroke();
+        }
+        c.setLineDash([]); c.globalAlpha = 1;
+        arrow([{ x: ax, y: ay }, { x: ax + ux * len, y: ay + uy * len }], col, 3.4 * d, alpha);
+        const o = S(ax, ay); c.beginPath(); c.arc(o.x, o.y, 6 * d, 0, 7); c.fillStyle = col; c.globalAlpha = alpha; c.fill(); c.globalAlpha = 1;
+      };
       if (!this.cine) for (const sd of [0, 1] as const) {
         const op = b.cmd[sd]?.op; if (!op) continue;
-        const f = b.squads.find(q => q.side === sd)?.fwd ?? 1;
-        const a = S(op.x, op.y - op.half), z = S(op.x, op.y + op.half);
-        c.globalAlpha = 0.85; c.strokeStyle = '#ffffff'; c.lineWidth = 5 * d; c.lineCap = 'round';
-        c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(z.x, z.y); c.stroke();
-        c.strokeStyle = TEAM[sd]; c.lineWidth = 2.5 * d; c.stroke(); c.globalAlpha = 1;
-        if (op.phase === 'wrap') for (const w of op.sides) arrow([{ x: op.x, y: op.breachY }, { x: op.x + f * 3, y: op.breachY }, { x: op.x + f * 3.5, y: op.breachY + w * 5 }], '#ffffff', 3 * d, 0.8);
-        else arrow([{ x: op.x - f * 3, y: op.y }, { x: op.x + f * 0.5, y: op.y }], '#ffffff', 3 * d, 0.8);
+        corridor(op.ax, op.ay, op.ux, op.uy, Math.max(8, op.lead + 3), sd === 0 ? '#ffffff' : TEAM_LIGHT[1], 0.8, 0);
+        if (op.phase === 'wrap') for (const w of op.sides) {
+          const bx = op.ax + op.ux * (op.lead + 1), by = op.ay + op.uy * (op.lead + 1);
+          arrow([{ x: bx, y: by }, { x: bx - op.uy * w * 6, y: by + op.ux * w * 6 }], '#ffffff', 3 * d, 0.8);
+        }
       }
-      if (this.pushLine) { const a = S(this.pushLine.a.x, this.pushLine.a.y), z = S(this.pushLine.b.x, this.pushLine.b.y); c.strokeStyle = '#ffffff'; c.lineWidth = 4 * d; c.setLineDash([8 * d, 6 * d]); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(z.x, z.y); c.stroke(); c.setLineDash([]); c.beginPath(); c.arc(a.x, a.y, 6 * d, 0, 7); c.fillStyle = '#ffffff'; c.fill(); }
+      if (this.pushLine) { // being drawn: the dot is where troops are recruited from (the circle), the arrow is the direction
+        const L = this.pushLine, len = Math.hypot(L.b.x - L.a.x, L.b.y - L.a.y), K = CONFIG.battle.commander.op;
+        const f = b.squads.find(q => q.side === 0)?.fwd ?? 1;
+        const ux = len > 1.5 ? (L.b.x - L.a.x) / len : f, uy = len > 1.5 ? (L.b.y - L.a.y) / len : 0;
+        corridor(L.a.x, L.a.y, ux, uy, Math.max(8, len), '#ffffff', 0.95, K.radius);
+      }
     }
   }
 
@@ -961,15 +975,15 @@ export class BattleLab {
     cv.addEventListener('wheel', e => { e.preventDefault(); this.cam.zoom = Math.max(this.minZoom, Math.min(zmax(), this.cam.zoom * Math.exp(-e.deltaY * 0.0015))); }, { passive: false });
   }
 
-  /** The player's push: where they tapped, or along the line they drew (its length = the width of the push). */
+  /** The player's push: the dot (where the drag began) is the middle of the circle troops are recruited from; the arrow is the direction. */
   private orderPush() {
     const b = this.b, L = this.pushLine; this.pushLine = null; this.pushMode = false;
     const c = b?.cmd[0];
     if (b && c && L && !b.over) {
-      const len = Math.hypot(L.b.x - L.a.x, L.b.y - L.a.y), K = CONFIG.battle.commander.op;
+      const len = Math.hypot(L.b.x - L.a.x, L.b.y - L.a.y);
       if (c.op) endPushOp(b, c, 'a new push is ordered');
-      c.op = startPushOp(b, c, (L.a.x + L.b.x) / 2, (L.a.y + L.b.y) / 2, len > 2 ? Math.abs(L.b.y - L.a.y) : K.width, 'player');
-      if (c.op) c.ops++; else { c.opNote = 'no push: nobody is fighting there, or nobody is free to join'; c.opNoteUntil = b.t + 5; }
+      c.op = startPushOp(b, c, L.a.x, L.a.y, len > 1.5 ? L.b.x - L.a.x : 0, len > 1.5 ? L.b.y - L.a.y : 0, 'player'); // (a tap: straight at the enemy)
+      if (c.op) c.ops++; else { c.opNote = 'no push: no infantry near there'; c.opNoteUntil = b.t + 5; }
     }
     this.renderPanel();
   }
