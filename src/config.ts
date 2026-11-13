@@ -368,6 +368,7 @@ export const CONFIG = {
         corridor: 15,           // the push goes up a corridor this wide (7.5 tiles either side of its line)
         behind: 3,              // squads/enemies up to this far behind the start still count as in the corridor
         ahead: 10,              // enemies up to this far ahead of our foremost squad count as "in the way"
+        leanSeconds: 10,        // ...for this long
         lineReach: 8,           // squads fighting this far beside the corridor push too (the whole line leans in)
         cornerReach: 3,         // ...those this close beside it are its corners (they send half their men round after the breakthrough)
         aiCount: [2, 6] as [number, number], // the army commander starts this many pushes per battle (more for bigger armies)...

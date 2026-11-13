@@ -138,7 +138,8 @@ export function pushOpTick(b: BattleState, c: Commander, opIn?: PushOp) {
     if (q.state === 'withdraw') q.withdrawUntil = b.t;
   };
   // everyone in the push pushes while they have the legs
-  for (const q of squads) q.mission!.push = q.fatigue < CK.pushStop;
+  // (the squads beside the corridor only lean in for the first moments: enough to pin the enemy, not enough to wear themselves out)
+  for (const q of squads) q.mission!.push = q.fatigue < CK.pushStop && (op.role[q.id] === 'front' || op.role[q.id] === 'assault' || b.t - op.since < K.leanSeconds);
   op.lead = Math.max(0, ...squads.map(along));
 
   // enemies in the corridor, ahead of the start
