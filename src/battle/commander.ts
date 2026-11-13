@@ -1,5 +1,6 @@
 import { CONFIG } from '../config';
 import { startPushOp, type PushOp } from './pushop';
+import { maneuverThink, type ManKind, type Maneuver } from './maneuver';
 import { active, detach, halfFront, shooter, squadAlive, squadHp, wavering, type BattleState, type BSquad, type Side } from './battle';
 
 // =====================================================================
@@ -30,6 +31,7 @@ export type MissionKind =
   | 'pursue'     // run down routing enemies
   | 'disengage'  // pull out of a bad fight and rally
   | 'support'    // archers: shoot (and stay behind our infantry)
+  | 'reform'     // a manoeuvre: pull out of any fight, go to a given post and stand in line there
   | 'second';    // second line: stand just behind a friendly squad that's fighting, ready to take over from it
 
 export interface Mission {
@@ -43,6 +45,7 @@ export interface Mission {
   via?: { x: number; y: number }; viaDone?: boolean; // go through this point first (a gap in their line), then onto the target
   rush?: boolean;     // a breakthrough charge: move a little faster
   friend?: number;    // second line: the friendly squad we stand behind
+  post?: { x: number; y: number }; // reform: where to stand
   op?: boolean;       // part of a push operation (pushop.ts): its manager gives the orders, the army commander leaves the squad alone
   postY?: number;     // reserve only: stand at this point along the line instead of our own spot (guarding a wing)
 }
@@ -72,6 +75,7 @@ export interface Commander {
   gapCharges: number; detachments: number; // (for the tools)
   op: PushOp | null;  // the push operation under way (its own fast manager: pushop.ts)
   opNote: string; opNoteUntil: number; ops: number; opsBroke: number; opsHeld: number; nextOp: number;
+  man: Maneuver | null; nextMan: number; mans: Partial<Record<ManKind, number>>; inf0: number; // the manoeuvre under way (maneuver.ts)
   w0: { lo: number; hi: number } | null; // how wide our infantry stood when the battle began (the line we try to keep)
   rotations: number; seconds: number; // (for the tools)
   organized?: boolean; // the army has been put into front line / second line / reserve
@@ -80,7 +84,7 @@ export interface Commander {
 /** A commander's character for one battle (0..1 each): how fast it commits, how bold its cavalry are, how long it waits. */
 export interface Temper { aggr: number; cav: number; patience: number }
 
-export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0, op: null, opNote: '', opNoteUntil: 0, ops: 0, nextOp: -1, opsBroke: 0, opsHeld: 0, w0: null, rotations: 0, seconds: 0 });
+export const newCommander = (side: Side): Commander => ({ side, nextThink: 0, contactAt: -1, changes: 0, commits: 0, seen: new Map(), plan: null, nextCommit: Infinity, planChanges: 0, pushes: 0, push: null, nextPush: -1, breach: null, through: null, nextBreach: 0, breaches: 0, rallied: new Set(), temper: null, idleSince: new Map(), burst: 0, exploits: 0, gapRuns: [], gapCharges: 0, detachments: 0, op: null, opNote: '', opNoteUntil: 0, ops: 0, nextOp: -1, opsBroke: 0, opsHeld: 0, w0: null, rotations: 0, seconds: 0, man: null, nextMan: -1, mans: {}, inf0: 0 });
 
 /** Kinds of battle plan (doctrines). */
 export type PlanKind = 'envelop' | 'double' | 'centre' | 'defend' | 'feint' | 'hook' | 'refuse';
@@ -106,12 +110,13 @@ const valid = (b: BattleState, id: number) => { const e = b.squads[id - 1]; retu
 const NAME: Record<string, string> = { swordsmen: 'swordsmen', heavy: 'heavy swordsmen', boss: 'warlord', spearmen: 'spearmen', archers: 'archers', cavalry: 'cavalry' };
 
 /** Missions that mean "stay at a post until something comes" (deliberate waiting). */
-export const POSTED: MissionKind[] = ['reserve', 'screen', 'second'];
+export const POSTED: MissionKind[] = ['reserve', 'screen', 'second', 'reform'];
 
 export function commanderThink(b: BattleState, c: Commander) {
   const K = CONFIG.battle.commander, side = c.side;
   if (b.t < c.nextThink) return;
   c.nextThink = b.t + K.thinkSeconds;
+  maneuverThink(b, c); // the big decisions first (squads in a manoeuvre are then left alone below)
   const mine = b.squads.filter(q => q.side === side && active(q) && !q.broken && !q.mission?.op); // (squads in a push operation answer to its manager)
   const foes = observe(b, side);
   if (!mine.length) return;
@@ -410,7 +415,7 @@ export function commanderThink(b: BattleState, c: Commander) {
         // the big version: a managed push operation on that stretch of the line, with everything nearby (only a few per battle)
         const maxOps = Math.min(K.op.aiCount[1], K.op.aiCount[0] + Math.floor(myInf.length / K.op.aiPerSquads));
         if (c.nextOp < 0) c.nextOp = c.contactAt + K.op.aiFirst[0] + rnd(7) * (K.op.aiFirst[1] - K.op.aiFirst[0]);
-        if (!c.op && c.ops < maxOps && b.t >= c.nextOp && (c.op = startPushOp(b, c, at.mx - fwd * K.op.aiBack, at.my, fwd, 0, 'commander'))) {
+        if (!c.op && !c.man && c.ops < maxOps && b.t >= c.nextOp && (c.op = startPushOp(b, c, at.mx - fwd * K.op.aiBack, at.my, fwd, 0, 'commander'))) {
           c.ops++; c.push = null; c.nextPush = Infinity; // (the push operation replaces the small push)
           for (const q of group) q.mission!.push = false;
         }
@@ -754,6 +759,7 @@ export function postOf(b: BattleState, q: BSquad): { x: number; y: number } {
   const K = CONFIG.battle.commander, L = b.line[q.side], m = q.mission!;
   if (!isFinite(L.front)) return { x: q.cx, y: q.cy };
   const clampY = (y: number) => Math.max(1, Math.min(b.H - 1, y));
+  if (m.kind === 'reform' && m.post) return m.post;
   if (m.kind === 'second' && m.friend) { // just behind the friend we back up, wherever it is now
     const f = b.squads[m.friend - 1];
     if (f && active(f)) return { x: (f.mx * q.fwd - K.org.secondBack) * q.fwd, y: clampY(f.my) };

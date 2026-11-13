@@ -50,7 +50,7 @@ const isFoot = (q: BSquad) => q.unit !== 'cavalry' && !shooter(q);
 const ok = (q: BSquad | undefined) => !!q && active(q) && !q.broken;
 
 /** Start a push from (ax, ay) in direction (dx, dy). Returns null if there's nobody to do it with. */
-export function startPushOp(b: BattleState, c: Commander, ax: number, ay: number, dx: number, dy: number, by: 'commander' | 'player'): PushOp | null {
+export function startPushOp(b: BattleState, c: Commander, ax: number, ay: number, dx: number, dy: number, by: 'commander' | 'player', everyone = false): PushOp | null {
   const K = CONFIG.battle.commander.op, CK = CONFIG.battle.commander, side = c.side;
   const dl = Math.hypot(dx, dy);
   const mine0 = b.squads.find(q => q.side === side && active(q));
@@ -64,7 +64,7 @@ export function startPushOp(b: BattleState, c: Commander, ax: number, ay: number
   const pool: BSquad[] = [];
   let fronts = 0;
   for (const q of b.squads) {
-    if (q.side !== side || !ok(q) || !isFoot(q) || q.unit === 'boss' || wavering(q)) continue;
+    if (q.side !== side || !ok(q) || !isFoot(q) || q.unit === 'boss' || wavering(q) || q.mission?.op) continue; // (not squads in a manoeuvre)
     const a = along(q), r = Math.abs(across(q)), d = Math.hypot(q.mx - ax, q.my - ay);
     let role: OpRole | null = null;
     if (q.state === 'melee') {
@@ -76,7 +76,7 @@ export function startPushOp(b: BattleState, c: Commander, ax: number, ay: number
   }
   // everyone free in the circle charges (the commander's own pushes take the nearest up to a share of the army)
   pool.sort((p, z) => Math.hypot(p.mx - ax, p.my - ay) - Math.hypot(z.mx - ax, z.my - ay));
-  const cap = by === 'player' ? pool.length : Math.max(K.minCap, Math.round(b.squads.filter(q => q.side === side && ok(q) && isFoot(q)).length * K.capShare));
+  const cap = by === 'player' || everyone ? pool.length : Math.max(K.minCap, Math.round(b.squads.filter(q => q.side === side && ok(q) && isFoot(q)).length * K.capShare));
   const chargers = pool.slice(0, cap);
   for (const q of chargers) { op.ids.push(q.id); op.role[q.id] = 'assault'; }
   if (chargers.length < K.minFree && by === 'commander') return null;

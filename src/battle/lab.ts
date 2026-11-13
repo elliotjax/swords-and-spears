@@ -1098,7 +1098,7 @@ const PLANS: Plan[] = [
 ];
 
 /** Short mission words shown under squad badges during a fight ('' = nothing: the ordinary jobs). */
-const MISSION_WORD: Record<string, string> = { advance: '', support: '', attack: 'attack', flank: 'flank', reinforce: 'help', intercept: 'intercept', reserve: 'reserve', screen: 'screen', raid: 'raid', shock: 'charge', pursue: 'pursue', disengage: 'rally', second: '2nd line' };
+const MISSION_WORD: Record<string, string> = { advance: '', support: '', attack: 'attack', flank: 'flank', reinforce: 'help', intercept: 'intercept', reserve: 'reserve', screen: 'screen', raid: 'raid', shock: 'charge', pursue: 'pursue', disengage: 'rally', second: '2nd line', reform: 're-form' };
 const SHORT: Record<UnitKind, string> = { swordsmen: 'Swords', heavy: 'Heavy', boss: 'Boss', spearmen: 'Spears', archers: 'Archers', cavalry: 'Horse' };
 const MAX_SQUADS = 50; // per unit type, per side
 /** Closest zoom: about 7 tiles across the screen. */

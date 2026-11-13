@@ -326,6 +326,32 @@ export const CONFIG = {
       archerRefocus: 6,         // archers look for a new focus this often...
       archerReach: 1.8,         // ...among enemies within this many times their range (they walk up to shoot it)
       massShare: 0.6,           // this share of their cavalry (2 squads or more) near one end of our line = massing: a reserve guards that wing
+      // ---- manoeuvres (maneuver.ts): the commander's bigger decisions once the fight is on ----
+      man: {
+        first: [18, 30] as [number, number], // seconds after the lines meet before the first one may be ordered
+        every: [16, 28] as [number, number], // seconds after one ends before the next
+        look: 3,                // while none is under way the commander looks at the battle this often
+        sure: 4,                // total weight at which a look always leads to a manoeuvre (less = by chance)
+        minSquads: 8,           // armies with fewer infantry squads than this don't manoeuvre
+        weight: { contract: 3, refuse: 2, mass: 1.6, shift: 1.5 } as Record<string, number>,
+        // contract: fall back and re-form a shorter, deeper line
+        contractBelow: 0.65,    // ...once this share of the starting infantry squads is left...
+        thin: 0.62,             // ...and the fighting line is longer than this share of "everyone side by side" (0.5 = two deep)
+        contractMax: 3,         // ...at most this many times a battle
+        fallBack: 5,            // tiles behind the middle of the army
+        rowGap: 2.4,            // tiles between the rows of a re-formed line / a massed wing
+        reformSeconds: 16,      // time allowed to get there
+        arrived: 0.75,          // ...over as soon as this share has arrived
+        arriveDist: 1.3,
+        backSpeed: 0.9,         // ...walking backwards (facing the enemy) at this share of its speed
+        breakOff: 8,            // a squad pulling out of a fight to manoeuvre keeps trying for this long at a time
+        // refuse: pull a losing wing back behind the centre
+        losing: 0.7, holding: 0.9, // a wing is "losing" below this strength ratio, the centre "holds" above this
+        refuseBack: 3, refuseStep: 1.5, refuseSeconds: 14,
+        // mass: gather the free squads behind one wing, then push from there
+        massMin: 3, massShare: 0.3, massBack: 4, massSeconds: 11, massOther: 0.25,
+        shiftMax: 4,            // shift: squads moved at once
+      },
       // ---- army organization: front length, second line, rotation, flank budget ----
       org: {
         frontShare: 0.5,        // at most this share of the infantry fights in the front line at once

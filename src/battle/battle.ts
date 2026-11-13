@@ -77,6 +77,7 @@ export interface BSquad {
   detached?: boolean;         // a detachment split off another squad during the battle
   lull: boolean;              // infantry: stepped back a pace to catch its breath between bouts (surges and lulls)
   lullAt: number;             // when the lull started
+  backing: boolean;           // a manoeuvre: stepping back out of a fight, still facing the enemy (a fighting withdrawal)
   chargeAt: number;           // infantry: when our charge last hit home (momentum for a few seconds)
   boutEnd: number;            // when this bout of fighting ends (-1 = not fighting a bout)
   cohesion: number;           // 0..1: how well the squad keeps together (drops in long fights, flank attacks and pushes; recovers in lulls)
@@ -226,7 +227,7 @@ export function createBattle(setup: BattleSetup, seed = 1, swapSides = false): B
         cx: fx, cy: y, ang: face, mx: fx, my: y, homeY: y, state: 'march', target: -1, retarget: 0, flankSide: 0,
         broken: false, brokenAt: 0, fleeing: false, gone: false, brokeBy: '',
         morale: B.morale.start, lastFight: -99, lastHit: -99, firstFight: -1, meleeSince: -1,
-        viaEdge: false, lull: false, lullAt: -9, chargeAt: -9, boutEnd: -1, cohesion: 1, withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
+        viaEdge: false, lull: false, lullAt: -9, backing: false, chargeAt: -9, boutEnd: -1, cohesion: 1, withdrawUntil: 0, wx: 0, wy: 0, ammo: q.unit === 'archers' ? B.archerAmmo * unitSize(q.unit) : 0, volley: 0, hold: false, hitBy: {},
         order: led ? 'free' : q.order ?? (!ordered ? 'free' : q.path && q.path.length ? 'path' : 'hold'),
         fatigue: 0, pushSince: -1, pushing: false, bracing: false, mission: null, guard: !led && !!q.guard, arrowsTaken: 0, support: 0, role: '', waiting: false, inLine: false, lineDepth: 0, fwd: onLeft ? 1 : -1,
         path: (q.path ?? []).map(p => ({ x: mx(p.x), y: p.y })), pathI: 0, commit: -1, commitX: 0, commitY: 0,
@@ -504,11 +505,14 @@ export function stepBattle(b: BattleState) {
         tq = mt; q.target = mt.id; fixed = true; q.inLine = false;
         if (ms.kind === 'flank' || ms.kind === 'shock') q.flankSide = -(q.mx - mt.mx) * Math.sin(mt.ang) + (q.my - mt.my) * Math.cos(mt.ang) >= 0 ? 1 : -1;
         else if (q.retarget <= 0) q.flankSide = 0;
-      } else if (ms.kind === 'reserve' || ms.kind === 'screen' || ms.kind === 'disengage' || ms.kind === 'second') {
+      } else if (ms.kind === 'reserve' || ms.kind === 'screen' || ms.kind === 'disengage' || ms.kind === 'second' || ms.kind === 'reform') {
         // posted: stay at our post, but deal with anything that comes close (bounded initiative)
         posted = true; fixed = true; tq = null;
-        if (ms.kind === 'disengage') {
-          if (q.state === 'melee') { const p = postOf(b, q); q.state = 'withdraw'; q.withdrawUntil = ms.until; q.wx = p.x; q.wy = p.y; }
+        // a manoeuvre: break off the fight and go to the post; once there, stand like a reserve (and fight what comes)
+        const going = ms.kind === 'reform' && !ms.viaDone;
+        if (going && ms.post && Math.hypot(q.mx - ms.post.x, q.my - ms.post.y) < K.man.arriveDist) ms.viaDone = true;
+        if (ms.kind === 'disengage' || (going && !ms.viaDone)) {
+          if (q.state === 'melee') { const p = postOf(b, q); q.state = 'withdraw'; q.lull = false; q.backing = ms.kind === 'reform'; q.withdrawUntil = ms.kind === 'reform' ? b.t + K.man.breakOff : ms.until; q.wx = p.x; q.wy = p.y; }
         } else {
           const R = ms.kind === 'screen' ? K.screenRange : ms.kind === 'second' ? K.org.secondEngage : K.reserveRange;
           let bd = R;
@@ -654,14 +658,15 @@ export function stepBattle(b: BattleState) {
       faceTo = wp && nd > range ? Math.atan2(gy - q.cy, gx - q.cx) : a; turnRate = 1.5;
     } else if (q.state === 'withdraw') {
       // cavalry pulling out to charge again (infantry in a lull: stepping back a pace, still facing the enemy, then standing)
-      gx = q.wx; gy = q.wy; speed = U.speed * (q.lull ? 0.6 : 1.1);
-      faceTo = q.lull ? toE : Math.atan2(gy - q.cy, gx - q.cx); turnRate = q.lull ? 1.5 : 3;
+      // (a manoeuvre's withdrawal: backwards at a steady walk, shields to the enemy)
+      gx = q.wx; gy = q.wy; speed = U.speed * (q.lull ? 0.6 : q.backing ? K.man.backSpeed : 1.1);
+      faceTo = q.lull || q.backing ? toE : Math.atan2(gy - q.cy, gx - q.cx); turnRate = q.lull || q.backing ? 1.5 : 3;
       // (a lull is over at once if someone keeps hitting us: we fight back)
       const struck = q.lull && Object.values(q.hitBy).some(t => t > q.lullAt + 0.8 && b.t - t < 0.3);
       if ((!q.lull && Math.hypot(gx - q.cx, gy - q.cy) < 0.6) || b.t > q.withdrawUntil || struck) {
         // a line charge: friends beside us who have had their breather come back in with us
         if (q.lull && !struck) for (const o of b.squads) if (o !== q && o.side === q.side && o.lull && o.state === 'withdraw' && b.t - o.lullAt > B.lull.joinAfter && Math.hypot(o.mx - q.mx, o.my - q.my) < B.lull.joinRange) o.withdrawUntil = b.t;
-        q.state = 'march'; q.meleeSince = -1; q.lull = false;
+        q.state = 'march'; q.meleeSince = -1; q.lull = false; q.backing = false;
         for (const id of q.members) so(id).charge = true; // ready to charge again
       }
     } else {
@@ -773,7 +778,7 @@ export function stepBattle(b: BattleState) {
           else if (pushedBy) step = Math.min(step, 0);
           // they stepped back to catch their breath: so do we (no chasing into their line)... unless we're fresh and our commander
           // is an aggressive one: then we go straight at them while they rest
-          else if (tq.lull && !(q.cohesion > B.lull.pounceCohesion && q.fatigue < B.lull.pounceFatigue && (b.cmd[q.side]?.temper?.aggr ?? 0) > B.lull.pounceAggr)) step = Math.min(step, 0);
+          else if ((tq.lull || tq.backing) && !(q.cohesion > B.lull.pounceCohesion && q.fatigue < B.lull.pounceFatigue && (b.cmd[q.side]?.temper?.aggr ?? 0) > B.lull.pounceAggr)) step = Math.min(step, 0);
           else if (!isCav) {
             // the squad beside us is being driven back: bend back with it (still fighting), so the line bends instead of snapping
             for (const o of b.squads) {
